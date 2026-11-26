@@ -46,7 +46,7 @@ const schemas={shipping_viettel:shippingSchema,shipping_jt:jtShippingSchema,ship
     }
   }
 }),
- payment_momo:z.object({partnerCode:z.string().trim().min(2).max(160),accessKey:z.string().trim().min(2).max(160),secretKey:z.string().min(8).max(500).optional(),environment:z.enum(['sandbox','production']),enabled:z.boolean()}).strict(),
+ payment_momo:z.object({partnerCode:z.string().trim().min(2).max(50).regex(/^[A-Za-z0-9_-]+$/),accessKey:z.string().trim().min(2).max(160).regex(/^[A-Za-z0-9_-]+$/),secretKey:z.string().min(8).max(500).optional(),environment:z.enum(['sandbox','production']),enabled:z.boolean()}).strict(),
  payment_zalopay:z.object({appId:z.string().trim().regex(/^\d{1,20}$/),key1:z.string().min(8).max(500).optional(),key2:z.string().min(8).max(500).optional(),environment:z.enum(['sandbox','production']),enabled:z.boolean()}).strict(),
  misa:z.object({
   appId:z.string().trim().min(1).max(160),
@@ -109,8 +109,8 @@ if(id==='vnpay'&&!data.hashSecret)throw fail('Nhập khóa bí mật cho lần c
     if(!msg||msg.startsWith('String must')||msg.startsWith('Expected')||msg.startsWith('Invalid')||msg==='Required'){
       if(field==='tmnCode')msg='Mã website VNPAY (TmnCode) cần đúng 8 ký tự chữ hoặc số.';
       
-      else if(field==='partnerCode')msg='Partner Code của MoMo cần từ 2 đến 160 ký tự.';
-      else if(field==='accessKey')msg='Access Key của MoMo cần từ 2 đến 160 ký tự.';
+      else if(field==='partnerCode')msg='Partner Code của MoMo cần từ 2 đến 50 ký tự chữ, số, gạch ngang (-) hoặc gạch dưới (_).';
+      else if(field==='accessKey')msg='Access Key của MoMo cần từ 2 đến 160 ký tự chữ, số, gạch ngang (-) hoặc gạch dưới (_).';
       else if(field==='appId')msg='App ID của ZaloPay cần là dãy số do ZaloPay cấp (VD: 2554).';
       else if(field==='maxAmountVnd')msg='Hạn mức COD cần từ 100.000₫ đến 2.000.000.000₫.';
       else if(field==='accountNumber')msg='Số tài khoản ngân hàng từ 6 đến 30 ký tự số/chữ.';

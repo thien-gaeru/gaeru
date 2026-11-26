@@ -207,7 +207,7 @@ test("order payment filters use the same count/page predicate and preserve pagin
   assert.match(listWhere, /o.payment_status = \$3/);
   assert.match(listWhere, /o.payment_method = \$4/);
   assert.match(queries[1].sql, /p.expires_at AS "paymentAttemptExpiresAt"/);
-  assert.match(queries[1].sql, /SELECT provider, status, expires_at FROM payment_attempts/);
+  assert.match(queries[1].sql, /SELECT provider, status, expires_at, response_code, status_check_error FROM payment_attempts/);
   for (const query of ["paymentStatus=refunded", "paymentMethod=paypal", "paymentStatus=paid&paymentStatus=pending"]) {
     const invalid = await request(`/gaeru_ceo/orders?${query}`);
     assert.equal(invalid.status, 400);

@@ -26,15 +26,17 @@ Probe mã đơn không tồn tại luôn giữ `verified:false`. Bằng chứng 
 
 Tắt kênh chỉ chặn đơn mới; callback tiếp tục dùng cấu hình merchant để xử lý đơn đang chờ. Không đổi tài khoản, khóa hoặc môi trường khi còn payment attempt đang chờ. Khóa giao dịch phối hợp giữa tạo đơn và thay cấu hình để tránh đổi khóa giữa chừng.
 
-Chỉ IPN có chữ ký hợp lệ hoặc thao tác đối soát được chủ xác thực ghi nhận tiền. Browser return chỉ hiển thị; tham số `result`, `status` hoặc URL không làm đơn thành đã thanh toán. Trang kết quả đọc trạng thái máy chủ tối đa 6 lần trong 30 giây, có timeout và kiểm tra lại thủ công. Đơn đã hủy nhận thanh toán muộn vẫn giữ trạng thái hủy và cần đối chiếu; không tự chuyển sang giao hàng.
+IPN có chữ ký hợp lệ, truy vấn MoMo từ máy chủ đối chiếu đầy đủ giao dịch, hoặc thao tác đối soát được chủ xác thực mới ghi nhận tiền. Browser return chỉ hiển thị; tham số `result`, `status` hoặc URL không làm đơn thành đã thanh toán. Trang kết quả đọc trạng thái máy chủ tối đa 6 lần trong 30 giây, có timeout và kiểm tra lại thủ công. Đơn đã hủy nhận thanh toán muộn vẫn giữ trạng thái hủy và cần đối chiếu; không tự chuyển sang giao hàng. MoMo dùng `captureWallet`, `autoCapture:true`: `0`/`9000` thành công, `1000`/`7000`/`7002` tiếp tục chờ; xem [hướng dẫn MoMo](momo-merchant-acceptance-guide.md).
 
 Return của MoMo/ZaloPay chỉ cấp token xem đơn khi chữ ký của nhà cung cấp hợp lệ. URL thiếu hoặc sai chữ ký không cấp quyền xem dữ liệu đơn; khách vẫn có thể xem bằng phiên đặt hàng hiện có. ZaloPay kiểm tra riêng checksum chuyển hướng bằng Key 2 trên các trường `appid|apptransid|pmcid|bankcode|amount|discountamount|status`, khác với MAC của callback JSON. Chữ ký chuyển hướng hợp lệ cũng không tự ghi nhận thanh toán.
 
-Callback lặp không ghi thêm phiếu thu. Lỗi tạo phiên làm rollback giao dịch cục bộ gồm đơn, giữ kho và hàng đợi email. Client không tự retry API tạo phiên khi kết quả nhà cung cấp chưa rõ. Lời gọi tạo phiên được giới hạn 30 giây/64 KiB; hiện còn nằm trong giao dịch tạo đơn, nên thời gian giữ khóa DB phụ thuộc độ trễ nhà cung cấp. Kiểm thử tải và cải tiến điều phối giao dịch là việc riêng trước khi mở rộng lưu lượng.
+Callback lặp không ghi thêm phiếu thu. Checkout ví giữ hàng bằng intent trong giao dịch ngắn, gọi API ngoài giao dịch DB, rồi ghi đơn và payment attempt. Khi tạo phiên hoặc ghi đơn lỗi, intent được giải phóng; client không tự retry API tạo phiên khi kết quả nhà cung cấp chưa rõ. Lời gọi tạo phiên được giới hạn 30 giây/64 KiB. MoMo có worker tra cứu phục hồi các đơn đã lưu nhưng thiếu IPN; API đang bảo trì/timeout không được biến thành thất bại thanh toán. Trường hợp provider đã tạo phiên nhưng đơn cục bộ không ghi được vẫn cần đối chiếu intent và merchant trước tạo giao dịch khác.
 
 ## Migration và điều kiện phát hành
 
 Migration mới `db/payment-provider-verification.sql` được thêm vào danh sách chuẩn của `src/migrate.js`. Nó thêm provider request ID/trạng thái bằng chứng và thu hồi dấu xác minh cũ vốn chỉ dựa vào probe công khai. Giữ cấu hình mã hóa, lựa chọn bật/tắt và lịch sử thanh toán; không tự xác nhận tài khoản hoặc đổi bí mật.
+
+Migration `db/momo-payment-recovery.sql` thêm claim/lịch truy vấn MoMo và đưa các attempt cũ bị đánh dấu thất bại từ mã chờ về chờ đối chiếu. Không tự ghi nhận tiền. Worker tôn trọng `BACKGROUND_JOBS_ENABLED` và chạy trên worker cluster được chọn.
 
 Kiểm thử dùng PGlite và phản hồi provider mô phỏng theo đặc tả. Chưa chạy migration production, giao dịch merchant sandbox thật, chuyển tiền hoặc kiểm tra Key 2/callback thực của chủ doanh nghiệp. Trước phát hành: sao lưu DB, chạy migration trong staging, kiểm tra URL Return/IPN đã đăng ký và nghiệm thu giao dịch sandbox nhận callback đúng. Không xoay khóa mã hóa/MFA trong quá trình này.
 

@@ -80,13 +80,14 @@ function createOrderWorkflow({
           error.status = 409;
           throw error;
         }
+        const gatewayLabel = { vnpay: "VNPAY", momo: "MoMo", zalopay: "ZaloPay" }[current.payment_method] || String(current.payment_method || "").toUpperCase();
         if (shippingFeeChanged && ["vnpay", "momo", "zalopay"].includes(current.payment_method)) {
           const paymentAttempt = await client.query(
             "SELECT EXISTS (SELECT 1 FROM payment_attempts WHERE order_id = $1) AS active",
             [current.id]
           );
           if (paymentAttempt.rows[0]?.active) {
-            const error = new Error("Không thể thay đổi phí sau khi đã tạo phiên thanh toán VNPAY.");
+            const error = new Error(`Không thể thay đổi phí sau khi đã tạo phiên thanh toán ${gatewayLabel}.`);
             error.status = 409;
             throw error;
           }
@@ -95,12 +96,20 @@ function createOrderWorkflow({
           const activeAttempt = await client.query(
             `SELECT EXISTS (
                SELECT 1 FROM payment_attempts
-               WHERE order_id = $1 AND status = 'pending' AND expires_at > now()
+               WHERE order_id = $1 AND status = 'pending'
+                 AND (
+                   expires_at > now()
+                   OR (provider = 'momo' AND response_code IN ('1000', '7000', '7002') AND COALESCE(expires_at, created_at) > now() - interval '72 hours')
+                 )
              ) AS active`,
             [current.id]
           );
           if (activeAttempt.rows[0]?.active) {
-            const error = new Error("Chờ hết hạn phiên thanh toán VNPAY trước khi hủy đơn.");
+            const error = new Error(
+              current.payment_method === "vnpay"
+                ? "Chờ hết hạn phiên thanh toán VNPAY trước khi hủy đơn."
+                : `Chờ hết hạn hoặc đối soát xong phiên thanh toán ${gatewayLabel} trước khi hủy đơn.`
+            );
             error.status = 409;
             throw error;
           }

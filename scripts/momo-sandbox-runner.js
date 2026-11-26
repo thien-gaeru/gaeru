@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 /**
  * GAERU Independent Store - MoMo Payment Gateway v2 Sandbox Acceptance Runner
- * Chạy toàn bộ kịch bản nghiệm thu kỹ thuật theo quy chuẩn MoMo Merchant Acceptance Testing.
+ * Mô phỏng giao thức MoMo tại chỗ; không gọi merchant Sandbox thật.
  */
 
 const crypto = require('node:crypto');
@@ -16,7 +16,7 @@ function signMomo(payload, secretKey, accessKey) {
 
 async function runAcceptance() {
   console.log('='.repeat(80));
-  console.log(' GAERU INDEPENDENT STORE - BỘ KIỂM THỬ NGHIỆM THU KỸ THUẬT VÍ MOMO (100% COMPLIANCE)');
+  console.log(' GAERU INDEPENDENT STORE - KIỂM THỬ MÔ PHỎNG GIAO THỨC MOMO (KHÔNG PHẢI NGHIỆM THU MERCHANT)');
   console.log(' Tiêu chuẩn: MoMo Payment Gateway v2 | HTTP 204 No Content IPN | HMAC-SHA256');
   console.log('='.repeat(80));
   console.log();
@@ -210,7 +210,7 @@ async function runAcceptance() {
         orderInfo: 'Thanh toan',
         orderType: 'momo_wallet',
         transId: 9988776657,
-        resultCode: 2001,
+        resultCode: 1001,
         message: 'Insufficient fund.',
         payType: 'qr',
         responseTime: 1793155200000,
@@ -225,7 +225,7 @@ async function runAcceptance() {
       const pass = res.status === 204 && attempt.attemptStatus === 'failed' && order.paymentStatus === 'pending';
       results.push({
         id: 'SC-03',
-        title: 'Ví không đủ số dư (resultCode 2001)',
+        title: 'Ví không đủ số dư (resultCode 1001)',
         expectedHttp: '204 No Content',
         actualHttp: `${res.status} ${res.statusText || 'No Content'}`,
         orderState: `${order.status}/${order.paymentStatus}`,
@@ -348,8 +348,8 @@ async function runAcceptance() {
 
   const allPassed = results.every(r => r.pass);
   if (allPassed) {
-    console.log('🎉 TẤT CẢ CÁC KỊCH BẢN NGHIỆM THU KỸ THUẬT VÍ MOMO ĐẠT 100% TIÊU CHUẨN THÔNG QUA!');
-    console.log('Hệ thống GAERU đã hoàn toàn đáp ứng đầy đủ yêu cầu kỹ thuật IPN 204 cho MoMo Business.');
+    console.log('Các kịch bản mô phỏng đã đạt. Cần kiểm thử merchant Sandbox thật và xác nhận của MoMo trước go-live.');
+    console.log('HTTP 204 đã được kiểm tra trong mô phỏng; chưa đo phản hồi trên hạ tầng merchant thật.');
   } else {
     console.error('Cảnh báo: Có kịch bản kiểm thử chưa đạt yêu cầu.');
     process.exit(1);

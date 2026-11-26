@@ -1,6 +1,6 @@
 try { require('node:module').enableCompileCache?.(); } catch (_) {}
 if (typeof process.setMaxListeners === 'function') process.setMaxListeners(25);
-let stopOrderEmail;let stopChatFileRetention;let stopTikTokAds;
+let stopOrderEmail;let stopChatFileRetention;let stopTikTokAds;let stopMomoReconciliation;
 require("dotenv").config();
 const expressSession = require("express-session");
 const connectPgSimple = require("connect-pg-simple");
@@ -176,6 +176,7 @@ async function start() {
     scheduleWorker(() => { stopEmail = require("./email-marketing").startEmailWorker(lowPriorityPool, config); }, 4000);
     scheduleWorker(() => { stopChatFileRetention = require('./shopping-chat-file-retention').startChatFileRetentionWorker(lowPriorityPool); }, 4500);
     scheduleWorker(() => { stopRetention = require("./account-retention").startRetentionWorker(lowPriorityPool); }, 5000);
+    scheduleWorker(() => { stopMomoReconciliation = require('./momo-reconciliation').startMomoReconciliationWorker(lowPriorityPool, config); }, 6500);
     scheduleWorker(() => { require("./shipping-adapters").syncViettelProvinceCatalog().catch(() => {}); }, 5500);
     scheduleWorker(() => {
       const { releaseExpiredCheckoutIntents } = require("./store-api");
@@ -382,6 +383,7 @@ async function shutdown() {
   stopWarrantyEmail?.();
   stopCareEmail?.();
   stopOrderEmail?.();
+  const momoReconciliationStopped = stopMomoReconciliation?.();
   try { require('./lib/cache-warmup').stopWarmUpCache?.(); } catch (_) {}
 
   // 3. Settle in-flight startup work, conversion, verification and media sync in parallel under a bounded 4-second deadline
@@ -392,12 +394,12 @@ async function shutdown() {
       settleTimer?.unref?.();
     });
     await Promise.race([
-      Promise.allSettled([startTask.catch(() => {}), mediaAuditTask, staticMediaSyncTask]),
+      Promise.allSettled([startTask.catch(() => {}), mediaAuditTask, staticMediaSyncTask, momoReconciliationStopped]),
       shutdownDeadline
     ]);
     if (typeof clearTimeout !== 'undefined' && settleTimer) clearTimeout(settleTimer);
   } else {
-    await Promise.allSettled([startTask.catch(() => {}), mediaAuditTask, staticMediaSyncTask]);
+    await Promise.allSettled([startTask.catch(() => {}), mediaAuditTask, staticMediaSyncTask, momoReconciliationStopped]);
   }
   try {
     await sessionStore.close();

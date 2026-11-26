@@ -44,6 +44,7 @@ function fixture({ migrationError, pendingMigration = false, mediaCheck = { veri
     './shopping-chat-compression':'startChatCompressionWorker', './shopping-chat-email':'startChatEmailWorker',
     './order-email':'startOrderEmailWorker', './warranty-email':'startWarrantyEmailWorker',
     './care-api':'startCareEmailWorker',
+    './momo-reconciliation':'startMomoReconciliationWorker',
     './email-marketing':'startEmailWorker', './abandoned-cart':'startAbandonedCartWorker', './account-retention':'startRetentionWorker'
   };
   for (const [module, method] of Object.entries(workerNames)) modules[module] = { [method]: () => { calls.workersStarted.push(method); return () => calls.workersStopped++; } };
@@ -77,9 +78,9 @@ test('a host with background jobs disabled still becomes ready and serves HTTP w
 
 test('background processing remains enabled by default and explicit true still respects the cluster worker slot', async () => {
   for (const [env, expected] of [
-    [{}, 11],
-    [{ CLUSTER_WORKER: 'true', WORKER_INDEX: '0' }, 11],
-    [{ CLUSTER_WORKER: 'true', WORKER_INDEX: '0', BACKGROUND_JOBS_ENABLED: 'true' }, 11],
+    [{}, 12],
+    [{ CLUSTER_WORKER: 'true', WORKER_INDEX: '0' }, 12],
+    [{ CLUSTER_WORKER: 'true', WORKER_INDEX: '0', BACKGROUND_JOBS_ENABLED: 'true' }, 12],
     [{ CLUSTER_WORKER: 'true', WORKER_INDEX: '1', BACKGROUND_JOBS_ENABLED: 'true' }, 0]
   ]) {
     const f = fixture({ env });
@@ -125,7 +126,7 @@ test('listener errors stop workers and close resources without exposing the raw 
   assert.doesNotThrow(() => f.server.emit('error', Object.assign(new Error('sensitive listener context'), { code: 'EADDRINUSE' })));
   await settle();
   assert.equal(f.fakeProcess.exitCode, 1);
-  assert.equal(f.calls.workersStopped, 11);
+  assert.equal(f.calls.workersStopped, 12);
   assert.equal(f.calls.poolClosed, 1);
   assert.equal(f.calls.storeClosed, 1);
   assert.doesNotMatch(JSON.stringify(f.calls.errors), /sensitive listener context/);
@@ -145,7 +146,7 @@ test('an unavailable media volume leaves the listener available without copying 
   assert.deepEqual(f.calls.errors, []);
   f.events.emit('SIGTERM');
   await settle();
-  assert.equal(f.calls.workersStopped, 11);
+  assert.equal(f.calls.workersStopped, 12);
   assert.equal(f.calls.poolClosed, 1);
   assert.equal(f.calls.storeClosed, 1);
 });
@@ -161,7 +162,7 @@ test('a blocked background media audit does not block listening and shutdown wai
   f.events.emit('SIGTERM');
   await settle();
   assert.equal(f.calls.listenerClosed, 1);
-  assert.equal(f.calls.workersStopped, 11);
+  assert.equal(f.calls.workersStopped, 12);
   assert.equal(f.calls.storeClosed, 0);
   assert.equal(f.calls.poolClosed, 0);
   f.events.emit('SIGINT');

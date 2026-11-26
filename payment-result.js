@@ -20,7 +20,7 @@
   const vnpayCodeDetails = {
     '24': {
       title: 'Bạn đã hủy giao dịch thanh toán.',
-      detail: 'Giao dịch thanh toán VNPAY đã được hủy theo yêu cầu. Đơn hàng của bạn vẫn được lưu lại; bạn có thể thanh toán lại bất kỳ lúc nào.'
+      detail: 'Giao dịch thanh toán VNPAY đã được hủy theo yêu cầu. Nếu tài khoản chưa bị trừ tiền, bạn có thể đặt lại đơn hàng mới hoặc chọn phương thức thanh toán khác.'
     },
     '09': {
       title: 'Thẻ chưa kích hoạt Internet Banking.',
@@ -59,7 +59,7 @@
   const momoCodeDetails = {
     '1006': {
       title: 'Bạn đã hủy giao dịch trên Ví MoMo.',
-      detail: 'Giao dịch thanh toán MoMo đã được hủy theo yêu cầu của bạn. Đơn hàng vẫn được lưu lại; bạn có thể thanh toán lại hoặc chọn phương thức khác.'
+      detail: 'Giao dịch thanh toán MoMo đã được hủy theo yêu cầu của bạn. Nếu tài khoản chưa bị trừ tiền, bạn có thể đặt lại đơn hàng mới với phương thức mong muốn; nếu đã bị trừ tiền, vui lòng liên hệ GAERU để đối chiếu.'
     },
     '1005': {
       title: 'Đã hết thời gian chờ thanh toán MoMo.',
@@ -69,24 +69,24 @@
       title: 'Số tiền vượt quá hạn mức MoMo.',
       detail: 'Số tiền giao dịch vượt quá hạn mức thanh toán quy định của Ví MoMo.'
     },
-    '2001': {
-      title: 'Số dư Ví MoMo không đủ.',
-      detail: 'Số dư trong Ví MoMo không đủ để thanh toán đơn hàng này. Vui lòng nạp thêm tiền hoặc đổi nguồn tiền thanh toán.'
-    },
     '1001': {
       title: 'Tài khoản MoMo không đủ số dư.',
       detail: 'Tài khoản MoMo không đủ số dư để thực hiện thanh toán.'
     },
-    '4100': {
+    '4002': {
       title: 'Tài khoản MoMo chưa xác thực.',
-      detail: 'Tài khoản Ví MoMo của bạn cần được xác thực định danh (KYC) hoặc liên kết ngân hàng trước khi thực hiện giao dịch này.'
+      detail: 'Vui lòng cập nhật xác thực sinh trắc học bằng NFC trong ứng dụng MoMo trước khi thanh toán.'
+    },
+    '4100': {
+      title: 'Chưa đăng nhập được MoMo.',
+      detail: 'Giao dịch chưa hoàn tất vì đăng nhập MoMo không thành công. Vui lòng kiểm tra lại trong ứng dụng MoMo.'
     }
   };
 
   const zalopayCodeDetails = {
     '-49': {
       title: 'Bạn đã hủy giao dịch trên ZaloPay.',
-      detail: 'Giao dịch thanh toán ZaloPay đã được hủy theo yêu cầu. Đơn hàng của bạn vẫn được lưu lại; bạn có thể thanh toán lại hoặc chọn phương thức khác.'
+      detail: 'Giao dịch thanh toán ZaloPay đã được hủy theo yêu cầu. Nếu tài khoản chưa bị trừ tiền, bạn có thể đặt lại đơn hàng mới với phương thức mong muốn.'
     },
     '-68': {
       title: 'Giao dịch ZaloPay không thành công.',

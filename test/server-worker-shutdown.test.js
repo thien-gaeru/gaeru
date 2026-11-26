@@ -52,7 +52,8 @@ if (process.env.GAERU_SHUTDOWN_TEST_CHILD) {
     './shopping-chat-email': 'startChatEmailWorker', './order-email': 'startOrderEmailWorker',
     './warranty-email': 'startWarrantyEmailWorker', './care-api': 'startCareEmailWorker',
     './email-marketing': 'startEmailWorker', './abandoned-cart': 'startAbandonedCartWorker',
-    './account-retention': 'startRetentionWorker'
+    './account-retention': 'startRetentionWorker',
+    './momo-reconciliation': 'startMomoReconciliationWorker'
   };
   for (const [name, method] of Object.entries(workers)) modules[name] = { [method]: () => () => {} };
   Module._load = function(name, parent, isMain) {

@@ -1129,8 +1129,9 @@ document.addEventListener('DOMContentLoaded', () => {
 });
 
 function isLiveVnpayAttempt(order) {
-  return ["vnpay", "momo", "zalopay"].includes(order.paymentMethod) && order.paymentAttemptStatus === "pending"
-    && (!order.paymentAttemptExpiresAt || new Date(order.paymentAttemptExpiresAt).getTime() > Date.now());
+  if (!["vnpay", "momo", "zalopay"].includes(order.paymentMethod) || order.paymentAttemptStatus !== "pending") return false;
+  if (!order.paymentAttemptExpiresAt || new Date(order.paymentAttemptExpiresAt).getTime() > Date.now()) return true;
+  return order.paymentMethod === "momo" && ["1000", "7000", "7002"].includes(String(order.paymentResponseCode || ""));
 }
 
 function setButtonBusy(button, busy, busyLabel) {
@@ -1230,7 +1231,7 @@ function renderOrderWaybillCard(order) {
 
 function canEditShipping(order) {
   return can("orders.write") && order.status === "pending" && order.paymentStatus !== "paid" && !(Number(order.receivedVnd) > 0)
-    && !(order.paymentMethod === "vnpay" && (order.paymentProvider || order.paymentAttemptStatus));
+    && !(["vnpay", "momo", "zalopay"].includes(order.paymentMethod) && (order.paymentProvider || order.paymentAttemptStatus));
 }
 
 function orderPaymentControl(order) {
@@ -1639,7 +1640,13 @@ function renderOrders() {
       && (status !== "completed" || order.paymentStatus === "paid" || (can("payments.write") && !["vnpay", "momo", "zalopay"].includes(order.paymentMethod)))) : [];
     const optionMarkup = [order.status, ...allowed].map((key) => `<option value="${escapeHtml(key)}">${escapeHtml(labels[key] || key)}</option>`).join("");
     const paymentStatus = order.paymentStatus === "paid" ? "Đã thanh toán" : Number(order.receivedVnd) > 0 ? "Đã thu một phần" : "Chưa thanh toán";
-    const paymentNote = order.paymentProvider === "vnpay" ? (order.paymentAttemptStatus === "pending" && !isLiveVnpayAttempt(order) ? "Phiên thanh toán VNPAY đã hết hạn; kiểm tra đối soát trước khi xử lý đơn." : paymentAttemptLabels[order.paymentAttemptStatus]) : "";
+    const gatewayName = { vnpay: "VNPAY", momo: "MoMo", zalopay: "ZaloPay" }[order.paymentProvider || order.paymentMethod] || "cổng thanh toán";
+    const paymentNote = ["vnpay", "momo", "zalopay"].includes(order.paymentProvider) ? (order.paymentAttemptStatus === "pending" && !isLiveVnpayAttempt(order) ? `Phiên thanh toán ${gatewayName} đã hết hạn; kiểm tra đối soát trước khi xử lý đơn.` : paymentAttemptLabels[order.paymentAttemptStatus]) : "";
+    const reconcileErrorWarning = order.paymentStatusCheckError === "PAYMENT_QUERY_REFUNDED"
+      ? "⚠️ Giao dịch MoMo đã phát sinh hoàn tiền trên cổng; cần đối soát thủ công trên MoMo Business."
+      : (order.paymentStatusCheckError && !["PAYMENT_QUERY_UNRESOLVED", "PAYMENT_SESSION_EXPIRED"].includes(order.paymentStatusCheckError) && order.paymentStatus !== "paid"
+        ? `Cảnh báo đối soát tự động ${gatewayName}: ${order.paymentStatusCheckError}.`
+        : "");
     const latePaymentWarning = order.status === "cancelled" && order.paymentStatus === "paid"
       ? "Đơn đã hủy nhưng đã nhận tiền; cần đối soát/hoàn tiền thủ công trong merchant portal."
       : "";
@@ -1647,7 +1654,7 @@ function renderOrders() {
     const itemCount = order.items.reduce((sum, item) => sum + item.quantity, 0);
     const lockNote = order.paymentStatus === "paid" ? "Phí giao hàng và thanh toán đã được chốt. Đơn đã thanh toán cần xử lý hoàn tiền trước khi hủy."
       : Number(order.receivedVnd) > 0 ? "Đơn đã thu một phần tiền. Không thể thay đổi phí giao hàng hoặc hủy đơn khi chưa xử lý khoản tiền đã thu."
-      : isLiveVnpayAttempt(order) ? "Phiên VNPAY đang chờ xác nhận. Chỉ có thể hủy sau khi phiên thanh toán hết hạn."
+      : isLiveVnpayAttempt(order) ? `Phiên ${gatewayName} đang chờ xác nhận hoặc đối soát. Chỉ có thể hủy sau khi phiên thanh toán hết hạn/ngã ngũ.`
         : "";
     const submitDisabled = !allowed.length && !canEditShipping(order) && (!orderPaymentControl(order).includes('name="paymentStatus"'));
     return `<article class="order-card" data-order-detail="${escapeHtml(order.id)}">
@@ -1671,6 +1678,7 @@ function renderOrders() {
               <div class="order-card-head"><strong>Thanh toán · ${escapeHtml(order.paymentMethod === "cod" ? "COD" : (labels[order.paymentMethod] || order.paymentMethod))}</strong><span class="status-pill ${order.paymentStatus === "paid" ? "status-completed" : "status-pending"}">${escapeHtml(paymentStatus)}</span></div>
               <dl class="order-totals">${order.discountVnd?`<div><dt>Voucher ${escapeHtml(order.voucherCode)}</dt><dd>−${formatPrice(order.discountVnd)}</dd></div>`:""}<div><dt>Tạm tính</dt><dd>${formatPrice(order.subtotalVnd)}</dd></div><div><dt>Phí giao hàng</dt><dd>${order.shippingFeeVnd == null ? "Chưa chốt" : formatPrice(order.shippingFeeVnd)}</dd></div>${Number(order.receivedVnd) > 0 ? `<div><dt>Đã thu</dt><dd>${formatPrice(order.receivedVnd)}</dd></div><div><dt>Còn phải thu</dt><dd>${formatPrice(order.outstandingVnd ?? Math.max(0, order.totalVnd - order.receivedVnd))}</dd></div>` : ""}<div class="order-totals-grand"><dt>Tổng cộng</dt><dd>${order.totalVnd == null ? "Chưa chốt tổng" : formatPrice(order.totalVnd)}</dd></div></dl>
               ${paymentNote ? `<p class="help-text order-inline-note">${escapeHtml(paymentNote)}</p>` : ""}
+              ${reconcileErrorWarning ? `<p class="feedback order-inline-note">${escapeHtml(reconcileErrorWarning)}</p>` : ""}
               ${latePaymentWarning ? `<p class="feedback order-inline-note">${escapeHtml(latePaymentWarning)}</p>` : ""}
               ${lockNote ? `<p class="help-text order-inline-note">${lockNote}</p>` : ""}
             </div>

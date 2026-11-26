@@ -32,7 +32,7 @@ test('adversarial bounded gateway references reject promptly before any provider
   const modulePath = require.resolve('../src/payment-provider-clients');
   const script = `const assert=require('node:assert/strict');const {createGatewayPayment}=require(${JSON.stringify(modulePath)});
     const settings={environment:'sandbox',partnerCode:'FIXTURE',accessKey:'FIXTURE',secretKey:'fixture-secret'};
-    const base={amountVnd:100,baseUrl:'https://gaeru.com'};let calls=0;const fetcher=async()=>{calls++;throw Error('must not call');};
+    const base={amountVnd:1000,baseUrl:'https://gaeru.com'};let calls=0;const fetcher=async()=>{calls++;throw Error('must not call');};
     (async()=>{for(const length of [32,40,49]){const hostile='0'.repeat(length)+'!';
       await assert.rejects(createGatewayPayment('momo',settings,{...base,txnRef:hostile,fetcher}),e=>e.status===400);
       await assert.rejects(createGatewayPayment('momo',settings,{...base,txnRef:'SAFE',requestId:hostile,fetcher}),e=>e.status===400);
@@ -47,7 +47,7 @@ test('adversarial bounded gateway references reject promptly before any provider
 test('linear gateway reference validation preserves existing single-character, repeated-separator and maximum-length identifiers', async () => {
   const { createGatewayPayment } = require('../src/payment-provider-clients');
   const settings={environment:'sandbox',partnerCode:'FIXTURE',accessKey:'FIXTURE',secretKey:'fixture-secret'};
-  const base={amountVnd:100,baseUrl:'https://gaeru.com'};
+  const base={amountVnd:1000,baseUrl:'https://gaeru.com'};
   let calls=0;
   const fetcher=async(_url,init)=>{calls++;const body=JSON.parse(init.body);return new Response(JSON.stringify({partnerCode:body.partnerCode,orderId:body.orderId,requestId:body.requestId,amount:body.amount,resultCode:0,payUrl:'https://test-payment.momo.vn/pay?fixture=1'}));};
   for(const value of ['A','A..--__Z','0'.repeat(50)]){

@@ -10,7 +10,7 @@ function signMomo(payload, secretKey, accessKey) {
   return crypto.createHmac('sha256', secretKey).update(raw).digest('hex');
 }
 
-test('MoMo Payment Gateway v2 - Merchant Acceptance Testing Suite (100% Compliance)', async (suite) => {
+test('MoMo Payment Gateway v2 - simulated protocol scenarios (not merchant acceptance)', async (suite) => {
   const partnerCode = 'MOMOGAERU';
   const accessKey = 'MOMOACCESS123';
   const secretKey = 'momo-secret-key-fixture-production-ready';
@@ -210,7 +210,7 @@ test('MoMo Payment Gateway v2 - Merchant Acceptance Testing Suite (100% Complian
     assert.strictEqual(order.paymentStatus, 'pending');
   });
 
-  await suite.test('SC-03: Không đủ số dư / Hết hạn (resultCode = 2001, 1005)', async () => {
+  await suite.test('SC-03: Không đủ số dư (resultCode = 1001)', async () => {
     const orderNumber = 'GR-20261102-MM03';
     const requestId = 'MM_REQ_SC03';
     seedOrder(orderNumber, 150000, { providerRequestId: requestId });
@@ -223,7 +223,7 @@ test('MoMo Payment Gateway v2 - Merchant Acceptance Testing Suite (100% Complian
       orderInfo: 'Thanh toan',
       orderType: 'momo_wallet',
       transId: 9988776657,
-      resultCode: 2001,
+      resultCode: 1001,
       message: 'Insufficient fund.',
       payType: 'qr',
       responseTime: 1793155200000,
@@ -235,7 +235,7 @@ test('MoMo Payment Gateway v2 - Merchant Acceptance Testing Suite (100% Complian
       redirect: 'manual'
     });
     assert.strictEqual(returnRes.status, 302);
-    assert.match(returnRes.headers.get('location'), /code=2001/);
+    assert.match(returnRes.headers.get('location'), /code=1001/);
   });
 
   await suite.test('SC-04: Chữ ký không hợp lệ (Signature Tampering)', async () => {

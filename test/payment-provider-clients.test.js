@@ -119,6 +119,19 @@ test('invalid configuration and request values are rejected before any remote ca
   assert.equal(calls,0);
 });
 
+test('MoMo enforces the documented 1,000–50,000,000 VND range before contacting the gateway', async () => {
+  const calls = [];
+  for (const amountVnd of [1, 999, 50000001]) {
+    await assert.rejects(createGatewayPayment('momo', momo, { ...options, amountVnd, fetcher: createFetcher('momo', calls) }), error => error.status === 400);
+  }
+  await assert.rejects(createGatewayPayment('momo', { ...momo, partnerCode: 'M'.repeat(51) }, { ...options, fetcher: createFetcher('momo', calls) }), error => error.status === 400);
+  assert.equal(calls.length, 0);
+  for (const amountVnd of [1000, 50000000]) {
+    await createGatewayPayment('momo', momo, { ...options, amountVnd, fetcher: createFetcher('momo', calls) });
+  }
+  assert.equal(calls.length, 2);
+});
+
 test('MoMo status query is signed with the documented canonical fields and checks echoed identity', async () => {
   let request;
   const response=await queryGatewayPayment('momo',momo,{...options,queryRequestId:'query_fixture_1',fetcher:async(url,init)=>{
@@ -148,7 +161,7 @@ test('a nonce probe or a mismatched known order never verifies merchant credenti
   for(const [provider,settings] of [['momo',momo],['zalopay',zalopay]]) {
     const fetcher=async(_url,init)=>{
       const body=JSON.parse(init.body);
-      return json(provider==='momo'?{partnerCode:body.partnerCode,orderId:body.orderId,requestId:body.requestId,amount:1,resultCode:0}:{return_code:1,amount:1});
+      return json(provider==='momo'?{partnerCode:body.partnerCode,orderId:body.orderId,requestId:body.requestId,amount:1000,resultCode:0,transId:1234}:{return_code:1,amount:1});
     };
     const nonce=await verifyGatewayAccount(provider,settings,{now:options.now,fetcher});
     assert.equal(nonce.verified,false);assert.equal(nonce.reachable,true);assert.equal(nonce.verificationScope,'reachability');

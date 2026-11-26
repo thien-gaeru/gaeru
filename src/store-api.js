@@ -68,9 +68,11 @@ async function tryMarkCartRecovered(client, payload) {
   }
 }
 
-async function releaseCheckoutIntentOnClient(client, intentId, nextStatus = "released") {
+async function releaseCheckoutIntentOnClient(client, intentId, nextStatus = "released", auditMeta = null) {
   const intentRes = await client.query(
-    "SELECT id, status FROM checkout_payment_intents WHERE id = $1 FOR UPDATE",
+    `SELECT id, status, provider, order_number AS "orderNumber",
+            provider_request_id AS "providerRequestId", amount_vnd AS "amountVnd"
+     FROM checkout_payment_intents WHERE id = $1 FOR UPDATE`,
     [intentId]
   );
   const intent = intentRes.rows[0];
@@ -123,11 +125,27 @@ async function releaseCheckoutIntentOnClient(client, intentId, nextStatus = "rel
     "UPDATE checkout_payment_intents SET status = $2, updated_at = now() WHERE id = $1",
     [intentId, nextStatus]
   );
+  if (nextStatus === "ambiguous") {
+    try {
+      await require("./audit").appendAudit(client, {
+        actor: { username: intent.provider || "payment_gateway", source: "payment_gateway" },
+        action: `payment.${intent.provider || "gateway"}.intent_ambiguous`,
+        entityType: "checkout_payment_intent",
+        entityId: String(intentId),
+        metadata: {
+          orderNumber: intent.orderNumber,
+          providerRequestId: intent.providerRequestId,
+          amountVnd: intent.amountVnd,
+          ...(auditMeta || {})
+        }
+      });
+    } catch (_) {}
+  }
 }
 
-async function releaseCheckoutIntent(poolInstance, intentId, nextStatus = "released") {
+async function releaseCheckoutIntent(poolInstance, intentId, nextStatus = "released", auditMeta = null) {
   if (!intentId) return;
-  await withTransaction(poolInstance, (client) => releaseCheckoutIntentOnClient(client, intentId, nextStatus));
+  await withTransaction(poolInstance, (client) => releaseCheckoutIntentOnClient(client, intentId, nextStatus, auditMeta));
 }
 
 async function releaseExpiredCheckoutIntents(poolInstance) {
@@ -871,6 +889,20 @@ function createStoreApi(pool, { ordersEnabled = false, getOrdersEnabled = null, 
       if (result.code === "00" && result.successful) {
         try { invalidateTags(['orders', ...(result.orderId ? [`order:${result.orderId}`] : [])]); } catch (_) {}
         try { require("./realtime-sse").publishAdminEvent("order:update", { orderId: result.orderId, orderNumber: result.orderNumber, paymentStatus: "paid", provider: "vnpay" }); } catch (_) {}
+        try {
+          await pool.query("INSERT INTO order_email_outbox(order_id, kind) VALUES ($1, 'payment_confirmed') ON CONFLICT (order_id, kind) DO NOTHING", [result.orderId]);
+          require("./order-email").nudgeOrderEmailWorker();
+        } catch (_) {}
+        try {
+          require("./admin-notifications").notifyAdminPushBackground(pool, config, {
+            requiredPermissions: ["orders.read"],
+            title: "Đã nhận thanh toán · " + result.orderNumber,
+            body: "Đơn " + result.orderNumber + " đã thanh toán thành công qua VNPAY.",
+            target: "orders",
+            tag: "order-paid-" + result.orderNumber,
+            url: "/admin/#orders"
+          });
+        } catch (_) {}
       }
       res.json({ RspCode: result.code, Message: result.message });
     } catch (error) {
@@ -935,7 +967,7 @@ function createStoreApi(pool, { ordersEnabled = false, getOrdersEnabled = null, 
     // Browser-controlled navigation is display only. IPN/query is authoritative.
     const pToken = verified.valid && verified.orderNumber ? signOptionalGuestTrackingToken(verified.orderNumber) : "";
     const query=new URLSearchParams({
-      result:verified.valid?(verified.successful?'processing':'failed'):'pending',
+      result:verified.valid?(verified.successful||verified.pending?'processing':'failed'):'pending',
       provider,
       order,
       code:verified.valid?verified.responseCode||'':'',
@@ -969,6 +1001,19 @@ function createStoreApi(pool, { ordersEnabled = false, getOrdersEnabled = null, 
           if (m.code === '00' && m.successful) {
             try { invalidateTags(['orders', ...(m.orderId ? [`order:${m.orderId}`] : [])]); } catch (_) {}
             try { require('./realtime-sse').publishAdminEvent('order:update', { orderId: m.orderId, orderNumber: m.orderNumber, paymentStatus: m.paymentStatus, status: m.orderStatus, provider: 'bank_transfer' }); } catch (_) {}
+            if (!m.alreadyConfirmed) {
+              try { require('./order-email').nudgeOrderEmailWorker(); } catch (_) {}
+              try {
+                require('./admin-notifications').notifyAdminPushBackground(pool, config, {
+                  requiredPermissions: ['orders.read'],
+                  title: 'Đã nhận thanh toán · ' + m.orderNumber,
+                  body: 'Đơn ' + m.orderNumber + ' đã thanh toán thành công qua Chuyển khoản ngân hàng.',
+                  target: 'orders',
+                  tag: 'order-paid-' + m.orderNumber,
+                  url: '/admin/#orders'
+                });
+              } catch (_) {}
+            }
           }
         }
         const primary=matchedItems[0]||results[0]||{code:'01',matched:false,message:'Order not found'};
@@ -976,15 +1021,87 @@ function createStoreApi(pool, { ordersEnabled = false, getOrdersEnabled = null, 
       }
       const outcome=await withTransaction(pool,async client=>{
         const row=(await client.query('SELECT provider_request_id FROM payment_attempts WHERE (transaction_ref=$1 OR replace(transaction_ref,\'-\',\'\')=replace($1,\'-\',\'\')) AND provider=$2',[verified.orderNumber,provider])).rows[0];
-        if(!row)return {code:'01',matched:false,message:'Order not found'};
-        if(row.provider_request_id&&row.provider_request_id!==(provider==='momo'?verified.requestId:verified.providerOrderId))return {code:'97',matched:false,message:'Provider request mismatch'};
-        const outcome=await require('./payment-channels').reconcilePrepaidOrder(client,{provider,orderNumber:verified.orderNumber,amountVnd:verified.amountVnd,successful:verified.successful,providerTransactionId:verified.providerTransactionId,responseCode:verified.responseCode,finance,audit});
+        if(!row){
+          if(verified.successful||verified.pending){
+            await audit(client,{
+              actor:{username:provider,source:'payment_gateway'},
+              action:`payment.${provider}.unmatched_callback`,
+              entityType:'payment_callback',
+              entityId:verified.orderNumber,
+              metadata:{
+                orderNumber:verified.orderNumber,
+                requestId:verified.requestId||verified.providerOrderId||null,
+                providerTransactionId:verified.providerTransactionId||null,
+                amountVnd:verified.amountVnd,
+                responseCode:verified.responseCode||null,
+                successful:Boolean(verified.successful),
+                pending:Boolean(verified.pending)
+              }
+            });
+          }
+          return {code:'01',matched:false,message:'Order not found'};
+        }
+        if(row.provider_request_id&&row.provider_request_id!==(provider==='momo'?verified.requestId:verified.providerOrderId)){
+          if(verified.successful||verified.pending){
+            await audit(client,{
+              actor:{username:provider,source:'payment_gateway'},
+              action:`payment.${provider}.mismatched_callback`,
+              entityType:'payment_callback',
+              entityId:verified.orderNumber,
+              metadata:{
+                orderNumber:verified.orderNumber,
+                expectedRequestId:row.provider_request_id,
+                receivedRequestId:provider==='momo'?verified.requestId:verified.providerOrderId,
+                providerTransactionId:verified.providerTransactionId||null,
+                amountVnd:verified.amountVnd,
+                responseCode:verified.responseCode||null,
+                successful:Boolean(verified.successful)
+              }
+            });
+          }
+          return {code:'97',matched:false,message:'Provider request mismatch'};
+        }
+        const outcome=await require('./payment-channels').reconcilePrepaidOrder(client,{provider,orderNumber:verified.orderNumber,amountVnd:verified.amountVnd,successful:verified.successful,pending:verified.pending,providerTransactionId:verified.providerTransactionId,responseCode:verified.responseCode,finance,audit});
         if(outcome.matched&&req.paymentChannels?.versions)await require('./payment-channels').recordGatewayEvidence(client,provider,req.paymentChannels.versions[provider],{enabled:req.paymentChannels.methods.includes(provider)});
         return outcome;
       });
+      if (!outcome.matched && verified.successful) {
+        try {
+          require('./realtime-sse').publishAdminEvent('payment:alert', {
+            provider,
+            code: outcome.code,
+            orderNumber: verified.orderNumber,
+            amountVnd: verified.amountVnd,
+            providerTransactionId: verified.providerTransactionId || null
+          });
+        } catch (_) {}
+        try {
+          require('./admin-notifications').notifyAdminPushBackground(pool, config, {
+            requiredPermissions: ['orders.read'],
+            title: 'Cảnh báo đối soát ' + (provider === 'momo' ? 'MoMo' : provider.toUpperCase()),
+            body: 'Nhận IPN hợp lệ cho mã ' + verified.orderNumber + ' nhưng chưa khớp đơn hệ thống. Cần đối chiếu ngay.',
+            target: 'orders',
+            tag: 'payment-alert-' + verified.orderNumber,
+            url: '/admin/#orders'
+          });
+        } catch (_) {}
+      }
       if (outcome.code === '00' && outcome.successful) {
         try { invalidateTags(['orders', ...(outcome.orderId ? [`order:${outcome.orderId}`] : [])]); } catch (_) {}
         try { require('./realtime-sse').publishAdminEvent('order:update', { orderId: outcome.orderId, orderNumber: outcome.orderNumber, paymentStatus: outcome.paymentStatus, status: outcome.orderStatus, provider }); } catch (_) {}
+        if (!outcome.alreadyConfirmed) {
+          try { require('./order-email').nudgeOrderEmailWorker(); } catch (_) {}
+          try {
+            require('./admin-notifications').notifyAdminPushBackground(pool, config, {
+              requiredPermissions: ['orders.read'],
+              title: 'Đã nhận thanh toán · ' + outcome.orderNumber,
+              body: 'Đơn ' + outcome.orderNumber + ' đã thanh toán thành công qua ' + (provider === 'momo' ? 'MoMo' : provider === 'zalopay' ? 'ZaloPay' : provider.toUpperCase()) + '.',
+              target: 'orders',
+              tag: 'order-paid-' + outcome.orderNumber,
+              url: '/admin/#orders'
+            });
+          } catch (_) {}
+        }
       }
       if(provider==='zalopay')return res.json({return_code:outcome.code==='00'||outcome.code==='02'?1:0,return_message:outcome.message,orderStatus:outcome.orderStatus,paymentStatus:outcome.paymentStatus});
       if(provider==='momo')return outcome.matched?res.status(204).end():res.status(409).json({resultCode:Number(outcome.code)||99,message:outcome.message});
@@ -1358,6 +1475,9 @@ function createStoreApi(pool, { ordersEnabled = false, getOrdersEnabled = null, 
           });
 
           const intentNow = Date.now();
+          if (parsed.data.paymentMethod === 'momo' && (calc.finalTotal < 1000 || calc.finalTotal > 50000000)) {
+            throw Object.assign(new Error('MoMo hỗ trợ thanh toán từ 1.000 ₫ đến 50.000.000 ₫. Vui lòng chọn phương thức khác.'), { status: 400 });
+          }
           const orderNumber = `GR-${new Date(intentNow).toISOString().slice(0, 10).replaceAll("-", "")}-${require("node:crypto").randomBytes(5).toString("hex").toUpperCase()}`;
           const providerRequestId = parsed.data.paymentMethod === "zalopay"
             ? `${vietnamYyMmDd(intentNow)}_${orderNumber}`
@@ -1471,7 +1591,13 @@ function createStoreApi(pool, { ordersEnabled = false, getOrdersEnabled = null, 
             }
           );
         } catch (gatewayErr) {
-          await releaseCheckoutIntent(pool, phase1.intentId, "released").catch(() => {});
+          const intentStatus = gatewayErr?.ambiguous ? "ambiguous" : "released";
+          await releaseCheckoutIntent(
+            pool,
+            phase1.intentId,
+            intentStatus,
+            gatewayErr?.ambiguous ? { stage: "phase2_create", code: gatewayErr.code || null } : null
+          ).catch(() => {});
           throw gatewayErr;
         }
 
@@ -1645,7 +1771,12 @@ function createStoreApi(pool, { ordersEnabled = false, getOrdersEnabled = null, 
             });
           });
         } catch (phase3Err) {
-          await releaseCheckoutIntent(pool, phase1.intentId, "released").catch(() => {});
+          await releaseCheckoutIntent(pool, phase1.intentId, "ambiguous", {
+            stage: "phase3_commit",
+            requestId: gateway?.requestId || null,
+            providerTransactionId: gateway?.providerTransactionId || null,
+            error: phase3Err?.message || null
+          }).catch(() => {});
           throw phase3Err;
         }
       } else {
@@ -2379,6 +2510,7 @@ function createStoreApi(pool, { ordersEnabled = false, getOrdersEnabled = null, 
         o.shipping_fee_vnd AS "shippingFeeVnd", o.total_vnd AS "totalVnd", o.created_at AS "createdAt",o.management_version AS version,o.return_completed_at AS "returnedAt",
         CASE WHEN o.return_completed_at IS NOT NULL THEN 'returned' WHEN EXISTS(SELECT 1 FROM order_after_sales a WHERE a.order_id=o.id AND a.kind='return' AND a.status NOT IN ('resolved','rejected')) THEN 'open' ELSE NULL END AS "returnStatus",
         p.provider AS "paymentProvider", p.status AS "paymentAttemptStatus", p.expires_at AS "paymentAttemptExpiresAt",
+        p.response_code AS "paymentResponseCode", p.status_check_error AS "paymentStatusCheckError",
         ${checkoutAccounts ? '(SELECT r.reason FROM order_reviews r WHERE r.order_id=o.id AND r.resolved_at IS NULL ORDER BY r.created_at DESC LIMIT 1) AS "reviewReason",' : 'NULL AS "reviewReason",'}
         COALESCE(jsonb_agg(jsonb_build_object('productName', i.product_name, 'variantName', i.variant_name,
           'sku', i.sku, 'unitPriceVnd', i.unit_price_vnd, 'quantity', i.quantity, 'lineTotalVnd', i.line_total_vnd))
@@ -2386,10 +2518,10 @@ function createStoreApi(pool, { ordersEnabled = false, getOrdersEnabled = null, 
        FROM orders o
        LEFT JOIN order_items i ON i.order_id = o.id
        LEFT JOIN LATERAL (
-         SELECT provider, status, expires_at FROM payment_attempts WHERE order_id = o.id ORDER BY created_at DESC LIMIT 1
+         SELECT provider, status, expires_at, response_code, status_check_error FROM payment_attempts WHERE order_id = o.id ORDER BY created_at DESC LIMIT 1
        ) p ON true
        WHERE ${where}
-       GROUP BY o.id, p.provider, p.status, p.expires_at ORDER BY ${sortSql[sort]} LIMIT $5 OFFSET $6`,
+       GROUP BY o.id, p.provider, p.status, p.expires_at, p.response_code, p.status_check_error ORDER BY ${sortSql[sort]} LIMIT $5 OFFSET $6`,
       [...filterValues, exportAll ? 5000 : pageSize, exportAll ? 0 : (page - 1) * pageSize]
     );
     if (result.rows.length) {

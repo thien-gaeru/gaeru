@@ -1,5 +1,6 @@
 'use strict';
 const { createHmac, randomUUID, timingSafeEqual } = require('node:crypto');
+const momoProtocol = require('./momo-protocol');
 
 // Provider contracts: MoMo wallet/onetime + payment-api/query; Zalopay
 // specs/order-create + specs/order-query. No caller-supplied endpoint is used.
@@ -36,7 +37,7 @@ function credentials(provider, settings) {
   const meta = PROVIDERS[provider];
   if (!['momo', 'zalopay'].includes(provider) || !meta || !settings || !['sandbox', 'production'].includes(settings.environment)) throw fail(provider, 'PAYMENT_CONFIGURATION_INVALID', { status: 400 });
   if (provider === 'momo') {
-    if (!validText(settings.partnerCode, 2, 160) || !/^[A-Za-z0-9_-]+$/.test(settings.partnerCode)
+    if (!validText(settings.partnerCode, 2, 50) || !/^[A-Za-z0-9_-]+$/.test(settings.partnerCode)
       || !validText(settings.accessKey, 2, 160) || !/^[A-Za-z0-9_-]+$/.test(settings.accessKey)
       || !validText(settings.secretKey, 8, 500)) throw fail(provider, 'PAYMENT_CONFIGURATION_INVALID', { status: 400 });
   } else if (!/^[1-9]\d{0,9}$/.test(String(settings.appId || '')) || Number(settings.appId) > 2147483647
@@ -148,7 +149,7 @@ async function createGatewayPayment(provider, settings, options = {}) {
   const time = timestamp(options.now);
   const requestId = reference(provider, options.txnRef, time, options.requestId);
   const amount = options.amountVnd;
-  if (!Number.isSafeInteger(amount) || amount < 1 || amount > (provider === 'momo' ? 50000000 : 2000000000)) throw fail(provider, 'PAYMENT_REQUEST_INVALID', { status: 400 });
+  if (!Number.isSafeInteger(amount) || amount < (provider === 'momo' ? momoProtocol.MIN_AMOUNT : 1) || amount > (provider === 'momo' ? momoProtocol.MAX_AMOUNT : 2000000000)) throw fail(provider, 'PAYMENT_REQUEST_INVALID', { status: 400 });
   const baseUrl = publicOrigin(provider, options.baseUrl);
   let body;
   if (provider === 'momo') {
@@ -167,7 +168,7 @@ async function createGatewayPayment(provider, settings, options = {}) {
   const data = await post(provider, settings, 'create', body, options);
   if (provider === 'momo') {
     if (!Number.isInteger(data.resultCode)) throw fail(provider, 'PAYMENT_RESPONSE_INVALID', { ambiguous: true });
-    if (data.resultCode !== 0) throw Object.assign(fail(provider, 'PAYMENT_PROVIDER_REJECTED', { ambiguous: [40, 41].includes(data.resultCode) }), { gatewayResultCode: data.resultCode });
+    if (data.resultCode !== 0) throw Object.assign(fail(provider, 'PAYMENT_PROVIDER_REJECTED', { ambiguous: [40, 41, 43, 7000, 7002, 9000].includes(data.resultCode) }), { gatewayResultCode: data.resultCode });
     if (data.partnerCode !== settings.partnerCode || data.orderId !== options.txnRef || data.requestId !== requestId || data.amount !== amount) throw fail(provider, 'PAYMENT_RESPONSE_MISMATCH', { ambiguous: true });
     if (data.signature !== undefined) {
       const raw = `accessKey=${settings.accessKey}&amount=${amount}&message=${data.message ?? ''}&orderId=${data.orderId}&partnerCode=${data.partnerCode}&payUrl=${data.payUrl}&requestId=${requestId}&responseTime=${data.responseTime}&resultCode=${data.resultCode}`;
@@ -199,12 +200,19 @@ async function queryGatewayPayment(provider, settings, options = {}) {
   const data = await post(provider, settings, 'query', body, options);
   const resultCode = provider === 'momo' ? data.resultCode : data.return_code;
   if (!Number.isInteger(resultCode)) throw fail(provider, 'PAYMENT_RESPONSE_INVALID');
-  const found = provider === 'momo' ? [0, 1000, 9000].includes(resultCode) : [1, 3].includes(resultCode) && (data.sub_return_code === undefined || (Number.isInteger(data.sub_return_code) && data.sub_return_code >= 0));
+  const found = provider === 'momo' ? momoProtocol.isTransactionResult(resultCode) : [1, 3].includes(resultCode) && (data.sub_return_code === undefined || (Number.isInteger(data.sub_return_code) && data.sub_return_code >= 0));
   if (found && (!Number.isSafeInteger(data.amount) || data.amount < 1
     || (provider === 'momo' && (data.partnerCode !== settings.partnerCode || data.orderId !== options.txnRef || data.requestId !== body.requestId))
     || (provider === 'zalopay' && ((data.app_trans_id !== undefined && data.app_trans_id !== requestId) || (data.app_id !== undefined && Number(data.app_id) !== Number(settings.appId)))))) throw fail(provider, 'PAYMENT_RESPONSE_MISMATCH');
-  return { provider, requestId, transactionRef: options.txnRef, reachable: true, found,
-    amountVnd: found ? data.amount : null, successful: found && (provider === 'momo' ? resultCode === 0 : resultCode === 1),
+  const state = provider === 'momo' ? momoProtocol.paymentState(resultCode) : resultCode === 1 ? 'paid' : 'pending';
+  if (provider === 'momo' && found && (data.amount < momoProtocol.MIN_AMOUNT || data.amount > momoProtocol.MAX_AMOUNT
+    || (options.amountVnd !== undefined && data.amount !== options.amountVnd)
+    || (state === 'paid' && !(typeof data.transId === 'number' && Number.isSafeInteger(data.transId) && data.transId > 0)))) {
+    throw fail(provider, 'PAYMENT_RESPONSE_MISMATCH');
+  }
+  return { provider, requestId, transactionRef: options.txnRef, reachable: true, found, state,
+    amountVnd: found ? data.amount : null, successful: found && state === 'paid',
+    hasRefund: provider === 'momo' && Array.isArray(data.refundTrans) && data.refundTrans.some(refund => refund && [0, 7000, 7002].includes(refund.resultCode)),
     providerTransactionId: safeTransactionId(provider === 'momo' ? data.transId : data.zp_trans_id), resultCode };
 }
 
@@ -221,7 +229,7 @@ async function verifyGatewayAccount(provider, settings, options = {}) {
         : 'Đã nhận phản hồi API ' + PROVIDERS[provider].name + ', chưa có đơn phù hợp để xác minh thông tin merchant. Không đánh dấu kết nối đã xác minh.' };
   } catch (error) {
     if (error.status === 400) throw error;
-    return { verified: false, reachable: Boolean(error.upstreamStatus), method: 'authenticated_query', verificationScope: 'unverified', callbackVerified: false,
+    return { verified: false, reachable: Boolean(error.upstreamStatus) || /^PAYMENT_RESPONSE_/.test(error.code || ''), method: 'authenticated_query', verificationScope: 'unverified', callbackVerified: false,
       message: 'Chưa xác minh được thông tin merchant ' + PROVIDERS[provider].name + '. Kiểm tra cấu hình và thử lại sau.' };
   }
 }

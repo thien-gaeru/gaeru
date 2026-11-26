@@ -123,11 +123,17 @@ async function cancelCustomerOrder(client, { orderId, customerId, actor, reason,
 
   if (['vnpay', 'momo', 'zalopay'].includes(order.payment_method)) {
     const activeOnlineAttempt = await client.query(
-      "SELECT 1 FROM payment_attempts WHERE order_id = $1 AND status = 'pending' AND expires_at > now() LIMIT 1",
+      `SELECT 1 FROM payment_attempts
+       WHERE order_id = $1 AND status = 'pending'
+         AND (
+           expires_at > now()
+           OR (provider = 'momo' AND response_code IN ('1000', '7000', '7002') AND COALESCE(expires_at, created_at) > now() - interval '72 hours')
+         )
+       LIMIT 1`,
       [order.id]
     );
     if (activeOnlineAttempt.rows.length > 0) {
-      const err = new Error('Phiên thanh toán trực tuyến đang mở; vui lòng hoàn tất thanh toán hoặc chờ phiên hết hạn rồi hủy đơn.');
+      const err = new Error('Phiên thanh toán trực tuyến đang mở hoặc đang chờ cổng thanh toán xử lý; vui lòng hoàn tất thanh toán hoặc chờ kết quả đối soát trước khi hủy đơn.');
       err.status = 409;
       throw err;
     }

@@ -7,6 +7,7 @@ const {withTransaction}=require('./db');
 const {requireCsrf}=require('./security');
 const {readRecord,writeRecord,getVnpay}=require('./admin-configuration');
 const {appendAudit}=require('./audit');
+const momoProtocol=require('./momo-protocol');
 
 const channels=Object.freeze({
  cod:{id:'cod',configId:'payment_cod',name:'Thanh toán khi nhận hàng (COD)',prepaid:false},
@@ -185,9 +186,9 @@ function verifyGatewayPayload(provider,payload,settings,options={}){
   if(typeof payload.requestId!=='string'||payload.requestId.length<1||payload.requestId.length>100
    ||textFields.some(field=>typeof payload[field]!=='string'||payload[field].length>4000)
    ||!orderPattern.test(payload.orderId)
-   ||!payload.orderType||!amount(payload.amount)||!unsigned(payload.resultCode)
+   ||payload.orderType.trim().length<1||payload.orderType.length>100||!amount(payload.amount)||Number(payload.amount)<momoProtocol.MIN_AMOUNT||Number(payload.amount)>momoProtocol.MAX_AMOUNT||!unsigned(payload.resultCode)
    ||!unsigned(payload.transId)||!positiveId(payload.responseTime)
-   ||(String(payload.resultCode)==='0'&&!positiveId(payload.transId))
+   ||(momoProtocol.paymentState(Number(payload.resultCode))==='paid'&&!positiveId(payload.transId))
    ||typeof payload.signature!=='string'||!/^[a-f0-9]{64}$/i.test(payload.signature)
    ||typeof settings.accessKey!=='string'||!settings.accessKey||typeof settings.secretKey!=='string'||!settings.secretKey
    ||payload.partnerCode!==settings.partnerCode){
@@ -202,7 +203,8 @@ function verifyGatewayPayload(provider,payload,settings,options={}){
    providerOrderId:payload.orderId,
    requestId:payload.requestId,
    amountVnd:Number(payload.amount),
-   successful:String(payload.resultCode)==='0',
+   successful:momoProtocol.paymentState(Number(payload.resultCode))==='paid',
+   pending:momoProtocol.paymentState(Number(payload.resultCode))==='pending',
    providerTransactionId:String(payload.transId),
    responseCode:String(payload.resultCode)
   };
@@ -361,7 +363,7 @@ function verifyGatewayPayload(provider,payload,settings,options={}){
  return {valid:false,reason:'Unsupported provider'};
 }
 
-async function reconcilePrepaidOrder(poolOrClient,{provider,orderNumber,amountVnd,successful=true,providerTransactionId=null,responseCode=null,finance=null,audit=appendAudit,actor=null}){
+async function reconcilePrepaidOrder(poolOrClient,{provider,orderNumber,amountVnd,successful=true,pending=false,providerTransactionId=null,responseCode=null,finance=null,audit=appendAudit,actor=null,evidence='callback'}){
  const run=async client=>{
   const attemptQuery=await client.query(
    `SELECT p.id, p.amount_vnd AS "amountVnd", p.status AS "attemptStatus",
@@ -422,6 +424,14 @@ async function reconcilePrepaidOrder(poolOrClient,{provider,orderNumber,amountVn
     paymentStatus:attempt.paymentStatus
    };
   }
+  if(pending){
+   // Delayed in-progress notifications must not overwrite a terminal failure.
+   if(attempt.attemptStatus==='pending')await client.query(
+    'UPDATE payment_attempts SET response_code=$2, updated_at=now() WHERE id=$1',
+    [attempt.id,responseCode||null]
+   );
+   return {code:'00',matched:true,successful:false,pending:true,message:'Payment processing',orderId:attempt.orderId,orderNumber:attempt.orderNumber||orderNumber,paymentStatus:attempt.paymentStatus,orderStatus:attempt.orderStatus};
+  }
   await client.query(
    `UPDATE payment_attempts SET status=$2, provider_transaction_id=$3, response_code=$4, updated_at=now()
     WHERE id=$1`,
@@ -454,11 +464,23 @@ async function reconcilePrepaidOrder(poolOrClient,{provider,orderNumber,amountVn
     if(!nextOrderStatus||['pending','confirmed'].includes(nextOrderStatus)){
      nextOrderStatus='processing';
     }
+    if(typeof attempt.orderId==='string'&&/^[0-9a-f-]{36}$/i.test(attempt.orderId)){
+     await client.query('SAVEPOINT sp_payment_confirmed_email');
+     try{
+      await client.query(
+       "INSERT INTO order_email_outbox(order_id,kind) VALUES($1,'payment_confirmed') ON CONFLICT(order_id,kind) DO NOTHING",
+       [attempt.orderId]
+      );
+      await client.query('RELEASE SAVEPOINT sp_payment_confirmed_email');
+     }catch(_){
+      await client.query('ROLLBACK TO SAVEPOINT sp_payment_confirmed_email').catch(()=>{});
+     }
+    }
    }
   }
   await audit(client,{
    actor:actor||{username:provider,source:'payment_gateway'},
-   action:`payment.${provider}.callback`,
+   action:`payment.${provider}.${evidence==='query'?'query':'callback'}`,
    entityType:'order',
    entityId:attempt.orderId,
    metadata:{
@@ -487,8 +509,12 @@ async function assertPaymentConfigurationChange(client,id,before,after){
  await client.query("SELECT pg_advisory_xact_lock(hashtext($1))",[id==='vnpay'?'gaeru:vnpay-config':'gaeru:payment-config:'+id]);
  const fields={vnpay:['tmnCode','hashSecret','environment'],momo:['partnerCode','accessKey','secretKey','environment'],zalopay:['appId','key1','key2','environment']}[id];
  if(fields.every(k=>before[k]===after[k]))return;
- const count=(await client.query("SELECT count(*)::int AS count FROM payment_attempts p JOIN orders o ON o.id=p.order_id WHERE p.provider=$1 AND p.status='pending' AND o.status<>'cancelled' AND o.payment_status<>'paid' AND o.return_completed_at IS NULL",[id])).rows[0]?.count||0;
- if(count)throw fail('Có giao dịch đang chờ. Đối soát hoặc hủy đơn trước khi đổi tài khoản, khóa hoặc môi trường thanh toán.',409);
+ const count=(await client.query("SELECT count(*)::int AS count FROM payment_attempts p JOIN orders o ON o.id=p.order_id WHERE p.provider=$1 AND COALESCE(p.expires_at,p.created_at)>now()-interval '72 hours' AND COALESCE(p.status_check_error,'')<>'PAYMENT_SESSION_EXPIRED' AND (p.status='pending' OR p.expires_at>now() OR (p.provider='momo' AND (p.response_code IS NULL OR NOT (p.response_code=ANY($2::text[]))))) AND o.payment_status<>'paid' AND o.return_completed_at IS NULL",[id,momoProtocol.FINAL_FAILURE_CODES.map(String)])).rows[0]?.count||0;
+ if(count)throw fail('Còn giao dịch chưa đối soát hoặc phiên thanh toán còn thời hạn. Xác minh kết quả với cổng thanh toán trước khi đổi tài khoản, khóa hoặc môi trường.',409);
+ if(id==='momo'||id==='zalopay'){
+  const inFlight=(await client.query("SELECT 1 FROM checkout_payment_intents WHERE provider=$1 AND status='pending_provider' LIMIT 1",[id])).rows.length;
+  if(inFlight)throw fail('Đang tạo phiên thanh toán. Chờ hoàn tất trước khi đổi tài khoản, khóa hoặc môi trường.',409);
+ }
 }
 function authenticatedProof(method,scope){
  return method==='signed_callback'?scope==='callback_signature':['authenticated_api','provider_order_create'].includes(method)&&scope==='api_credentials';

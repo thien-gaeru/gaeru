@@ -1,77 +1,78 @@
-> Phạm vi: các bộ kiểm thử và runner trong repository mô phỏng callback/nhà cung cấp. Kết quả đạt không thay thế giao dịch Sandbox thật, IPN từ nhà cung cấp, phê duyệt SIT hoặc xác nhận go-live. Chỉ ghi nhận nghiệm thu bên ngoài khi có bằng chứng riêng. Không dùng credential Sandbox trên luồng thanh toán production.
+# Tích hợp và nghiệm thu thanh toán MoMo
 
-# Hướng dẫn Nghiệm thu Kỹ thuật & Kích hoạt MoMo Business (kiểm thử kỹ thuật)
+Đối chiếu ngày 26/11/2026 với tài liệu người dùng cung cấp: `2026_MoMo_Payment_Platform_Technical_Documentation.docx.pdf`, 239 trang. Phần áp dụng: môi trường/merchant (trang 15–16), thanh toán một lần (24–30), truy vấn (215–216), mã kết quả (226–229), IPN (230–232).
 
-Tài liệu này cung cấp toàn bộ quy chuẩn kỹ thuật, danh mục kịch bản kiểm thử bắt buộc (Merchant Acceptance Testing) và quy trình ký hợp đồng doanh nghiệp để đưa **Ví điện tử MoMo** lên môi trường **Chính thức (Production)** trên hệ thống **GAERU**.
+Phạm vi triển khai là checkout website qua `captureWallet`, `autoCapture: true`, chuyển khách tới `payUrl` của MoMo. Liên kết ví, trừ tiền định kỳ, thẻ, POS và hoàn tiền qua API là các luồng riêng chưa được bật bởi tích hợp này. Hoàn tiền tiếp tục được đối soát và thực hiện trong Merchant Portal; ghi nhận trả hàng trong GAERU không phải lệnh chuyển tiền từ MoMo.
 
----
+Chưa có khóa merchant và chưa chạy giao dịch MoMo thật. Test/runner trong repository dùng dữ liệu mô phỏng. Kết quả đạt không thay thế Sandbox, UAT hay xác nhận go-live của MoMo.
 
-## 1. Thông số kỹ thuật tích hợp
+## Hợp đồng API
 
-- **Phiên bản cổng thanh toán**: MoMo Payment Gateway `v2.0`
-- **Giao thức khởi tạo giao dịch**: POST `/v2/gateway/api/create` (captureWallet)
-- **Giao thức tra cứu giao dịch**: POST `/v2/gateway/api/query`
-- **Thuật toán băm chữ ký**: HMAC-SHA256 với 10 trường dữ liệu khởi tạo và 13 trường dữ liệu callback
-- **Tiêu chuẩn phản hồi IPN**: **HTTP 204 No Content** (phản hồi trong vòng 5 giây theo yêu cầu MoMo)
-- **Bảo mật & Idempotency**: Khóa giao dịch PostgreSQL Row-level Lock (`FOR UPDATE`), ngăn chặn lặp doanh thu khi nhận nhiều IPN cho cùng một đơn hàng.
+| Nội dung | Triển khai |
+| --- | --- |
+| Sandbox | `https://test-payment.momo.vn` |
+| Production | `https://payment.momo.vn` |
+| Tạo phiên | `POST /v2/gateway/api/create` |
+| Tra cứu | `POST /v2/gateway/api/query` |
+| Số tiền | Số nguyên VND từ 1.000 đến 50.000.000, tính từ đơn phía máy chủ |
+| Request ID | Lưu cùng payment attempt; không lấy từ trình duyệt |
+| Chữ ký | HMAC-SHA256 với chuỗi trường theo thứ tự MoMo quy định |
+| Gọi API | Timeout 30 giây; giới hạn phản hồi 64 KiB |
+| IPN | POST JSON; kiểm chữ ký, partner, mã đơn, request ID, số tiền trước ghi nhận |
+| Phản hồi IPN | HTTP 204 không nội dung sau khi ghi dữ liệu; tài liệu yêu cầu trong 15 giây |
+| Browser return | Điều hướng/hiển thị; không tự ghi nhận tiền |
 
-### URL Đăng ký trên Cổng đối tác MoMo Developers
-| Kênh giao tiếp | Đường dẫn (URL) | Mục đích |
-| --- | --- | --- |
-| **Return URL** | `https://gaeru.com/api/payments/momo/return` | Điều hướng khách hàng quay lại website, trích xuất mã kết quả `resultCode` và hiển thị chi tiết trạng thái đơn. |
-| **IPN URL** | `https://gaeru.com/api/payments/momo/ipn` | Tiếp nhận thông báo tức thì từ máy chủ MoMo (Server-to-Server) qua giao thức POST JSON, phản hồi HTTP 204 No Content. |
+URL lấy từ `PUBLIC_BASE_URL` (HTTPS):
 
----
+- Return: `https://<domain>/api/payments/momo/return`
+- IPN: `https://<domain>/api/payments/momo/ipn`
 
-## 2. Bảng kịch bản nghiệm thu kỹ thuật MoMo v2 (Merchant Acceptance Checklist)
+Với domain `gaeru.com`, thay `<domain>` bằng `gaeru.com`. Hai đường dẫn cần truy cập công khai qua HTTPS; IPN không yêu cầu cookie đăng nhập, không đặt CAPTCHA phía trước. Payload giả vẫn bị từ chối; GET vào IPN trả 405.
 
-Hệ thống GAERU đã hoàn thiện và vượt qua 100% các kịch bản nghiệm thu kỹ thuật:
+Chỉ chấp nhận `payUrl` HTTPS từ đúng host tương ứng môi trường; kiểm chữ ký phản hồi tạo phiên nếu MoMo cung cấp. QR/deeplink tùy chọn cần được MoMo cấp quyền ở production (trang 28); checkout hiện dùng `payUrl`.
 
-| Mã | Tên kịch bản | Thao tác trên MoMo | `resultCode` | Phản hồi IPN | Trạng thái đơn GAERU |
-|---|---|---|---|---|---|
-| **SC-01** | Thanh toán thành công | Quét QR / Xác nhận thanh toán trên App | `0` | **HTTP 204 No Content** | `paymentStatus: paid`<br>`status: processing` |
-| **SC-02** | Khách hàng hủy giao dịch | Bấm "Hủy" hoặc đóng màn hình thanh toán | `1006` | **HTTP 204 No Content** | `paymentStatus: pending`<br>`payment_attempt: failed` |
-| **SC-03** | Ví MoMo không đủ số dư | Tài khoản ví không đủ tiền thanh toán | `2001` / `1001` | **HTTP 204 No Content** | `paymentStatus: pending`<br>`payment_attempt: failed` |
-| **SC-04** | Hết thời gian chờ thanh toán | Quá 15 phút không hoàn tất giao dịch | `1005` | **HTTP 204 No Content** | `paymentStatus: pending`<br>`payment_attempt: failed` |
-| **SC-05** | Giả mạo chữ ký (Signature Tampering) | Payload IPN có chữ ký không khớp Secret Key | Bất kỳ | **HTTP 400 Bad Request** | Từ chối cập nhật đơn hàng |
-| **SC-06** | Mismatched Request ID | `requestId` callback không khớp với payment attempt | Bất kỳ | **HTTP 409 Conflict** | Từ chối cập nhật đơn hàng |
-| **SC-07** | IPN trùng lặp (Idempotency) | MoMo gửi lại IPN cho đơn đã xác nhận | `0` | **HTTP 204 No Content** | Bảo toàn số dư kế toán, không ghi trùng |
+## Kết quả và đối soát
 
----
+| Kết quả MoMo | Xử lý GAERU |
+| --- | --- |
+| `0` | Ghi nhận tiền, chuyển đơn đang chờ sang chờ gửi hàng |
+| `9000` | Thành công vì GAERU luôn dùng một bước `autoCapture: true` (trang 229) |
+| `1000`, `7000`, `7002` | Giữ chờ, tiếp tục tra cứu |
+| `1001`, `1005`, `1006` và mã thất bại cuối cùng khác được tài liệu liệt kê | Lần thanh toán thất bại, không ghi thu tiền |
+| Lỗi API, không tìm thấy, mã chưa biết, timeout | Chưa xác định; không suy diễn đã trả tiền hoặc thất bại |
+| Callback trùng/đến sai thứ tự | Không hạ trạng thái đã trả tiền, không tạo phiếu thu trùng |
+| Tiền đến sau hủy đơn | Ghi nhận tiền, giữ đơn đã hủy và tạo yêu cầu đối chiếu |
 
-## 3. Chạy bộ kiểm thử nghiệm thu tự động
+Worker trong `src/server.js` tự tra cứu các payment attempt MoMo chưa kết thúc. Chạy ở host bật `BACKGROUND_JOBS_ENABLED` và worker số 0 khi dùng cluster. Tắt checkout vẫn xử lý các giao dịch đang chờ.
 
-Kỹ sư hoặc chủ doanh nghiệp có thể thực thi bộ kiểm thử nghiệm thu bất kỳ lúc nào bằng lệnh:
+Lần đầu được lên lịch sau 30 giây. Nhịp tiếp theo: 30 giây trong giờ đầu, 5 phút trong ngày đầu, rồi mỗi giờ; lỗi mạng/cấu hình chờ 5 phút. Mỗi đợt tối đa 20 giao dịch; thời gian thực tế phụ thuộc độ trễ và lượng đơn. Claim DB có thời hạn 60 giây; không giữ kết nối DB khi gọi MoMo. Chỉ áp dụng kết quả khi claim còn thuộc worker và merchant chưa đổi.
 
-```bash
-# Chạy bộ kịch bản nghiệm thu và xuất bảng báo cáo:
+Query phải khớp merchant, mã đơn, request ID truy vấn, số tiền và có transaction ID hợp lệ khi thành công. Nếu `refundTrans` có hoàn tiền thành công/đang xử lý, giữ lại để đối chiếu, không tự ghi phiếu thu đủ giá trị và cho giao hàng.
+
+Theo dõi ở `payment_attempts.last_status_check_at`, `next_status_check_at`, `status_check_error`. Chỉ lưu mã lỗi đã lọc, không lưu secret hay phản hồi lỗi nguyên bản. Nhật ký phân biệt `payment.momo.query` và `payment.momo.callback`.
+
+Không đổi partner/key/môi trường khi còn checkout đang tạo hoặc giao dịch chưa đối soát/còn thời hạn. Bật/tắt kênh vẫn được phép. Không tự retry tạo phiên khi kết quả chưa rõ; hết thời hạn giữ hàng cục bộ không chứng minh hết hạn ở MoMo.
+
+## Cài đặt và nghiệm thu
+
+1. Sao lưu DB, chạy `npm run db:migrate` trên staging. `momo-payment-recovery.sql` thêm lịch tra cứu và đưa các attempt bị bản cũ đánh dấu thất bại do mã chờ về chờ tra cứu. Migration không đánh dấu đơn đã trả tiền.
+2. Đăng ký tại [MoMo Business](https://business.momo.vn), lấy bộ Sandbox riêng trong [trung tâm tích hợp](https://business.momo.vn/sanpham/portal/payment-integration-center).
+3. Trong GAERU CEO, mở cấu hình MoMo, nhập Partner Code, Access Key, Secret Key, chọn Sandbox trên môi trường thử nghiệm. Không gửi Secret Key qua chat/Git. Không bật Sandbox trên website chạy `NODE_ENV=production`.
+4. Chạy kiểm thử tự động:
+
+```powershell
+node --test test/payment-provider-clients.test.js test/momo-merchant-acceptance.test.js test/momo-recovery.integration.test.js test/payment-channels.test.js test/payment-return-access.test.js test/payment-result-status.test.js
 node scripts/momo-sandbox-runner.js
-
-# Hoặc chạy kiểm thử tự động toàn diện qua Node test runner:
-node --test test/momo-merchant-acceptance.test.js
 ```
 
----
+5. Khi có khóa, thử MoMo Test: thành công, hủy, thiếu số dư, hết hạn, đóng trình duyệt, mất IPN rồi query phục hồi, callback trùng, tiền đến sau hủy. Mỗi đơn chỉ có một phiếu thu; đo IPN dưới 15 giây trên hạ tầng thật.
+6. Gửi kết quả cho MoMo. Sau khi được cấp Production, hoàn tất UAT và xác nhận go-live theo trang 16 trước mở cho khách.
 
-## 4. Quy trình ký hợp đồng & Kích hoạt MoMo Business (Go-Live Cutover)
+Nút “Kiểm tra kết nối” chỉ xác thực merchant khi query đối chiếu được giao dịch đã tồn tại. HTTP từ mã đơn probe không chứng minh khóa đúng và không nghiệm thu IPN.
 
-Để đưa Ví MoMo vào hoạt động chính thức trên website GAERU:
+## Tài liệu chính thức
 
-1. **Đăng ký tài khoản Doanh nghiệp (MoMo Business)**:
-   - Truy cập: [https://business.momo.vn](https://business.momo.vn)
-   - Cung cấp giấy phép đăng ký kinh doanh, căn cước công dân người đại diện pháp luật và số tài khoản ngân hàng thụ hưởng của công ty.
-2. **Ký kết hợp đồng điện tử**:
-   - MoMo gửi hợp đồng dịch vụ thanh toán trực tuyến qua e-sign.
-   - Sau khi hoàn tất ký kết, MoMo cấp tài khoản truy cập **MoMo Merchant Portal**.
-3. **Cấu hình IPN URL & Lấy bộ khóa Production**:
-   - Đăng nhập Cổng đối tác MoMo ➔ vào mục **Cấu hình tích hợp**.
-   - Điền **IPN URL**: `https://gaeru.com/api/payments/momo/ipn`
-   - Điền **Return URL**: `https://gaeru.com/api/payments/momo/return`
-   - Thực hiện bài test kiểm thử kết nối IPN trên Cổng MoMo (máy chủ GAERU tự động phản hồi mã 204 No Content trong vòng chưa tới 0.05 giây).
-   - Lấy thông tin kết nối Production: **Partner Code**, **Access Key**, và **Secret Key**.
-4. **Kích hoạt trên GAERU CEO**:
-   - Đăng nhập Admin: `https://gaeru.com/gaeru_ceo` ➔ vào mục **Cấu hình hệ thống & Khóa API** ➔ chọn **Ví điện tử MoMo**.
-   - Cập nhật Partner Code, Access Key và Secret Key Production.
-   - Chuyển trường **Môi trường** sang `Chính thức (Production)`.
-   - Nhập mật khẩu chủ doanh nghiệp + mã OTP/MFA để ký lưu thay đổi.
-   - Bấm nút **Bật kênh MoMo**.
+- [Thanh toán một lần](https://developers.momo.vn/v3/docs/payment/api/wallet/onetime/)
+- [Truy vấn giao dịch](https://developers.momo.vn/v3/docs/payment/api/payment-api/query/)
+- [Mã kết quả](https://developers.momo.vn/v3/docs/payment/api/result-handling/resultcode/)
+- [IPN](https://developers.momo.vn/v3/docs/payment/api/result-handling/notification/)
