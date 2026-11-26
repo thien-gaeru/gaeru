@@ -135,16 +135,17 @@
     const loyaltyCard = profile.querySelector('[data-account-loyalty-card]');
     if (loyaltyCard) {
       loyaltyCard.hidden = true;
+      const loyaltyDetails=profile.querySelector('[data-account-loyalty-details]');if(loyaltyDetails)loyaltyDetails.hidden=true;
       workspaceRequest('/loyalty').then(data => {
         if (isCurrent() && data?.loyalty) {
-          loyaltyCard.hidden = false;
+          loyaltyCard.hidden = false;if(loyaltyDetails)loyaltyDetails.hidden=false;
           const pts = loyaltyCard.querySelector('[data-loyalty-points]');
-          const benefits=loyaltyCard.querySelector('[data-loyalty-benefits]');
+          const benefits=profile.querySelector('[data-loyalty-benefits]');
           if(pts)pts.textContent=new Intl.NumberFormat('vi-VN').format(data.loyalty.pointsBalance);
           const tier=data.tierBenefits?.[data.loyalty.tier];
           const expNote=(data.loyalty.pointsBalance>0&&data.loyalty.expiresAt)?' · Hạn dùng: '+new Date(data.loyalty.expiresAt).toLocaleDateString('vi-VN'):'';
           if(benefits)benefits.textContent='1 Xu = 1 ₫. '+(tier?.earnRate?'Tích '+tier.earnRate+' cho đơn hoàn tất. ':'')+'Dùng tối đa 50% giá trị đơn khi thanh toán'+expNote+'.';
-          const ledgerBox=loyaltyCard.querySelector('[data-loyalty-ledger]');
+          const ledgerBox=profile.querySelector('[data-loyalty-ledger]');
           if(ledgerBox){
             const items=Array.isArray(data.ledger)?data.ledger.slice(0,10):[];
             const reasonMap={earn:'Cộng Xu đơn hoàn tất',redeem:'Dùng Xu thanh toán',refund:'Hoàn Xu đơn hủy/trả',clawback:'Thu hồi Xu đơn hoàn trả',adjust:'Điều chỉnh số dư',adjustment:'Điều chỉnh số dư',expire:'Thu hồi Xu hết hạn 12 tháng'};
