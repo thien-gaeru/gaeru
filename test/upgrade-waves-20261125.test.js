@@ -23,6 +23,7 @@ test('Wave 1 (A1): Production proxy IP trust requires valid CF-Ray alongside CF-
     config: {
       NODE_ENV: 'production',
       PUBLIC_BASE_URL: 'https://gaeru.com',
+      AUTH_ENCRYPTION_KEY: require('node:crypto').randomBytes(32).toString('hex'),
       SESSION_SECRET: 'wave1-proxy-test-secret-at-least-32-chars'
     }
   });
@@ -96,6 +97,14 @@ test('Wave 1 (A2, C3) & Nginx removal: Server Console enforces WS Origin, revoke
   assert.match(syncPs1, /\/run\/gaeru-deploy\.lock/);
   assert.match(read('scripts/node-app.conf'), /MALLOC_ARENA_MAX="\$\{MALLOC_ARENA_MAX:-2\}"/);
 
+  const { isHttpsReq, isTrustedLanClient } = mi6Server._test;
+  const local = {socket:{remoteAddress:'127.0.0.1'}, headers:{}};
+  const proxy = {...local, headers:{'x-forwarded-proto':'https'}};
+  assert.equal(isTrustedLanClient(local), true);
+  assert.equal(isTrustedLanClient(proxy), false);
+  assert.equal(isHttpsReq(proxy), true);
+  assert.equal(isHttpsReq({...proxy, socket:{remoteAddress:'192.168.31.100'}}), false);
+  assert.match(serverSrc, /server\.listen\(PORT, '127\.0\.0\.1'/);
   // Same-site subdomain Origin (https://gaeru.com -> server.gaeru.com) must fail checkSameOrigin
   assert.equal(
     checkSameOrigin({

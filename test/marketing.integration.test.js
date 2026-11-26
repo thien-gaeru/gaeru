@@ -104,4 +104,27 @@ await context.test('scheduled product promotions choose best price and preserve 
  const viewer=client();await viewer.login('marketing-viewer','Viewer-password-2026');assert.equal((await viewer.request('/api/gaeru_ceo/marketing/promotions','POST',{data:promo})).status,403);
  const listing=await owner.ok('/api/gaeru_ceo/marketing');assert.equal(listing.promotions.length,3);assert.ok((await owner.ok('/api/gaeru_ceo/marketing/promotion-products')).variants.some(v=>v.id===variant.id));
 });
+
+await context.test('voucher quote rejects when the last slot is held by an active payment intent and allows once expired',async()=>{
+ const heldOffer={...voucher,code:'HOLDLAST1',kind:'fixed',amount:15000,minSpendVnd:0,totalLimit:1,perCustomerLimit:1};
+ const created=(await owner.ok('/api/gaeru_ceo/marketing/vouchers','POST',{data:heldOffer},201)).item;
+ await first.ok('/api/customer/marketing/claim','POST',{code:'HOLDLAST1'});
+ await second.ok('/api/customer/marketing/claim','POST',{code:'HOLDLAST1'});
+
+ const intentId=randomUUID();
+ await pool.query(
+  `INSERT INTO checkout_payment_intents(id,order_number,provider,provider_request_id,amount_vnd,customer_id,held_voucher_id,status,expires_at)
+   VALUES($1,'GR-HOLD-V1','momo','req-hold-v1',85000,$2,$3,'pending_provider',now()+interval '10 minutes')`,
+  [intentId, ids[0], created.id]
+ );
+
+ // Outside a transaction (POST /quote uses pool directly), active hold must block the last slot
+ const blocked=await second.request('/api/customer/marketing/quote','POST',{code:'HOLDLAST1',items:cart});
+ assert.equal(blocked.status,409);
+
+ // Once the hold expires, the quote becomes eligible again
+ await pool.query("UPDATE checkout_payment_intents SET expires_at=now()-interval '1 minute' WHERE id=$1",[intentId]);
+ const allowed=await second.ok('/api/customer/marketing/quote','POST',{code:'HOLDLAST1',items:cart});
+ assert.equal(allowed.discountVnd,15000);
+});
 });

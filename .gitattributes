@@ -3,3 +3,7 @@
 deploy-mi6/** text eol=lf
 infra/mi6/** text eol=lf
 scripts/*-runner.js text eol=lf
+
+.github/workflows/*.yml text eol=lf
+infra/mi6/admin/public/*.png binary
+infra/mi6/admin/public/*.ico binary

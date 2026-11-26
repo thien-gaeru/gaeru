@@ -17,6 +17,9 @@
  const vnd=n=>new Intl.NumberFormat('vi-VN').format(Number(n||0))+' ₫';
  function caseActions(c){
   if(!window.GAERUAdmin.can('orders.write')||['resolved','rejected'].includes(c.status))return '';
+  if(c.kind==='return'&&c.return_type!=='exchange'&&c.status==='received'&&Number(c.momo_pending_refund_vnd)>0){
+   return `<p>MoMo đang đối soát khoản hoàn ${vnd(c.momo_pending_refund_vnd)}. Chờ kết quả trước khi hoàn tiền thủ công.</p>`;
+  }
   const amount=refundable(c),clawback=Number(c.loyalty_clawback_preview_vnd||0),gross=c.gross_refundable_amount_vnd!=null?Number(c.gross_refundable_amount_vnd):amount,requiresRefund=c.kind==='return'&&c.return_type!=='exchange'&&c.status==='received'&&amount>0;
   const clawbackNotice=c.kind==='return'&&c.return_type!=='exchange'&&c.status==='received'&&clawback>0?`<p data-loyalty-clawback-note style="color:#9a3412;background:#fff7ed;border:1px solid #fed7aa;padding:8px 12px;border-radius:8px;">Khấu trừ <strong>${vnd(clawback)}</strong> tương ứng GAERU Xu khách đã tiêu từ đơn này (Tổng đã thu: ${vnd(gross)} → Thực hoàn: <strong>${vnd(amount)}</strong>).</p>`:'';
   const note=c.kind==='return'&&c.status==='received'&&c.restock_eligible&&!window.GAERUAdmin.can('inventory.approve')?'<p>Cần quyền duyệt kho để nhập hàng trả về tồn có thể bán và đóng hồ sơ.</p>':c.kind==='return'&&c.return_type==='exchange'&&c.outbound_status!=='delivered'?'<p>Xuất đủ hàng đổi bằng chứng từ kho trước khi gửi. Chỉ đóng hồ sơ sau khi đã xác nhận khách nhận đủ hàng.</p>':c.kind==='return'&&c.return_type!=='exchange'&&c.status==='received'&&amount===null?'<p>Chưa xác định số tiền cần hoàn. Đối soát thanh toán trước khi đóng hồ sơ.</p>':requiresRefund&&!window.GAERUAdmin.can('payments.write')?'<p>Cần quyền ghi nhận thanh toán để đối soát chứng từ hoàn tiền và đóng hồ sơ.</p>':'';

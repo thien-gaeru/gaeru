@@ -169,6 +169,14 @@ test('paid return closure requires authorized manual refund evidence and records
   assert.equal((await resolve({ manualRefund }, { ...f.actor, permissions: ['orders.write'] })).status, 403);
   assert.equal((await resolve({ manualRefund: { ...manualRefund, amountVnd: 199999 } })).status, 409);
   assert.equal((await f.query('SELECT status FROM order_after_sales WHERE id=$1', [row.id])).rows[0].status, 'received');
+  await f.query("INSERT INTO momo_refunds(order_id,order_number,refund_order_id,request_id,original_trans_id,amount_vnd,environment,created_by) VALUES($1,$2,'rma-ref','receipt-1',1,200000,'sandbox','fixture')", [order.id, order.order_number]);
+  for (const state of ['pending_provider', 'pending', 'ambiguous']) {
+    await f.query('UPDATE momo_refunds SET status=$1 WHERE order_id=$2', [state, order.id]);
+    const blocked = await resolve({ manualRefund });
+    assert.equal(blocked.status, 409);
+    assert.match(blocked.error.message, /MoMo/);
+  }
+  await f.query("UPDATE momo_refunds SET status='failed' WHERE order_id=$1", [order.id]);
   const closed = await resolve({ manualRefund });
   assert.equal(closed.status, 200);
   assert.equal(closed.result.settlementScope, 'manual_refund_recorded');

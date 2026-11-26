@@ -79,3 +79,24 @@ test('SKU conflict across products rolls back instead of moving existing stock h
   assert.deepEqual(await f.balance(), original);
   assert.equal((await f.pool.query("SELECT id FROM products WHERE slug='another-product'")).rows.length, 0);
 });
+
+test('confirmed empty primary catalog deactivates standby products while missing payload preserves them', async t => {
+  const f = await fixture(t);
+  assert.equal((await f.manager.syncFromPrimary({ fetcher: f.fetcher(f.snapshot(5)) })).ok, true);
+  assert.equal((await f.pool.query("SELECT active FROM products WHERE slug='failover-test'")).rows[0].active, true);
+
+  // Malformed / missing products payload must keep standby data and mark catalogReady=false
+  const missing = await f.manager.syncFromPrimary({
+    fetcher: async url => ({ ok: true, json: async () => url.endsWith('/api/products') ? {} : { shippingRates: {} } })
+  });
+  assert.equal(missing.ok, false);
+  assert.equal(f.manager.getStatus().catalogReady, false);
+  assert.equal((await f.pool.query("SELECT active FROM products WHERE slug='failover-test'")).rows[0].active, true);
+
+  // Confirmed empty catalog array must deactivate the last remaining standby product
+  const empty = await f.manager.syncFromPrimary({ fetcher: f.fetcher([]) });
+  assert.equal(empty.ok, true);
+  assert.equal(empty.stats.productsCount, 0);
+  assert.equal(f.manager.getStatus().catalogReady, true);
+  assert.equal((await f.pool.query("SELECT active FROM products WHERE slug='failover-test'")).rows[0].active, false);
+});

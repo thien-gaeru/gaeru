@@ -203,3 +203,14 @@ test('PostgreSQL audit regressions for visitor counters, notifications, product 
     assert.deepEqual((await pool.query('SELECT title,status FROM news_posts WHERE slug=$1',[slugs[0]])).rows[0], { title:'Edited fixture',status:'draft' });
   });
 });
+
+test('activating a dedicated key reads both legacy formats and uses the new key for writes', () => {
+  const keys = require('../src/audit-fixes/encryption-key');
+  const { seal, open } = require('../src/totp');
+  const secret = require('node:crypto').randomBytes(32).toString('hex');
+  const dedicated = require('node:crypto').randomBytes(32).toString('hex');
+  const derived = require('node:crypto').createHmac('sha256', secret).update('gaeru-auth-encryption-v1').digest('hex');
+  const active = keys.resolveEncryptionKeys({SESSION_SECRET: secret, AUTH_ENCRYPTION_KEY: dedicated});
+  for (const old of [secret, derived]) assert.equal(keys.openWithKeyFallback(seal('existing', old), active), 'existing');
+  assert.equal(open(keys.sealWithPrimaryKey('new', active), active.primary), 'new');
+});

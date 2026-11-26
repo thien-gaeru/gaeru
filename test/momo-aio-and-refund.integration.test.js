@@ -30,6 +30,7 @@ const { appendAudit } = require('../src/audit');
 
 const config = {
   NODE_ENV: 'test',
+  AUTH_ENCRYPTION_KEY: require('node:crypto').randomBytes(32).toString('hex'),
   SESSION_SECRET: 'momo-aio-refund-fixture-encryption-key',
   PUBLIC_BASE_URL: 'https://gaeru.com'
 };

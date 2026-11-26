@@ -245,7 +245,14 @@ sync_host_file() {
   [ -f "$src" ] || return 0
   local old_sha new_sha
   old_sha=$(sha256sum "$dst" 2>/dev/null | awk '{print $1}' || true)
-  tr -d '\r' < "$src" > "${dst}.tmp.$$"
+  case "$src" in
+    *.png|*.ico|*.webp|*.avif|*.jpg|*.jpeg|*.gif|*.woff2)
+      cp -f "$src" "${dst}.tmp.$$"
+      ;;
+    *)
+      tr -d '\r' < "$src" > "${dst}.tmp.$$"
+      ;;
+  esac
   chown root:root "${dst}.tmp.$$"
   chmod "$mode" "${dst}.tmp.$$"
   mv -f "${dst}.tmp.$$" "$dst"
@@ -260,7 +267,9 @@ sync_host_file "$APP_DIR/infra/mi6/sbin/gaeru-screen.py" /usr/local/sbin/gaeru-s
 sync_host_file "$APP_DIR/infra/mi6/bin/hw_tune.sh" /usr/local/bin/hw_tune.sh 0755 ""
 sync_host_file "$APP_DIR/infra/mi6/bin/battery_limiter.py" /usr/local/bin/battery_limiter.py 0755 battery-limiter
 sync_host_file "$APP_DIR/scripts/pty_helper.py" /userdata/storage/admin/pty_helper.py 0700 ""
-sync_host_file "$APP_DIR/infra/mi6/admin/public/index.html" /userdata/storage/admin/public/index.html 0644 ""
+for asset in index.html logo.png favicon.ico favicon-16x16.png favicon-32x32.png apple-touch-icon.png icon-192.png icon-512.png manifest.webmanifest; do
+  sync_host_file "$APP_DIR/infra/mi6/admin/public/$asset" "/userdata/storage/admin/public/$asset" 0644 ""
+done
 sync_host_file "$APP_DIR/infra/mi6/admin/server.js" /userdata/storage/admin/server.js 0600 server-dashboard
 sync_host_file "$APP_DIR/infra/mi6/gpu-ai/gaeru-gpu-ai.cpp" /storage/gpu-ai-build/gaeru-gpu-ai.cpp 0644 ""
 '@

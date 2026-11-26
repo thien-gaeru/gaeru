@@ -114,7 +114,7 @@ async function answerAI({config,product,question,decision=false,transport=fetch}
   return require('./chat-ai-provider').generate({settings,product,question,decision,transport});
 }
 
-async function persistChatFile({pool,chatThread,isAdmin,adminActor,requestKey,originalName,buffer=null,mime,client=null,staged=null,rollbackTasks=null,commitTasks=null}) {
+async function persistChatFile({pool,config,chatThread,isAdmin,adminActor,requestKey,originalName,buffer=null,mime,client=null,staged=null,rollbackTasks=null,commitTasks=null}) {
   const originalSize = staged ? staged.totalBytes : (Buffer.isBuffer(buffer) ? buffer.length : 0);
   if (!Number.isSafeInteger(originalSize) || originalSize < 1 || originalSize > uploadRules.MAX_FILE_BYTES) {
     throw fail("File exceeds upload limit (" + Math.round(uploadRules.MAX_FILE_BYTES / 1048576) + " MiB).", 413);
@@ -123,6 +123,7 @@ async function persistChatFile({pool,chatThread,isAdmin,adminActor,requestKey,or
   let fileRecord = null;
   let preUploaded = null;
   let committed = false;
+  let needsAdmin = false;
   if (!staged && requestKey) {
     const preCheck = (await (client || pool).query('SELECT id FROM shopping_chat_messages WHERE thread_id=$1 AND request_key=$2', [chatThread.id, requestKey])).rows[0];
     if (preCheck) {
@@ -134,12 +135,13 @@ async function persistChatFile({pool,chatThread,isAdmin,adminActor,requestKey,or
   }
   const persist = async (c) => {
     await c.query("SELECT pg_advisory_xact_lock(hashtext('shopping-chat-storage'))");
-    const row = (await c.query('SELECT status FROM shopping_chat_threads WHERE id=$1 FOR UPDATE', [chatThread.id])).rows[0];
+    const row = (await c.query('SELECT status,handling_mode FROM shopping_chat_threads WHERE id=$1 FOR UPDATE', [chatThread.id])).rows[0];
     const existing = (await c.query('SELECT id FROM shopping_chat_messages WHERE thread_id=$1 AND request_key=$2', [chatThread.id, requestKey])).rows[0];
     if (existing) {
       fileRecord = (await c.query('SELECT id, name, mime, byte_size, original_byte_size, compressed_byte_size, compression_status FROM shopping_chat_files WHERE message_id=$1', [existing.id])).rows[0];
       return;
     }
+    needsAdmin = !isAdmin && row.handling_mode === 'human';
     if (row.status === 'closed') throw fail('Hội thoại đã đóng.', 409);
     const quota = (await c.query("SELECT COALESCE(SUM(COALESCE(original_byte_size,byte_size)),0)::bigint AS bytes FROM shopping_chat_files WHERE thread_id=$1", [chatThread.id])).rows[0];
     if (Number(quota.bytes) + originalSize > uploadRules.MAX_THREAD_BYTES) throw fail("Chat file quota exceeded.", 413);
@@ -170,7 +172,7 @@ async function persistChatFile({pool,chatThread,isAdmin,adminActor,requestKey,or
     )).rows[0];
     await c.query(
       'UPDATE shopping_chat_threads SET version=version+1,awaiting_admin=$2,updated_at=now() WHERE id=$1',
-      [chatThread.id, !isAdmin && chatThread.handling_mode === 'human']
+      [chatThread.id, needsAdmin]
     );
     if (isAdmin) {
       await require('./audit').appendAudit(c, {
@@ -200,20 +202,30 @@ async function persistChatFile({pool,chatThread,isAdmin,adminActor,requestKey,or
   if (preUploaded?.content && !committed) {
     await removeUploadedMedia(preUploaded.content).catch(() => {});
   }
-  try{require('./realtime-sse').publishChatEvent(chatThread.id,'chat:message',{threadId:chatThread.id,sender:isAdmin?'admin':'customer',body:'Tệp đính kèm: '+safeName,fileId:fileRecord?.id});}catch(_){}
-  if (fileRecord?.compression_status === 'pending') {
-    try { require('./shopping-chat-compression').nudgeChatCompressionWorker?.(); } catch (_) {}
-  }
-  if (!isAdmin && chatThread.handling_mode === 'human') {
-    try {
-      require('./admin-notifications').notifyAdminPushBackground(pool, config, {
-        requiredPermissions: ['customers.read'],
-        title: `📎 Chat mua sắm · ${chatThread.product_name || 'Khách gửi tệp'}`,
-        body: `Tệp đính kèm: ${safeName}`.slice(0, 160),
-        target: 'shopping-chat',
-        tag: 'shopping-chat:' + chatThread.id
-      });
-    } catch (_) {}
+  if (!committed) return fileRecord;
+  const notifyAfterCommit = async () => {
+    try{require('./realtime-sse').publishChatEvent(chatThread.id,'chat:message',{threadId:chatThread.id,sender:isAdmin?'admin':'customer',body:'Tệp đính kèm: '+safeName,fileId:fileRecord?.id});}catch(_){}
+    if (fileRecord?.compression_status === 'pending') {
+      try { require('./shopping-chat-compression').nudgeChatCompressionWorker?.(); } catch (_) {}
+    }
+    if (needsAdmin) {
+      try {
+        require('./admin-notifications').notifyAdminPushBackground(pool, config, {
+          requiredPermissions: ['customers.read'],
+          title: `📎 Chat mua sắm · ${chatThread.product_name || 'Khách gửi tệp'}`,
+          body: `Tệp đính kèm: ${safeName}`.slice(0, 160),
+          target: 'shopping-chat',
+          tag: 'shopping-chat:' + chatThread.id
+        });
+      } catch (error) {
+        console.warn('[shopping-chat] Không thể khởi tạo thông báo tệp.', error.code || error.name);
+      }
+    }
+  };
+  if (client) {
+    if (Array.isArray(commitTasks)) commitTasks.push(notifyAfterCommit);
+  } else {
+    await notifyAfterCommit();
   }
   return fileRecord;
 }
@@ -292,7 +304,7 @@ function attachShoppingChat({publicApi,admin,pool,config,owns,wrap,limit,chunkLi
       throw fail('Chỉ nhận JPG, PNG, WebP, GIF, AVIF, HEIC, MP4, MOV, WebM, MKV, AVI, MP3, M4A, WAV, OGG, PDF, Word, Excel, PowerPoint, ZIP, RAR, 7Z, TXT, CSV, JSON hoặc XML hợp lệ.');
     }
     const fileRecord = await persistChatFile({
-      pool,
+      pool, config,
       chatThread: req.chatThread,
       isAdmin,
       adminActor: req.admin,
@@ -346,12 +358,12 @@ function attachShoppingChat({publicApi,admin,pool,config,owns,wrap,limit,chunkLi
         rollbackTasks,
         commitTasks,
         persist: (transaction, buffer, mime) => persistChatFile({
-          pool, client: transaction, chatThread: req.chatThread, isAdmin,
+          pool, config, client: transaction, chatThread: req.chatThread, isAdmin,
           adminActor: req.admin, requestKey: meta.requestKey,
-          originalName: meta.fileName, buffer, mime
+          originalName: meta.fileName, buffer, mime, rollbackTasks, commitTasks
         }),
         persistStaged: (transaction, staged) => persistChatFile({
-          pool, client: transaction, chatThread: req.chatThread, isAdmin,
+          pool, config, client: transaction, chatThread: req.chatThread, isAdmin,
           adminActor: req.admin, requestKey: meta.requestKey,
           originalName: meta.fileName, mime: staged.mime, staged, rollbackTasks, commitTasks
         })

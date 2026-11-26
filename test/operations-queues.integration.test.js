@@ -86,3 +86,59 @@ test('compression retry rejects expired attachments and active leases while pres
   assert.equal((await f.pool.query('SELECT compression_attempts FROM shopping_chat_files WHERE id=$1', [eligible])).rows[0].compression_attempts, 0);
   assert.equal((await f.pool.query("SELECT count(*)::int AS count FROM audit_events WHERE action='shopping.chat.compression.retry'")).rows[0].count, 1);
 });
+
+test('retrying an unknown marketing email recipient reopens completed campaigns, enforces consent, and delivers via worker', { timeout: 60000 }, async t => {
+  const f = await fixture(t);
+  const { processEmailQueue } = require('../src/email-marketing');
+  const postResolve = (jobId, action = 'retry') => fetch(
+    f.base + `/owner/operations/queues/marketing-email/jobs/${jobId}/resolve`,
+    { method: 'POST', headers: { 'Content-Type': 'application/json', 'X-CSRF-Token': 'fixture-csrf' }, body: JSON.stringify({ action }) }
+  );
+
+  await f.pool.query(
+    `INSERT INTO marketing_email_subscriptions(email,status,confirmed_at)
+     VALUES ('Retry.Me@example.test','subscribed',now()), ('unsub@example.test','unsubscribed',now())`
+  );
+  const completedCamp = (await f.pool.query(
+    `INSERT INTO marketing_email_campaigns(title,subject,body,sources,status,scheduled_at,next_send_at,rate_per_minute)
+     VALUES ('Done Campaign','Subj','Body','[]'::jsonb,'completed',now()-interval '1 hour',now()+interval '10 minutes',12) RETURNING id`
+  )).rows[0].id;
+  const cancelledCamp = (await f.pool.query(
+    `INSERT INTO marketing_email_campaigns(title,subject,body,sources,status,scheduled_at,rate_per_minute)
+     VALUES ('Cancelled Campaign','Subj','Body','[]'::jsonb,'cancelled',now()-interval '1 hour',12) RETURNING id`
+  )).rows[0].id;
+
+  const eligibleJob = (await f.pool.query(
+    `INSERT INTO marketing_email_recipients(campaign_id,email,status,attempted_at,finished_at)
+     VALUES ($1,'retry.me@example.test','unknown',now()-interval '10 minutes',now()-interval '5 minutes') RETURNING id`,
+    [completedCamp]
+  )).rows[0].id;
+  const unsubJob = (await f.pool.query(
+    `INSERT INTO marketing_email_recipients(campaign_id,email,status,attempted_at,finished_at)
+     VALUES ($1,'unsub@example.test','unknown',now()-interval '10 minutes',now()-interval '5 minutes') RETURNING id`,
+    [completedCamp]
+  )).rows[0].id;
+  const cancelledJob = (await f.pool.query(
+    `INSERT INTO marketing_email_recipients(campaign_id,email,status,attempted_at,finished_at)
+     VALUES ($1,'retry.me@example.test','unknown',now()-interval '10 minutes',now()-interval '5 minutes') RETURNING id`,
+    [cancelledCamp]
+  )).rows[0].id;
+
+  // Unsubscribed recipient and cancelled campaign must be rejected immediately with 409 without reopening
+  assert.equal((await postResolve(unsubJob, 'retry')).status, 409);
+  assert.equal((await postResolve(cancelledJob, 'retry')).status, 409);
+  assert.equal((await f.pool.query('SELECT status FROM marketing_email_campaigns WHERE id=$1', [completedCamp])).rows[0].status, 'completed');
+
+  // Eligible recipient reopens completed campaign -> sending and resets next_send_at so worker delivers immediately
+  const ok = await postResolve(eligibleJob, 'retry');
+  assert.equal(ok.status, 200);
+  assert.equal((await f.pool.query('SELECT status FROM marketing_email_campaigns WHERE id=$1', [completedCamp])).rows[0].status, 'sending');
+  assert.equal((await f.pool.query('SELECT status FROM marketing_email_recipients WHERE id=$1', [eligibleJob])).rows[0].status, 'pending');
+
+  const sent = [];
+  const cfg = { smtp: { from: 'gaeru@example.test', publicBaseUrl: 'https://gaeru.com' }, PUBLIC_BASE_URL: 'https://gaeru.com' };
+  const mailer = { async sendMail(msg) { sent.push(msg.to); return { messageId: 'retry-ok-1', accepted: [msg.to], rejected: [] }; } };
+  await processEmailQueue(f.pool, cfg, mailer);
+  assert.deepEqual(sent, ['retry.me@example.test']);
+  assert.equal((await f.pool.query('SELECT status FROM marketing_email_recipients WHERE id=$1', [eligibleJob])).rows[0].status, 'sent');
+});

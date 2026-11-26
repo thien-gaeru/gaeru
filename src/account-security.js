@@ -23,7 +23,7 @@ async function authenticatorQrDataUrl(uri){
 function createAccountSecurity(pool,config,mailer){
  const encryptionKeys=require('./audit-fixes/encryption-key').resolveEncryptionKeys(config);
  const encryptionKey=encryptionKeys.primary;
- const openEncrypted=(value)=>require('./audit-fixes/encryption-key').openWithKeyFallback(value,encryptionKeys);
+ const openEncryptedMeta=(value)=>require('./audit-fixes/encryption-key').openWithKeyFallbackMeta(value,encryptionKeys);
  if(mailer===undefined&&config.smtp)mailer=nodemailer.createTransport(require('./smtp-security').smtpOptions(config.smtp));
  const audit=(client,a,action)=>appendAudit(client,{actor:a.principal||{username:a.customer.id,source:"customer"},action,entityType:"account",entityId:a.key});
  const isTestSecurityEnv=((config?.NODE_ENV||process.env.NODE_ENV)==='test')||Boolean(process.env.NODE_TEST_CONTEXT);
@@ -47,8 +47,10 @@ function createAccountSecurity(pool,config,mailer){
  // Returns false rather than throwing inside a transaction so attempt counters commit.
  async function factor(client,a,code,challengeId){if(a.row.method==='off')return true;const backup=hash(String(code||'').replace(/\s/g,''));const hashes=a.row.recovery_hashes||[];if(hashes.includes(backup)){await client.query('UPDATE account_security SET recovery_hashes=$2 WHERE account_key=$1',[a.key,JSON.stringify(hashes.filter(h=>h!==backup))]);purgeSecurityCache(a.key);return true;}
   if(a.row.method==='email')return Boolean(challengeId&&await consume(client,challengeId,a,'authorize',code));
-  let secret;try{secret=openEncrypted(a.row.encrypted_secret);}catch{return false;}
-  const counter=verify(secret,String(code||''),a.row.last_counter);if(counter===null)return false;await client.query('UPDATE account_security SET last_counter=$2 WHERE account_key=$1',[a.key,counter]);purgeSecurityCache(a.key);return true;}
+  let opened;try{opened=openEncryptedMeta(a.row.encrypted_secret);}catch{console.error('[account-security] Failed to decrypt TOTP secret for account:',a.key);return false;}
+  const counter=verify(opened.plaintext,String(code||''),a.row.last_counter);if(counter===null)return false;
+  if(encryptionKeys.dedicated&&!opened.usedPrimary){await client.query('UPDATE account_security SET last_counter=$2,encrypted_secret=$3,updated_at=now() WHERE account_key=$1',[a.key,counter,seal(opened.plaintext,encryptionKey)]);}else{await client.query('UPDATE account_security SET last_counter=$2 WHERE account_key=$1',[a.key,counter]);}
+  purgeSecurityCache(a.key);return true;}
  async function locked(client,key,login=false){await ensure(key,client);await client.query('SELECT account_key FROM account_security WHERE account_key=$1 FOR UPDATE',[key]);return account(key,client,login);}
  async function authenticated(req){if(req.session?.admin){const admin=await resolveAdminSession(req,pool,{...config,accountSecurity:service});if(admin)return admin.source==='bootstrap'?'owner':'staff:'+admin.id;}if(req.session?.customer?.id)return 'customer:'+req.session.customer.id;throw error('Vui lòng đăng nhập.',401);}
  async function password(a,value){if(!a.passwordHash)throw Object.assign(error('Tài khoản đăng nhập qua Google chưa thiết lập mật khẩu riêng; vui lòng dùng chức năng Quên mật khẩu để tạo mật khẩu.',403),{code:'CURRENT_PASSWORD_INVALID'});if(typeof value!=='string'||value.length>200||!require('./audit-fixes/password-rules').withinBcryptLimit(value)||!await bcrypt.compare(value,a.passwordHash))throw Object.assign(error('Mật khẩu hiện tại không đúng.',403),{code:'CURRENT_PASSWORD_INVALID'});}

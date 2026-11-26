@@ -21,12 +21,17 @@ test('shopping chat isolates guest sessions, preserves messages, enforces permis
  const current=(await owner.call(adminPath+'/messages')).data.thread;
  assert.equal((await owner.call(adminPath+'/status','PUT',{status:'open',version:current.version})).status,200);
  const upload=()=>{const f=new FormData();f.append('file',new Blob(['%PDF-1.7\nlocal fixture'],{type:'application/pdf'}),'fixture.pdf');f.append('requestKey',fileKey);return f;};
+ const notifications=t.mock.method(require('../src/admin-notifications'),'notifyAdminPushBackground',()=>{});
+ await pool.query("UPDATE shopping_chat_threads SET handling_mode='human' WHERE id=$1",[id]);
  const fileKey=randomUUID();
  assert.equal((await other.call('/api/shopping-chat/threads/'+id+'/files','POST',upload())).status,404);
  assert.equal((await guest.call('/api/shopping-chat/threads/'+id+'/files','POST',upload(),false)).status,403);
  assert.equal((await guest.call('/api/shopping-chat/threads/'+id+'/files','POST',upload())).status,201);
  assert.equal((await guest.call('/api/shopping-chat/threads/'+id+'/files','POST',upload())).status,201);
  const attached=(await guest.call(path)).data.messages.at(-1).attachment;assert.equal(attached.name,'fixture.pdf');
+ const fileAlerts=notifications.mock.calls.filter(call=>call.arguments[2]?.title?.startsWith('📎'));
+ assert.equal(fileAlerts.length,1);
+ assert.equal(fileAlerts[0].arguments[1].NODE_ENV,'test');
  assert.equal((await pool.query('SELECT count(*)::int AS total FROM shopping_chat_files')).rows[0].total,1);
  assert.equal((await other.call('/api/shopping-chat/threads/'+id+'/files/'+attached.id)).status,404);
  assert.equal((await guest.call('/api/shopping-chat/threads/'+id+'/files/'+attached.id)).data.bytes,22);
@@ -42,7 +47,11 @@ test('shopping chat isolates guest sessions, preserves messages, enforces permis
  const c1=new FormData();c1.append('file',new Blob([part1]),'manual.pdf');c1.append('requestKey',chunkKey);c1.append('fileName','manual.pdf');c1.append('chunkIndex','0');c1.append('totalChunks','2');c1.append('totalBytes',String(bigPdf.length));
  assert.equal((await guest.call('/api/shopping-chat/threads/'+id+'/files/chunk','POST',c1)).status,202);
  const c2=new FormData();c2.append('file',new Blob([part2]),'manual.pdf');c2.append('requestKey',chunkKey);c2.append('fileName','manual.pdf');c2.append('chunkIndex','1');c2.append('totalChunks','2');c2.append('totalBytes',String(bigPdf.length));
+ const alertsBeforeChunk=notifications.mock.calls.filter(call=>call.arguments[2]?.title?.startsWith('📎')).length;
  assert.equal((await guest.call('/api/shopping-chat/threads/'+id+'/files/chunk','POST',c2)).status,201);
+ const alertsAfterChunk=notifications.mock.calls.filter(call=>call.arguments[2]?.title?.startsWith('📎'));
+ assert.equal(alertsAfterChunk.length,alertsBeforeChunk+1,'chunked upload in human mode must notify admin push once after commit');
+ assert.equal(alertsAfterChunk.at(-1).arguments[1].NODE_ENV,'test');
 let compressedMsg;
 
 for(let i=0;i<50;i++){

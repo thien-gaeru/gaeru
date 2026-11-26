@@ -42,7 +42,7 @@ async function fixture(t) {
   const server = app.listen(0, '127.0.0.1'); await new Promise(r => server.once('listening', r));
   t.after(async () => { await new Promise(r => server.close(r)); await db.close(); });
   const base = 'http://127.0.0.1:' + server.address().port + '/api/gaeru_ceo/orders/after-sales/' + row.id;
-  const api = async (path, method = 'GET', data, headers = {}) => { const response = await fetch(base + path, { method, headers: { 'Content-Type': 'application/json', 'X-CSRF-Token': 'rma-fixture', ...headers }, body: data ? JSON.stringify(data) : undefined }); return { status: response.status, data: await response.json() }; };
+  const api = async (path, method = 'GET', data, headers = {}, caseId = row.id) => { const response = await fetch(base.replace(row.id, caseId) + path, { method, headers: { 'Content-Type': 'application/json', 'X-CSRF-Token': 'rma-fixture', ...headers }, body: data ? JSON.stringify(data) : undefined }); return { status: response.status, data: await response.json() }; };
   return { pool, actor, warehouse, variants, order, items, row, body, state, stock, api };
 }
 
@@ -71,6 +71,54 @@ test('RMA full-order exchange issues stock once, records linked proof, advances 
   assert.equal((await f.pool.query('SELECT COUNT(*)::int AS n FROM customer_loyalty_ledger')).rows[0].n, 0);
   assert.equal((await f.pool.query("SELECT COUNT(*)::int AS n FROM inventory_movements WHERE event_key LIKE 'adjustment:rma-issue:%'")).rows[0].n, 1, 'repeated original SKU lines share one atomic summed movement');
   assert.equal((await f.pool.query("SELECT COUNT(*)::int AS n FROM audit_events WHERE action='rma.exchange.issue'")).rows[0].n, 1);
+});
+
+test('saleable return after a faulty exchange restores only the delivered replacement SKU', async t => {
+  const f = await fixture(t);
+  await issueExchange(f.pool, { caseId: f.row.id, data: f.body(), actor: f.actor });
+  await updateRmaLogisticsByAdmin(f.pool, { caseId: f.row.id, version: 2, outboundStatus: 'in_transit', outboundCarrier: 'viettel', outboundTrackingNumber: 'REPLACEMENT-1', actor: f.actor });
+  await updateRmaLogisticsByAdmin(f.pool, { caseId: f.row.id, version: 3, outboundStatus: 'delivered', actor: f.actor });
+  assert.equal((await f.api('', 'PATCH', {version: 4, status: 'resolved', resolution: 'Khách đã nhận hàng đổi mới'})).status, 200);
+  const next = (await f.pool.query("INSERT INTO order_after_sales(order_id,kind,return_type,status,reason,restock_eligible) VALUES($1,'return','refund','received','Trả lại hàng đổi nguyên vẹn',true) RETURNING id", [f.order.id])).rows[0];
+  const result = await f.api('', 'PATCH', { version: 1, status: 'resolved', resolution: 'Đã đối soát hoàn tiền',
+    manualRefund: {amountVnd: 200000, method: 'cash', reference: 'CASH-RETURN-2', confirmedSent: true}
+  }, {}, next.id);
+  assert.equal(result.status, 200, JSON.stringify(result.data));
+  assert.deepEqual(await f.stock(f.variants[0].id), {stock_quantity: 8, quantity: 8});
+  assert.deepEqual(await f.stock(f.variants[1].id), {stock_quantity: 10, quantity: 10});
+});
+
+test('second saleable exchange after a faulty exchange restocks the first replacement SKU and issues the new SKU', async t => {
+  const f = await fixture(t);
+  const v2 = (await f.pool.query(
+    `INSERT INTO product_variants(product_id,sku,name,options,price_vnd,stock_quantity,active)
+     SELECT product_id,'EXCH-V2','Bản Xanh',options,price_vnd,10,true FROM product_variants WHERE id=$1 RETURNING id`,
+    [f.variants[0].id]
+  )).rows[0];
+  await withTransaction(f.pool, c => inventory.initializeVariantStock(c, { variantId: v2.id, quantity: 10, actor: f.actor }));
+
+  // Exchange #1: faulty original V0 (restock_eligible=false) -> replaced with V1
+  await issueExchange(f.pool, { caseId: f.row.id, data: f.body(), actor: f.actor });
+  await updateRmaLogisticsByAdmin(f.pool, { caseId: f.row.id, version: 2, outboundStatus: 'in_transit', outboundCarrier: 'viettel', outboundTrackingNumber: 'EXCHANGE-1001', actor: f.actor });
+  await updateRmaLogisticsByAdmin(f.pool, { caseId: f.row.id, version: 3, outboundStatus: 'delivered', actor: f.actor });
+  assert.equal((await f.api('', 'PATCH', { version: 4, status: 'resolved', resolution: 'Đã đổi lần 1 (hàng gốc hỏng)' })).status, 200);
+
+  // Exchange #2: customer returns saleable V1 (restock_eligible=true) -> replaced with V2
+  const case2 = (await f.pool.query(
+    "INSERT INTO order_after_sales(order_id,kind,return_type,status,reason,restock_eligible,inbound_status,inspection_notes) VALUES($1,'return','exchange','received','Đổi sang bản Xanh',true,'delivered_to_warehouse','Hàng đổi nguyên vẹn có thể bán lại') RETURNING id",
+    [f.order.id]
+  )).rows[0];
+  const body2 = { ...f.body(1), items: f.items.map(item => ({ orderItemId: item.id, replacementVariantId: v2.id, quantity: item.quantity })) };
+  await issueExchange(f.pool, { caseId: case2.id, data: body2, actor: f.actor });
+  await updateRmaLogisticsByAdmin(f.pool, { caseId: case2.id, version: 2, outboundStatus: 'in_transit', outboundCarrier: 'viettel', outboundTrackingNumber: 'EXCHANGE-1002', actor: f.actor });
+  await updateRmaLogisticsByAdmin(f.pool, { caseId: case2.id, version: 3, outboundStatus: 'delivered', actor: f.actor });
+  const res2 = await f.api('', 'PATCH', { version: 4, status: 'resolved', resolution: 'Đã đổi lần 2 thành công' }, {}, case2.id);
+  assert.equal(res2.status, 200, JSON.stringify(res2.data));
+
+  // V0 stays 8 (faulty never restocked), V1 restored from 8 back to 10, V2 deducted from 10 to 8
+  assert.deepEqual(await f.stock(f.variants[0].id), { stock_quantity: 8, quantity: 8 });
+  assert.deepEqual(await f.stock(f.variants[1].id), { stock_quantity: 10, quantity: 10 });
+  assert.deepEqual(await f.stock(v2.id), { stock_quantity: 8, quantity: 8 });
 });
 
 test('RMA exchange rejects unreceived goods, partial quantities, price differences, foreign products, stale versions and insufficient stock atomically', async t => {

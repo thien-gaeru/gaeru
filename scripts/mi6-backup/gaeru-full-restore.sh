@@ -28,13 +28,29 @@ cleanup_deploy_lock() {
     DEPLOY_LOCK_OWNED=0
   fi
 }
-trap cleanup_temp_files EXIT
-trap 'cleanup_temp_files; cleanup_deploy_lock' INT TERM
+RESTART_ON_EXIT=0
+finish_restore() {
+  local result=$?
+  trap - EXIT
+  if [ "$RESTART_ON_EXIT" -eq 1 ]; then
+    if [ "$result" -ne 0 ]; then
+      printf '[%s] Restore did not complete (exit=%s); rolled back database transaction and restoring previous node-app service.\n' "$(date -Is)" "$result" >&2
+    fi
+    initctl status node-app APP=gaeru 2>/dev/null | grep -q 'start/running' ||
+      initctl start node-app APP=gaeru >&2 || result=1
+  fi
+  cleanup_temp_files
+  cleanup_deploy_lock
+  exit "$result"
+}
+trap finish_restore EXIT
+trap 'exit 130' INT
+trap 'exit 143' TERM
 
 acquire_deploy_lock() {
   [ "$DEPLOY_LOCK_OWNED" -eq 1 ] && return 0
   mkdir -p "$(dirname "$DEPLOY_LOCK")" 2>/dev/null || true
-  exec 9>"$DEPLOY_LOCK"
+  exec 9>>"$DEPLOY_LOCK"
   if command -v flock >/dev/null 2>&1; then
     flock -n 9 || die "Another deploy or restore operation is holding $DEPLOY_LOCK"
   fi
@@ -63,7 +79,7 @@ start_gaeru_app() {
 }
 
 say() { printf '[%s] %s\n' "$(date -Is)" "$*"; }
-die() { cleanup_deploy_lock; printf '[%s] ERROR: %s\n' "$(date -Is)" "$*" >&2; exit 1; }
+die() { printf '[%s] ERROR: %s\n' "$(date -Is)" "$*" >&2; exit 1; }
 
 resolve_chroot() {
   if [ -d "$CHROOT/usr" ]; then
@@ -185,7 +201,6 @@ restore_db() {
 
   local tmp_plain="/run/gaeru-restore-db.$$.dump"
   GAERU_TMP_CLEANUP_FILES+=("$tmp_plain")
-  trap 'cleanup_temp_files' RETURN
   local dump_file
   dump_file=$(prepare_restore_input "$raw_input" "$tmp_plain")
 
@@ -195,25 +210,34 @@ restore_db() {
 
   acquire_deploy_lock
   say "Verifying dump TOC before restore: $dump_file"
-  chroot "$chroot_dir" /usr/bin/pg_restore -l < "$dump_file" >/dev/null
+  chroot "$chroot_dir" /usr/bin/env -u LANGUAGE LANG=C.UTF-8 LC_ALL=C.UTF-8 /usr/bin/pg_restore -l < "$dump_file" >/dev/null
+  if initctl status node-app APP=gaeru 2>/dev/null | grep -q 'start/running'; then
+    RESTART_ON_EXIT=1
+  fi
   stop_gaeru_app
-
   say "Restoring database gaeru_store from $dump_file ..."
-  chroot "$chroot_dir" runuser -u postgres -- /usr/bin/env -u LANGUAGE LANG=C.UTF-8 LC_ALL=C.UTF-8 pg_restore --clean --if-exists --no-owner --no-privileges -v -d gaeru_store < "$dump_file"
-  # Keep runtime role webuser working without SUPERUSER after a postgres-run restore.
-  chroot "$chroot_dir" runuser -u postgres -- /usr/bin/env -u LANGUAGE LANG=C.UTF-8 LC_ALL=C.UTF-8 psql -v ON_ERROR_STOP=1 -d gaeru_store <<'EOSQL'
+  # Only the producer can emit COMMIT, after pg_restore has read the entire archive.
+  # A truncated stream, SQL error or interrupted writer rolls back the connection.
+  {
+    printf 'BEGIN;\n' &&
+    chroot "$chroot_dir" /usr/bin/env -u LANGUAGE LANG=C.UTF-8 LC_ALL=C.UTF-8 /usr/bin/pg_restore --clean --if-exists --no-owner --no-privileges --file=- < "$dump_file" &&
+    cat <<'EOSQL'
+RESET search_path;
 GRANT ALL PRIVILEGES ON SCHEMA public TO webuser;
 GRANT ALL PRIVILEGES ON ALL TABLES IN SCHEMA public TO webuser;
 GRANT ALL PRIVILEGES ON ALL SEQUENCES IN SCHEMA public TO webuser;
 GRANT pg_read_all_stats TO webuser;
 ALTER DEFAULT PRIVILEGES FOR ROLE postgres IN SCHEMA public GRANT ALL ON TABLES TO webuser;
 ALTER DEFAULT PRIVILEGES FOR ROLE postgres IN SCHEMA public GRANT ALL ON SEQUENCES TO webuser;
+SELECT count(*) FROM public.products;
+SELECT count(*) FROM public.orders;
+SELECT count(*) FROM public.media_upload_originals;
+COMMIT;
 EOSQL
-  local stats
-  stats=$(chroot "$chroot_dir" runuser -u postgres -- /usr/bin/env -u LANGUAGE LANG=C.UTF-8 LC_ALL=C.UTF-8 psql -tA -d gaeru_store -c "SELECT 'public_tables=' || count(*) FROM pg_tables WHERE schemaname='public' UNION ALL SELECT 'products=' || count(*) FROM products UNION ALL SELECT 'orders=' || count(*) FROM orders UNION ALL SELECT 'media_upload_originals=' || count(*) FROM media_upload_originals;" | tr '\n' ' ')
+  } | chroot "$chroot_dir" runuser -u postgres -- /usr/bin/env -u LANGUAGE LANG=C.UTF-8 LC_ALL=C.UTF-8 psql -X -v ON_ERROR_STOP=1 -d gaeru_store
   start_gaeru_app
-  cleanup_deploy_lock
-  say "Database restore completed successfully: $stats"
+  RESTART_ON_EXIT=0
+  say "Database restore completed successfully."
 }
 
 restore_media_code() {
@@ -225,18 +249,17 @@ restore_media_code() {
 
   local tmp_plain="/run/gaeru-restore-media.$$.tar.gz"
   GAERU_TMP_CLEANUP_FILES+=("$tmp_plain")
-  trap 'cleanup_temp_files' RETURN
   local archive
   archive=$(prepare_restore_input "$raw_input" "$tmp_plain")
 
   acquire_deploy_lock
   say "Testing archive integrity: $archive"
   gzip -t "$archive"
-  stop_gaeru_app
   say "Extracting Media, Codebase, Admin Dashboard, and Server Configs to / ..."
   if (set +o pipefail; tar -tzf "$archive" | grep -qE '(^|/)\.\.(/|$)|^/'); then
     die "Unsafe path traversal or absolute entry detected in archive: $archive"
   fi
+  stop_gaeru_app
   tar -xzpf "$archive" -C / --numeric-owner
   start_gaeru_app
   cleanup_deploy_lock

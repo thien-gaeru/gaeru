@@ -140,6 +140,41 @@ function checkReturnEligibility(order, activeCase = null, completedCase = null, 
   };
 }
 
+const { UNSETTLED_MOMO_REFUND_STATUSES, getOrderRefundLedger } = require('./momo-refunds');
+const unsettledMomoStates = `(${UNSETTLED_MOMO_REFUND_STATUSES.map(s => `'${s}'`).join(',')})`;
+
+async function restockReturnedItems(client, row, actor) {
+  const inventory = require('./inventory');
+  const items = (await client.query(
+    `SELECT ei.id, ei.replacement_variant_id, ei.quantity, i.warehouse_id
+     FROM rma_exchange_issues i JOIN rma_exchange_issue_items ei ON ei.issue_id=i.id
+     WHERE i.id=(
+       SELECT i2.id FROM rma_exchange_issues i2 JOIN order_after_sales a ON a.id=i2.case_id
+       WHERE a.order_id=$1 AND a.id<>$2 AND a.return_type='exchange'
+         AND a.status='resolved' AND a.outbound_status='delivered' AND i2.status='posted'
+       ORDER BY i2.created_at DESC, i2.id DESC LIMIT 1
+     )
+     ORDER BY ei.replacement_variant_id, ei.id`, [row.order_id, row.id]
+  )).rows;
+  if (!items.length) {
+    await inventory.releaseOrderStock(client, {
+      orderId: row.order_id, actor, reason: 'Tái nhập kho từ hồ sơ hoàn trả RMA'
+    });
+    return;
+  }
+  for (const item of items) {
+    await client.query('SELECT id FROM product_variants WHERE id=$1 FOR UPDATE', [item.replacement_variant_id]);
+    const stock = (await client.query('SELECT quantity FROM warehouse_stock WHERE warehouse_id=$1 AND variant_id=$2',
+      [item.warehouse_id, item.replacement_variant_id])).rows[0];
+    await inventory.adjustWarehouseStock(client, {
+      warehouseId: item.warehouse_id, variantId: item.replacement_variant_id,
+      delta: Number(item.quantity), expectedQuantity: Number(stock?.quantity || 0),
+      reason: 'Tái nhập kho hàng đã xuất đổi từ hồ sơ hoàn trả RMA',
+      requestKey: `after-sales-exch-restock:${row.id}:${item.id}`, actor
+    });
+  }
+}
+
 /**
  * Core atomic function to create a customer return request within a transaction.
  */
@@ -265,7 +300,8 @@ function afterSalesRouter(pool) {
 
       const result = await pool.query(
         `SELECT a.*, o.order_number, o.customer_id, o.customer_name, o.phone, o.email, o.status AS order_status, o.payment_status,
-          GREATEST(0, (CASE WHEN o.payment_status='paid' THEN COALESCE(o.total_vnd, 0) ELSE COALESCE((SELECT SUM(r.amount_vnd) FROM sales_receipts r WHERE r.order_id=o.id),0) END) - COALESCE((SELECT SUM(mr.amount_vnd) FROM momo_refunds mr WHERE mr.order_id=o.id AND mr.status='succeeded'),0)) AS refundable_amount_vnd
+          GREATEST(0, (CASE WHEN o.payment_status='paid' THEN COALESCE(o.total_vnd, 0) ELSE COALESCE((SELECT SUM(r.amount_vnd) FROM sales_receipts r WHERE r.order_id=o.id),0) END) - COALESCE((SELECT SUM(mr.amount_vnd) FROM momo_refunds mr WHERE mr.order_id=o.id AND mr.status='succeeded'),0)) AS refundable_amount_vnd,
+          (SELECT COALESCE(SUM(mr.amount_vnd),0) FROM momo_refunds mr WHERE mr.order_id=o.id AND mr.status IN ${unsettledMomoStates}) AS momo_pending_refund_vnd
          FROM order_after_sales a
          JOIN orders o ON o.id = a.order_id
          WHERE ($1::text = '' OR a.status = $1)
@@ -281,6 +317,10 @@ function afterSalesRouter(pool) {
       for (const item of result.rows) {
         item.exchange_issue = issuesMap ? (issuesMap.get(item.id) || null) : await rmaExchange.readIssue(pool, item.id);
         const gross = item.refundable_amount_vnd === null || item.refundable_amount_vnd === undefined ? null : Number(item.refundable_amount_vnd);
+        if (item.status !== 'resolved' && Number(item.momo_pending_refund_vnd) > 0) {
+          item.refundable_amount_vnd = null;
+          continue;
+        }
         item.gross_refundable_amount_vnd = gross;
         if (item.kind === 'return' && item.return_type !== 'exchange' && !['resolved', 'rejected'].includes(item.status) && item.customer_id && Number.isSafeInteger(gross) && gross > 0) {
           const preview = await previewEarnClawback(pool, { customerId: item.customer_id, orderId: item.order_id, lock: false });
@@ -425,63 +465,17 @@ function afterSalesRouter(pool) {
         if (data.status === 'resolved' && row.kind === 'return' && row.return_type === 'exchange') {
           const issue = await require('./rma-exchange').readIssue(c, row.id);
           if (!issue || row.outbound_status !== 'delivered') throw fail('Cần chứng từ xuất kho đổi mới đang hiệu lực và xác nhận khách đã nhận hàng trước khi đóng hồ sơ.');
-          if (row.restock_eligible === true) {
-            const inv = require('./inventory');
-            const activeAlloc = await c.query(
-              'SELECT 1 FROM order_stock_allocations WHERE order_id = $1 AND released_at IS NULL LIMIT 1',
-              [row.order_id]
-            );
-            if (activeAlloc.rows.length > 0) {
-              await inv.releaseOrderStock(c, { orderId: row.order_id, actor: req.admin });
-            } else {
-              const priorExch = await c.query(
-                `SELECT ei.id AS "itemId", ei.replacement_variant_id AS "variantId", ei.quantity, i.warehouse_id AS "warehouseId"
-                 FROM rma_exchange_issues i
-                 JOIN rma_exchange_issue_items ei ON ei.issue_id = i.id
-                 JOIN order_after_sales a ON a.id = i.case_id
-                 WHERE i.id = (
-                   SELECT i2.id FROM rma_exchange_issues i2
-                   JOIN order_after_sales a2 ON a2.id = i2.case_id
-                   WHERE a2.order_id = $1 AND a2.id <> $2 AND i2.status = 'posted'
-                   ORDER BY i2.created_at DESC LIMIT 1
-                 )
-                 ORDER BY ei.replacement_variant_id`,
-                [row.order_id, row.id]
-              );
-              for (const item of priorExch.rows) {
-                await c.query('SELECT id FROM product_variants WHERE id = $1 FOR UPDATE', [item.variantId]);
-                const before = Number((await c.query('SELECT quantity FROM warehouse_stock WHERE warehouse_id = $1 AND variant_id = $2', [item.warehouseId, item.variantId])).rows[0]?.quantity || 0);
-                await inv.adjustWarehouseStock(c, {
-                  warehouseId: item.warehouseId,
-                  variantId: item.variantId,
-                  delta: Number(item.quantity),
-                  expectedQuantity: before,
-                  reason: 'Tái nhập kho hàng đổi từ hồ sơ đổi trả RMA',
-                  requestKey: `after-sales-exch-cycle-restock:${id}:${item.itemId}`,
-                  actor: req.admin
-                });
-              }
-            }
-            await c.query('UPDATE order_after_sales SET restocked_at=now() WHERE id=$1', [row.id]);
-          }
         }
         let refundAmount = null;
         let grossRefundable = null;
         let cashClawbackVnd = null;
         let loyaltyRefund = null;
         if (data.status === 'resolved' && row.kind === 'return' && row.return_type !== 'exchange') {
-          const received = Number((await c.query('SELECT COALESCE(SUM(amount_vnd),0) AS received FROM sales_receipts WHERE order_id=$1', [order.id])).rows[0]?.received || 0);
-          let gatewayRefunded = 0;
-          await c.query('SAVEPOINT sp_as_momo_refunds');
-          try {
-            gatewayRefunded = Number((await c.query("SELECT COALESCE(SUM(amount_vnd),0) AS refunded FROM momo_refunds WHERE order_id=$1 AND status='succeeded'", [order.id])).rows[0]?.refunded || 0);
-            await c.query('RELEASE SAVEPOINT sp_as_momo_refunds');
-          } catch (mrErr) {
-            await c.query('ROLLBACK TO SAVEPOINT sp_as_momo_refunds');
-            if (mrErr?.code !== '42P01') throw mrErr;
-          }
-          const baseCollected = order.payment_status === 'paid' ? Number(order.total_vnd) : received;
-          const refundable = Math.max(0, baseCollected - gatewayRefunded);
+          const ledger = await getOrderRefundLedger(c, order, { lock: true });
+          if (ledger.unsettledMomoVnd > 0) throw fail('MoMo đang xử lý khoản hoàn. Đối soát kết quả trước khi hoàn thủ công.', 409);
+          const received = ledger.collectedVnd;
+          const baseCollected = ledger.baseCollectedVnd;
+          const refundable = ledger.grossRefundableVnd;
           if ((order.payment_status === 'paid' && order.total_vnd === null) || !Number.isSafeInteger(baseCollected) || baseCollected < 0 || baseCollected > 2000000000 || received > baseCollected) throw fail('Số tiền cần hoàn chưa hợp lệ. Cần đối soát thanh toán trước.');
           grossRefundable = refundable;
 
@@ -521,59 +515,10 @@ function afterSalesRouter(pool) {
               cashRecoveredEarnVnd: cashClawbackVnd
             });
           }
-          if (row.restock_eligible === true) {
-            const activeAlloc = await c.query(
-              'SELECT 1 FROM order_stock_allocations WHERE order_id = $1 AND released_at IS NULL LIMIT 1',
-              [row.order_id]
-            );
-            const inv = require('./inventory');
-            if (activeAlloc.rows.length > 0) {
-              await inv.releaseOrderStock(c, {
-                orderId: row.order_id,
-                actor: req.admin,
-                reason: 'Tái nhập kho từ hồ sơ hoàn trả RMA'
-              });
-            } else {
-              const exchItems = await c.query(
-                `SELECT ei.id AS "itemId", ei.replacement_variant_id AS "variantId", ei.quantity, i.warehouse_id AS "warehouseId"
-                 FROM rma_exchange_issues i
-                 JOIN rma_exchange_issue_items ei ON ei.issue_id = i.id
-                 JOIN order_after_sales a ON a.id = i.case_id
-                 WHERE i.id = (
-                   SELECT i2.id FROM rma_exchange_issues i2
-                   JOIN order_after_sales a2 ON a2.id = i2.case_id
-                   WHERE a2.order_id = $1 AND i2.status = 'posted'
-                   ORDER BY i2.created_at DESC LIMIT 1
-                 )
-                 ORDER BY ei.replacement_variant_id`,
-                [row.order_id]
-              );
-              if (exchItems.rows.length > 0) {
-                for (const item of exchItems.rows) {
-                  await c.query('SELECT id FROM product_variants WHERE id = $1 FOR UPDATE', [item.variantId]);
-                  const before = Number((await c.query('SELECT quantity FROM warehouse_stock WHERE warehouse_id = $1 AND variant_id = $2', [item.warehouseId, item.variantId])).rows[0]?.quantity || 0);
-                  await inv.adjustWarehouseStock(c, {
-                    warehouseId: item.warehouseId,
-                    variantId: item.variantId,
-                    delta: Number(item.quantity),
-                    expectedQuantity: before,
-                    reason: 'Tái nhập kho hàng đã xuất đổi từ hồ sơ hoàn trả RMA',
-                    requestKey: `after-sales-exch-restock:${id}:${item.itemId}`,
-                    actor: req.admin
-                  });
-                }
-              } else {
-                await inv.releaseOrderStock(c, {
-                  orderId: row.order_id,
-                  actor: req.admin,
-                  reason: 'Tái nhập kho từ hồ sơ hoàn trả RMA'
-                });
-              }
-            }
-          }
         }
 
-        const restockedNow = Boolean(data.status === 'resolved' && row.kind === 'return' && row.return_type !== 'exchange' && row.restock_eligible === true);
+        const restockedNow = data.status === 'resolved' && row.kind === 'return' && row.restock_eligible === true;
+        if (restockedNow) await restockReturnedItems(c, row, req.admin);
         const changed = (await c.query(
           'UPDATE order_after_sales SET status = $2, resolution = $3, refund_amount_vnd = COALESCE($4, refund_amount_vnd), loyalty_clawback_vnd = COALESCE($5, loyalty_clawback_vnd), restocked_at = CASE WHEN $6 THEN COALESCE(restocked_at, now()) ELSE restocked_at END, version = version + 1, updated_at = now() WHERE id = $1 RETURNING *',
           [id, data.status, data.resolution, refundAmount, cashClawbackVnd, restockedNow]

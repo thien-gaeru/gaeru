@@ -143,6 +143,17 @@ function createOperationsQueues(pool, config = {}) {
       const { withTransaction } = require('./db');
       const { appendAudit } = require('./audit');
       const outcome = await withTransaction(pool, async (client) => {
+        let campaign;
+        if (table === 'marketing_email_recipients' && action === 'retry') {
+          campaign = (await client.query(
+            'SELECT c.id,c.status,r.email FROM marketing_email_campaigns c JOIN marketing_email_recipients r ON r.campaign_id=c.id WHERE r.id=$1 FOR UPDATE OF c',
+            [req.params.jobId]
+          )).rows[0];
+          if (!campaign) return { status: 404, error: 'Không tìm thấy người nhận hoặc chiến dịch.' };
+          if (!['scheduled', 'sending', 'completed'].includes(campaign.status)) {
+            return { status: 409, error: 'Trạng thái chiến dịch hiện tại không cho phép gửi lại.' };
+          }
+        }
         const current = (await client.query(`SELECT id, status FROM ${table} WHERE id = $1 FOR UPDATE`, [req.params.jobId])).rows[0];
         if (!current) return { status: 404, error: 'Không tìm thấy bản ghi trong hàng đợi.' };
         if (current.status !== 'unknown') {
@@ -150,6 +161,12 @@ function createOperationsQueues(pool, config = {}) {
         }
         const nextStatus = action === 'retry' ? 'pending' : 'failed';
         if (table === 'marketing_email_recipients') {
+          if (campaign && !await require('./email-marketing').canSendMarketingEmail(client, campaign.email)) {
+            return { status: 409, error: 'Địa chỉ này không còn đủ điều kiện nhận email marketing.' };
+          }
+          if (campaign?.status === 'completed') {
+            await client.query("UPDATE marketing_email_campaigns SET status='sending',next_send_at=LEAST(COALESCE(next_send_at,now()),now()),version=version+1,updated_at=now() WHERE id=$1", [campaign.id]);
+          }
           await client.query(
             `UPDATE marketing_email_recipients
              SET status = $2, finished_at = CASE WHEN $2 = 'failed' THEN now() ELSE NULL END
@@ -176,6 +193,9 @@ function createOperationsQueues(pool, config = {}) {
         return { status: 200, nextStatus };
       });
       if (outcome.error) return res.status(outcome.status).json({ error: outcome.error });
+      if (table === 'marketing_email_recipients' && action === 'retry') {
+        try { require('./email-marketing').nudgeEmailMarketingWorker(); } catch (_) {}
+      }
       res.json({
         success: true,
         queueId,

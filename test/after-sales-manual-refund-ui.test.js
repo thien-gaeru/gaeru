@@ -110,3 +110,9 @@ test('restocking requires inventory approval in both the logistics editor and re
  }
  const approver=await fixture({return_type:'refund'},exchangePermissions),form=approver.document.querySelector('[data-rma-logistics]');assert.ok(form.elements.restockEligible);form.elements.restockEligible.checked=true;form.elements.inspectionNotes.value='Đã kiểm tra hàng có thể bán';await approver.submit(form);assert.equal(approver.writes[0].body.restockEligible,true);
 });
+
+test('an unsettled MoMo refund hides the manual receipt and displays the amount awaiting reconciliation', async () => {
+  const ui = await fixture({momo_pending_refund_vnd:'150000', refundable_amount_vnd:null});
+  assert.equal(ui.document.querySelector('[data-case]'), null);
+  assert.match(ui.document.getElementById('after-sales-list').textContent,/MoMo.*150\.000/);
+});

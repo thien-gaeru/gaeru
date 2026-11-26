@@ -335,7 +335,7 @@ test('Deep Audit v2 — [P0-06, P1-04, P1-12, P1-13, P1-16] Scripts DR, GA4 DLP,
   const pullPs1 = fs.readFileSync(path.join(REPO_ROOT, 'scripts', 'pull-mi6-backups.ps1'), 'utf8');
   assert.match(pullPs1, /\$expectedHash -notmatch '\^\[0-9a-f\]\{64\}\$'/);
   assert.match(pullPs1, /portable-database-backup\.cjs/);
-  assert.match(pullPs1, /restart-server\.ps1/);
+  assert.match(pullPs1, /watchdog-supervisor\.js/);
 
   // 2. GA4 DLP URL sanitization
   const dirtyUrl = 'https://gaeru.com/tai-khoan?confirmDeletion=sec123&securityReset=rst456&trackingToken=trk789&challenge=0912345678&setup=stp000&utm_source=zalo';

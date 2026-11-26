@@ -12,7 +12,7 @@ const { assertPaymentConfigurationChange } = require('../src/payment-channels');
 const { reconcileNextMomoPayment } = require('../src/momo-reconciliation');
 const finance = require('../src/finance-api');
 
-const config = { NODE_ENV: 'test', SESSION_SECRET: 'momo-recovery-fixture-encryption-key', PUBLIC_BASE_URL: 'https://example.test' };
+const config = { NODE_ENV: 'test', AUTH_ENCRYPTION_KEY: require('node:crypto').randomBytes(32).toString('hex'), SESSION_SECRET: 'momo-recovery-fixture-encryption-key', PUBLIC_BASE_URL: 'https://example.test' };
 const settings = { partnerCode: 'MOMO_FIXTURE', accessKey: 'fixture_access', secretKey: 'fixture-secret-not-a-merchant-key', environment: 'sandbox', enabled: false };
 const owner = { username: 'fixture', role: 'owner', source: 'bootstrap' };
 

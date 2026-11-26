@@ -85,7 +85,7 @@ canvas{width:100%;height:60px}
     </div>
   </div>
   <div id="loginSetup2fa" class="hide">
-    <div class="sm" style="margin-top:10px"><b>Kích hoạt bảo mật 2 bước (lần đầu qua LAN):</b> Quét mã QR bằng Google Authenticator, Authy hoặc Bitwarden.</div>
+    <div class="sm" style="margin-top:10px"><b>Kích hoạt bảo mật 2 bước (lần đầu qua SSH / cục bộ):</b> Quét mã QR bằng Google Authenticator, Authy hoặc Bitwarden.</div>
     <img id="setupQr" class="totp-qr hide" alt="2FA QR Code">
     <div class="sm mut">Khóa thủ công (Base32): <code id="setupSecret" style="color:var(--txt);user-select:all"></code> <button type="button" class="btn s" id="copySecretBtn" style="margin-left:6px">Copy</button></div>
     <div class="sm" style="margin-top:10px;color:var(--warn)"><b>8 mã dự phòng dùng 1 lần</b> (lưu ngay để phòng mất điện thoại):</div>
@@ -302,9 +302,9 @@ canvas{width:100%;height:60px}
       <div class="kv sm" id="totpSysStatus"><span>Trạng thái 2FA</span><b>Đang kiểm tra…</b></div>
       <div class="row" style="margin-top:12px;margin-bottom:8px">
         <button class="btn s p" data-act="2fa-regen">↻ Tạo lại 8 mã dự phòng</button>
-        <button class="btn s" data-act="2fa-rekey" id="btn2faRekey">🔑 Đổi khóa QR (LAN)</button>
+        <button class="btn s" data-act="2fa-rekey" id="btn2faRekey">🔑 Đổi khóa QR (SSH / cục bộ)</button>
       </div>
-      <div class="mut sm">Phiên đăng nhập tự động hết hạn sau 2 giờ không thao tác (tối đa 12 giờ). Đổi khóa QR chỉ cho phép qua mạng LAN.</div>
+      <div class="mut sm">Phiên đăng nhập tự động hết hạn sau 2 giờ không thao tác (tối đa 12 giờ). Để đổi khóa QR, kết nối cục bộ trên Mi6 hoặc dùng chuyển tiếp cổng SSH tới 127.0.0.1:8080.</div>
     </div>
   </div>
   <div class="card" style="margin-top:14px"><h3>Wi-Fi</h3><div class="row"><button class="btn s" data-act="wifi-scan">⟳ Quét mạng</button><span class="mut sm" id="wifiNow"></span></div>

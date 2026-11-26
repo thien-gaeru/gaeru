@@ -41,6 +41,17 @@ function makeMailer(config) {
   return require('nodemailer').createTransport(require('./smtp-security').smtpOptions(s));
 }
 
+const recipientConsentSql = `EXISTS (
+  SELECT 1 FROM marketing_email_subscriptions WHERE lower(trim(email))=lower(trim($1)) AND status='subscribed' AND confirmed_at IS NOT NULL
+) AND NOT EXISTS (
+  SELECT 1 FROM marketing_email_suppressions WHERE lower(trim(email))=lower(trim($1))
+) AND NOT EXISTS (
+  SELECT 1 FROM customers WHERE lower(trim(email))=lower(trim($1)) AND (active=false OR deleted_at IS NOT NULL)
+)`;
+async function canSendMarketingEmail(client, email) {
+  return (await client.query(`SELECT ${recipientConsentSql} AS eligible`, [email])).rows[0].eligible;
+}
+
 /**
  * Lọc danh sách người nhận email marketing:
  * Chỉ gửi cho khách hàng đã chủ động đăng ký và xác nhận (Double Opt-In):
@@ -638,8 +649,7 @@ async function processEmailQueue(pool, config, mailer) {
       if (!campaign) return null;
       const row = (await c.query("SELECT * FROM marketing_email_recipients WHERE campaign_id=$1 AND status='pending' ORDER BY id FOR UPDATE SKIP LOCKED LIMIT 1", [campaign.id])).rows[0];
       if (!row) return null;
-      const suppressed = (await c.query("SELECT 1 FROM marketing_email_suppressions WHERE lower(trim(email))=$1 UNION ALL SELECT 1 FROM customers WHERE lower(trim(email))=$1 AND (active=false OR deleted_at IS NOT NULL) LIMIT 1", [row.email])).rows.length;
-      if (suppressed) {
+      if (!await canSendMarketingEmail(c, row.email)) {
         await c.query("UPDATE marketing_email_recipients SET status='skipped',result='Không còn nhận marketing',finished_at=now() WHERE id=$1", [row.id]);
         return { skipped: true };
       }
@@ -655,8 +665,8 @@ async function processEmailQueue(pool, config, mailer) {
     const url = new URL('/api/marketing-email/unsubscribe/' + token, normalizePublicBase(config.PUBLIC_BASE_URL || config.smtp.publicBaseUrl)).toString();
 
     try {
-      const stillAllowed = (await pool.query("SELECT c.status,(EXISTS(SELECT 1 FROM marketing_email_suppressions WHERE lower(trim(email))=$2) OR EXISTS(SELECT 1 FROM customers WHERE lower(trim(email))=$2 AND (active=false OR deleted_at IS NOT NULL))) AS suppressed FROM marketing_email_campaigns c WHERE c.id=$1", [campaign.id, row.email])).rows[0];
-      if (!stillAllowed || stillAllowed.status === 'cancelled' || stillAllowed.suppressed) {
+      const stillAllowed = (await pool.query(`SELECT status, ${recipientConsentSql} AS eligible FROM marketing_email_campaigns WHERE id=$2`, [row.email, campaign.id])).rows[0];
+      if (!stillAllowed || stillAllowed.status === 'cancelled' || !stillAllowed.eligible) {
         await pool.query("UPDATE marketing_email_recipients SET status='skipped',finished_at=now(),result='Đã dừng trước khi gửi' WHERE id=$1", [row.id]);
         continue;
       }
@@ -766,6 +776,7 @@ module.exports = {
   startEmailWorker,
   nudgeEmailMarketingWorker,
   processEmailQueue,
+  canSendMarketingEmail,
   audience,
   campaignSchema,
   subscribeSchema

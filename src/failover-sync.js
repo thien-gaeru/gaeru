@@ -253,12 +253,10 @@ class FailoverSyncManager {
             );
           }
         }
-        if (seenProductIds.length > 0) {
-          await client.query(
-            'UPDATE products SET active = false, updated_at = NOW() WHERE active = true AND NOT (id = ANY($1::uuid[]))',
-            [seenProductIds]
-          );
-        }
+        await client.query(
+          'UPDATE products SET active = false, updated_at = NOW() WHERE active = true AND NOT (id = ANY($1::uuid[]))',
+          [seenProductIds]
+        );
         await client.query(`
           INSERT INTO store_settings (setting_key, setting_value, updated_at)
           VALUES ('public_config', $1::jsonb, NOW())
@@ -284,6 +282,7 @@ class FailoverSyncManager {
       });
       stats.productsCount = products.length;
       stats.settingsSynced = true;
+      try { require('./cache').invalidateTags(['catalog', 'product:list', 'store-config', 'settings'], { immediate: true }); } catch (_) {}
 
       this.state.status = 'idle';
       this.state.lastSyncTime = stats.syncedAt;

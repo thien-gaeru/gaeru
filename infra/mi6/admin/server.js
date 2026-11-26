@@ -100,13 +100,12 @@ function clientIp(req) {
 function normalizeIp(ip) {
   return String(ip || '').trim().replace(/^::ffff:/i, '');
 }
+const proxyHeaders = ['x-forwarded-proto', 'x-forwarded-host', 'x-forwarded-for', 'cf-visitor', 'cf-ray', 'cf-connecting-ip', 'forwarded'];
+function isProxied(req) {
+  return proxyHeaders.some(header => req.headers[header] !== undefined);
+}
 function isTrustedLanClient(req) {
-  if (!req || req.headers['cf-connecting-ip'] || req.headers['cf-ray'] || req.headers['x-forwarded-for']) {
-    return false;
-  }
-  const ra = normalizeIp(req.socket && req.socket.remoteAddress);
-  if (ra === '127.0.0.1' || ra === '::1') return true;
-  return /^192\.168\.31\.\d{1,3}$/.test(ra);
+  return Boolean(req && !isProxied(req) && ['127.0.0.1', '::1'].includes(normalizeIp(req.socket?.remoteAddress)));
 }
 function checkSameOrigin(req) {
   const sfs = String(req.headers['sec-fetch-site'] || '').trim().toLowerCase();
@@ -122,13 +121,19 @@ function checkSameOrigin(req) {
   }
 }
 function isHttpsReq(req) {
+  if (req?.socket?.encrypted) return true;
+  if (!['127.0.0.1', '::1'].includes(normalizeIp(req?.socket?.remoteAddress))) return false;
   const xf = String(req?.headers?.['x-forwarded-proto'] || '').split(',')[0].trim().toLowerCase();
-  if (xf === 'https') return true;
+  if (xf) return xf === 'https';
   const cfv = req?.headers?.['cf-visitor'];
   if (cfv) {
     try { if (JSON.parse(String(cfv)).scheme === 'https') return true; } catch {}
   }
-  return Boolean(req?.socket?.encrypted);
+  return false;
+}
+// Direct loopback access also supports maintenance through SSH port forwarding.
+function requiresSecureProxy(req) {
+  return isProxied(req) && !isHttpsReq(req);
 }
 function secHeaders(req, extra = {}) {
   const h = {
@@ -1281,8 +1286,8 @@ on('POST', '/api/system/firewall', async (b) => {
   if (b.action === 'enable') {
     const st = await sh('ufw status 2>/dev/null');
     let cmd = 'ufw --force enable';
-    if (!/\b22\/tcp\b.*ALLOW/i.test(st.out) || !/\b8080\/tcp\b.*ALLOW/i.test(st.out)) {
-      cmd = 'ufw allow from 192.168.31.0/24 to any port 22 proto tcp && ufw allow from 192.168.31.0/24 to any port 8080 proto tcp && ufw --force enable';
+    if (!/\b22\/tcp\b.*ALLOW/i.test(st.out)) {
+      cmd = 'ufw allow from 192.168.31.0/24 to any port 22 proto tcp && ufw --force enable';
     }
     const r = await sh(cmd + ' 2>&1');
     return { ok: r.code === 0, out: r.out.trim() };
@@ -1316,7 +1321,7 @@ on('POST', '/api/2fa/backup-regen', async (b, q, req) => {
 });
 on('POST', '/api/2fa/reset', async (b, q, req) => {
   if (!isTrustedLanClient(req)) {
-    throw Object.assign(new Error('Chỉ được phép đổi khóa 2FA khi truy cập từ mạng LAN'), { status: 403 });
+    throw Object.assign(new Error('Chỉ được phép đổi khóa 2FA qua kết nối cục bộ hoặc chuyển tiếp cổng SSH'), { status: 403 });
   }
   const okPw = await verifyRootPassword(String(b?.password || ''));
   if (!okPw) throw Object.assign(new Error('Sai mật khẩu root'), { status: 403 });
@@ -1510,6 +1515,7 @@ const STATIC = Object.assign(Object.create(null), {
 const PASSIVE_POLL_PATHS = new Set(['/api/stats', '/api/processes', '/api/logs']);
 
 const server = http.createServer(async (req, res) => {
+  if (requiresSecureProxy(req)) return json(res, 403, { error: 'Yêu cầu kết nối HTTPS.' }, req);
   const u = new URL(req.url, 'http://x');
   const p = u.pathname;
   try {
@@ -1593,14 +1599,14 @@ const server = http.createServer(async (req, res) => {
       }
       if (!isTrustedLanClient(req)) {
         console.warn(new Date().toISOString(), 'Blocked pre-2FA login from WAN/untrusted IP', ip);
-        return json(res, 403, { error: '2FA chưa được kích hoạt. Mở http://192.168.31.59:8080 từ mạng LAN để quét mã QR 2FA trước khi đăng nhập từ xa.' }, req);
+        return json(res, 403, { error: '2FA chưa được kích hoạt. Mở bảng quản trị qua chuyển tiếp cổng SSH tới 127.0.0.1:8080 trên Mi6 để thiết lập 2FA.' }, req);
       }
       const setup = await createPendingSetup(ip, false);
       return json(res, 200, { ok: true, needSetup2fa: true, ...setup }, req);
     }
     if (p === '/api/2fa/enroll' && req.method === 'POST') {
       if (!checkSameOrigin(req)) return json(res, 403, { error: 'Origin không hợp lệ' }, req);
-      if (!isTrustedLanClient(req)) return json(res, 403, { error: 'Chỉ được phép kích hoạt 2FA khi truy cập từ mạng LAN' }, req);
+      if (!isTrustedLanClient(req)) return json(res, 403, { error: 'Chỉ được phép kích hoạt 2FA qua kết nối cục bộ hoặc chuyển tiếp cổng SSH' }, req);
       const ip = clientIp(req);
       const lockMsg = checkIpLockout(ip);
       if (lockMsg) return json(res, 429, { error: lockMsg }, req);
@@ -1755,6 +1761,7 @@ const server = http.createServer(async (req, res) => {
 });
 
 server.on('upgrade', (req, socket) => {
+  if (requiresSecureProxy(req)) return socket.destroy();
   const sess = authedSession(req, true);
   if (!String(req.url || '').startsWith('/ws/term') || !sess) {
     return socket.destroy();
@@ -1788,7 +1795,7 @@ server.headersTimeout = 66000;
 
 if (require.main === module) {
   stats();
-  server.listen(PORT, '0.0.0.0', () => console.log(new Date().toISOString(), 'GAERU Admin listening on', PORT));
+  server.listen(PORT, '127.0.0.1', () => console.log(new Date().toISOString(), 'GAERU Admin listening on', PORT));
 } else {
   module.exports = {
     server,
@@ -1803,6 +1810,7 @@ if (require.main === module) {
       readTotpConfig,
       isTrustedLanClient,
       isHttpsReq,
+      requiresSecureProxy,
       checkSameOrigin,
       sessions,
       failures,

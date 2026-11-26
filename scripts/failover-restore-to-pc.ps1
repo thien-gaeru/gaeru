@@ -213,16 +213,18 @@ elseif ($Mode -eq "FailoverToPC") {
     Assert-Sha256Companion -FilePath $newestPgSql | Out-Null
     Assert-Sha256Companion -FilePath $newestMedia | Out-Null
 
-    Write-Output "[0/3] Stopping any active GAERU Node/Supervisor processes on PC before DB restore..."
-    Disable-ScheduledTask -TaskName "GAERU_Server_AutoStart" -ErrorAction SilentlyContinue | Out-Null
-    Get-CimInstance Win32_Process -Filter "Name='node.exe'" -ErrorAction SilentlyContinue | Where-Object {
-        $_.CommandLine -like "*$repoRoot*" -and (
-            $_.CommandLine -like "*cluster-master.js*" -or
-            $_.CommandLine -like "*cluster.js*" -or
-            $_.CommandLine -like "*server.js*" -or
-            $_.CommandLine -like "*watchdog-supervisor.js*"
-        )
-    } | ForEach-Object { Stop-Process -Id $_.ProcessId -Force -ErrorAction SilentlyContinue }
+    $watchdog = Join-Path $scriptRoot 'watchdog-supervisor.js'
+    foreach ($required in @($watchdog, (Join-Path $repoRoot 'src/server.js'), (Join-Path $repoRoot '.env'), (Join-Path $repoRoot 'node_modules/dotenv/package.json'), 'C:\Program Files\GnuPG\bin\gpg.exe')) {
+        if (!(Test-Path -LiteralPath $required -PathType Leaf)) { throw "Missing failover prerequisite: $required" }
+    }
+    foreach ($tool in @('node.exe', 'tar.exe', 'robocopy.exe', 'icacls.exe')) {
+        Get-Command $tool -CommandType Application -ErrorAction Stop | Out-Null
+    }
+    $tempExtract = Join-Path ([IO.Path]::GetFullPath($env:TEMP)) ("gaeru_dr_extract_" + [guid]::NewGuid().ToString('N'))
+    $psql = Find-PgTool "psql.exe"
+    $port = if ($env:PORT) { [int]$env:PORT } else { 3000 }
+    $portLine = Select-String -LiteralPath (Join-Path $repoRoot '.env') -Pattern '^\s*PORT\s*=\s*["'']?(\d+)' | Select-Object -First 1
+    if (-not $env:PORT -and $portLine) { $port = [int]$portLine.Matches[0].Groups[1].Value }
 
     . (Join-Path $scriptRoot "database-backup.ps1")
     $conn = Get-GaeruBackupConnection -EnvFile (Join-Path $repoRoot ".env")
@@ -232,10 +234,28 @@ elseif ($Mode -eq "FailoverToPC") {
         [Environment]::SetEnvironmentVariable($k, $conn[$k], "Process")
     }
 
-    $psql = Find-PgTool "psql.exe"
     $tmpSql = $null
+    $tmpMediaTar = $null
     try {
         $tmpSql = Expand-GzipToTempSql -GzPath $newestPgSql
+        $tmpMediaTar = Invoke-GpgDecryptToTemp -SourcePath $newestMedia -Suffix ".tar.gz"
+        Assert-SafeTarArchive -ArchivePath $tmpMediaTar | Out-Null
+        New-Item -ItemType Directory -Path $tempExtract -ErrorAction Stop | Out-Null
+        Protect-TempPath $tempExtract
+        & tar.exe -xzf $tmpMediaTar -C $tempExtract "userdata/storage/apps/gaeru/media"
+        if ($LASTEXITCODE -ne 0) { throw "Could not stage media from $newestMedia" }
+        $extractedMedia = Join-Path $tempExtract "userdata\storage\apps\gaeru\media"
+        if (-not (Test-Path -LiteralPath $extractedMedia -PathType Container)) { throw "Missing media directory in archive" }
+        Write-Output "[0/3] Stopping any active GAERU Node/Supervisor processes on PC before DB restore..."
+        Disable-ScheduledTask -TaskName "GAERU_Server_AutoStart" -ErrorAction SilentlyContinue | Out-Null
+        Get-CimInstance Win32_Process -Filter "Name='node.exe'" -ErrorAction SilentlyContinue | Where-Object {
+            $_.CommandLine -like "*$repoRoot*" -and (
+                $_.CommandLine -like "*cluster-master.js*" -or
+                $_.CommandLine -like "*cluster.js*" -or
+                $_.CommandLine -like "*server.js*" -or
+                $_.CommandLine -like "*watchdog-supervisor.js*"
+            )
+        } | ForEach-Object { Stop-Process -Id $_.ProcessId -Force -ErrorAction SilentlyContinue }
         Write-Output "[1/3] Restoring PostgreSQL database $($conn.PGDATABASE) on PC from $([IO.Path]::GetFileName($newestPgSql))..."
         $psqlErrFile = Join-Path $env:TEMP ("gaeru_psql_err_" + [guid]::NewGuid().ToString("N") + ".log")
         New-Item -ItemType File -Path $psqlErrFile -Force | Out-Null
@@ -249,28 +269,20 @@ elseif ($Mode -eq "FailoverToPC") {
         } finally {
             Remove-Item -LiteralPath $psqlErrFile -Force -ErrorAction SilentlyContinue
         }
+        Write-Output "[2/3] Restoring staged media library..."
+        & robocopy $extractedMedia (Join-Path $repoRoot "media") /E /NFL /NDL /NJH /NJS /NC /NS | Out-Null
+        if ($LASTEXITCODE -ge 8) { throw "robocopy failed with exit code $LASTEXITCODE" }
     } finally {
         if ($tmpSql) { Remove-Item -LiteralPath $tmpSql -Force -ErrorAction SilentlyContinue }
-        foreach ($k in $savedEnv.Keys) { [Environment]::SetEnvironmentVariable($k, $savedEnv[$k], "Process") }
-    }
-
-    Write-Output "[2/3] Restoring encrypted media library from $([IO.Path]::GetFileName($newestMedia))..."
-    $tempExtract = Join-Path $env:TEMP "gaeru_dr_extract_$([guid]::NewGuid().ToString('N'))"
-    New-Item -ItemType Directory -Path $tempExtract -Force | Out-Null
-    Protect-TempPath $tempExtract
-    $tmpMediaTar = Invoke-GpgDecryptToTemp -SourcePath $newestMedia -Suffix ".tar.gz"
-    try {
-        Assert-SafeTarArchive -ArchivePath $tmpMediaTar | Out-Null
-        & tar.exe -xzf $tmpMediaTar -C $tempExtract "userdata/storage/apps/gaeru/media"
-        if ($LASTEXITCODE -ne 0) { throw "tar extract failed on $newestMedia" }
-        $extractedMedia = Join-Path $tempExtract "userdata\storage\apps\gaeru\media"
-        if (Test-Path -LiteralPath $extractedMedia) {
-            & robocopy $extractedMedia (Join-Path $repoRoot "media") /E /NFL /NDL /NJH /NJS /NC /NS | Out-Null
-            if ($LASTEXITCODE -ge 8) { throw "robocopy failed with exit code $LASTEXITCODE" }
+        if ($tmpMediaTar) { Remove-Item -LiteralPath $tmpMediaTar -Force -ErrorAction SilentlyContinue }
+        if (Test-Path -LiteralPath $tempExtract) {
+            $resolved = (Resolve-Path -LiteralPath $tempExtract).Path
+            if ((Split-Path -Parent $resolved) -eq [IO.Path]::GetFullPath($env:TEMP).TrimEnd('\') -and
+                (Split-Path -Leaf $resolved) -match '^gaeru_dr_extract_[0-9a-f]{32}$') {
+                Remove-Item -LiteralPath $resolved -Recurse -Force
+            }
         }
-    } finally {
-        Remove-Item -LiteralPath $tmpMediaTar -Force -ErrorAction SilentlyContinue
-        Remove-Item -LiteralPath $tempExtract -Recurse -Force -ErrorAction SilentlyContinue
+        foreach ($k in $savedEnv.Keys) { [Environment]::SetEnvironmentVariable($k, $savedEnv[$k], "Process") }
     }
 
     Write-Output "[3/3] Starting GAERU server & Cloudflare tunnel on PC..."
@@ -286,7 +298,15 @@ elseif ($Mode -eq "FailoverToPC") {
     }
     $env:ALLOW_PC_SUPERVISOR = "true"
     Enable-ScheduledTask -TaskName "GAERU_Server_AutoStart" -ErrorAction SilentlyContinue | Out-Null
-    & powershell.exe -NoProfile -ExecutionPolicy Bypass -File (Join-Path $scriptRoot "restart-server.ps1")
-    if ($LASTEXITCODE -ne 0) { throw "restart-server.ps1 failed with exit code $LASTEXITCODE" }
+    Start-Process -FilePath (Get-Command node.exe).Source -ArgumentList ('"' + $watchdog + '"') -WorkingDirectory $repoRoot -WindowStyle Hidden -ErrorAction Stop
+    $ready = $false
+    for ($attempt = 0; $attempt -lt 30; $attempt++) {
+        try {
+            $response = Invoke-WebRequest -UseBasicParsing -Uri "http://127.0.0.1:$port/readyz" -TimeoutSec 2 -ErrorAction Stop
+            if ($response.StatusCode -eq 200 -and ($response.Content | ConvertFrom-Json).isReady -eq $true) { $ready = $true; break }
+        } catch { }
+        Start-Sleep -Seconds 2
+    }
+    if (-not $ready) { throw "GAERU started but did not confirm database and media readiness on port $port." }
     Write-Output "=== FAILOVER TO PC COMPLETE ==="
 }

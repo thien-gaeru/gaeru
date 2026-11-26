@@ -66,6 +66,48 @@ async function resolveMomoSettings(poolOrClient, config) {
   return record;
 }
 
+const UNSETTLED_MOMO_REFUND_STATUSES = Object.freeze(['pending_provider', 'pending', 'ambiguous']);
+
+async function getOrderRefundLedger(client, order, { lock = false, receivedVnd = null } = {}) {
+  const existingRefunds = (await client.query(
+    `SELECT id, status, amount_vnd FROM momo_refunds WHERE order_id = $1${lock ? ' FOR UPDATE' : ''}`,
+    [order.id]
+  )).rows;
+  const succeededMomoVnd = existingRefunds
+    .filter(r => r.status === 'succeeded')
+    .reduce((sum, r) => sum + Number(r.amount_vnd || 0), 0);
+  const unsettledMomoVnd = existingRefunds
+    .filter(r => UNSETTLED_MOMO_REFUND_STATUSES.includes(r.status))
+    .reduce((sum, r) => sum + Number(r.amount_vnd || 0), 0);
+  const blockingMomo = existingRefunds.find(r => r.status === 'pending_provider' || r.status === 'ambiguous') || null;
+  const reservedMomoVnd = existingRefunds
+    .filter(r => ['succeeded', 'pending'].includes(r.status))
+    .reduce((sum, r) => sum + Number(r.amount_vnd || 0), 0);
+  const manualRmaRow = (await client.query(
+    `SELECT COALESCE(SUM(COALESCE(refund_amount_vnd, 0) + COALESCE(loyalty_clawback_vnd, 0)), 0)::bigint AS settled_rma_vnd
+     FROM order_after_sales
+     WHERE order_id = $1 AND kind = 'return' AND status = 'resolved'`,
+    [order.id]
+  )).rows[0];
+  const manualSettledVnd = Number(manualRmaRow?.settled_rma_vnd || 0);
+  const collectedVnd = receivedVnd !== null
+    ? Number(receivedVnd)
+    : Number((await client.query('SELECT COALESCE(SUM(amount_vnd),0) AS received FROM sales_receipts WHERE order_id=$1', [order.id])).rows[0]?.received || 0);
+  const baseCollectedVnd = order.payment_status === 'paid' ? Number(order.total_vnd) : collectedVnd;
+  const grossRefundableVnd = Math.max(0, baseCollectedVnd - succeededMomoVnd - manualSettledVnd);
+  return {
+    existingRefunds,
+    succeededMomoVnd,
+    unsettledMomoVnd,
+    blockingMomo,
+    reservedMomoVnd,
+    manualSettledVnd,
+    collectedVnd,
+    baseCollectedVnd,
+    grossRefundableVnd
+  };
+}
+
 /**
  * 3-Phase Non-Blocking MoMo Refund:
  * Phase 1: Validate order/attempt/remaining amount, reserve row with status='pending_provider' & commit.
@@ -148,31 +190,17 @@ async function initiateMomoRefund(pool, config, {
       throw fail('Theo quy định MoMo, giao dịch thanh toán bằng thẻ ATM nội địa yêu cầu hoàn tối thiểu 10.000 ₫.', 400);
     }
 
-    const existingRefunds = (await client.query(
-      `SELECT id, status, amount_vnd FROM momo_refunds WHERE order_id = $1 FOR UPDATE`,
-      [order.id]
-    )).rows;
-    const blocking = existingRefunds.find(r => r.status === 'pending_provider' || r.status === 'ambiguous');
-    if (blocking) {
+    const ledger = await getOrderRefundLedger(client, order, { lock: true, receivedVnd: attempt.amount_vnd });
+    if (ledger.blockingMomo) {
       throw fail('Đơn hàng đang có lệnh hoàn tiền MoMo chưa rõ kết quả. Hãy bấm "Tra cứu trạng thái" trước khi gửi lệnh hoàn mới.', 409);
     }
-    const manualRmaRow = (await client.query(
-      `SELECT COALESCE(SUM(COALESCE(refund_amount_vnd, 0) + COALESCE(loyalty_clawback_vnd, 0)), 0)::bigint AS settled_rma_vnd
-       FROM order_after_sales
-       WHERE order_id = $1 AND kind = 'return' AND status = 'resolved'`,
-      [order.id]
-    )).rows[0];
-    const manualSettledVnd = Number(manualRmaRow?.settled_rma_vnd || 0);
     let pendingClawbackVnd = 0;
     if (order.customer_id && !order.return_completed_at) {
       const { previewEarnClawback } = require('./loyalty-api');
       const preview = await previewEarnClawback(client, { customerId: order.customer_id, orderId: order.id, lock: true });
       pendingClawbackVnd = Math.max(0, Number(preview?.shortfallPoints || 0));
     }
-    const reservedTotal = existingRefunds
-      .filter(r => ['succeeded', 'pending'].includes(r.status))
-      .reduce((sum, r) => sum + Number(r.amount_vnd), 0);
-    const remainingVnd = Number(attempt.amount_vnd) - reservedTotal - manualSettledVnd - pendingClawbackVnd;
+    const remainingVnd = Number(attempt.amount_vnd) - ledger.reservedMomoVnd - ledger.manualSettledVnd - pendingClawbackVnd;
     if (remainingVnd < momoProtocol.MIN_AMOUNT || cleanAmount > remainingVnd) {
       throw fail(`Số tiền hoàn vượt quá số dư còn có thể hoàn (${new Intl.NumberFormat('vi-VN').format(Math.max(0, remainingVnd))} ₫).`, 409);
     }
@@ -416,6 +444,8 @@ async function reconcileNextMomoRefund(pool, config, options = {}) {
 }
 
 module.exports = {
+  UNSETTLED_MOMO_REFUND_STATUSES,
+  getOrderRefundLedger,
   initiateMomoRefund,
   queryMomoRefundStatus,
   listMomoRefunds,

@@ -128,7 +128,8 @@ test('Wave 1: Barcode UUID guard, empty warehouse_stock conflict & partial uniqu
 test('Wave 1: DR backup scripts keep LF endings, trap EXIT cleanup and exclude globals dump', () => {
   const fullRestore = fs.readFileSync(path.join(__dirname, '../scripts/mi6-backup/gaeru-full-restore.sh'), 'utf8');
   assert.equal(fullRestore.includes('\r\n'), false);
-  assert.match(fullRestore, /trap cleanup_temp_files EXIT/);
+  assert.match(fullRestore, /trap finish_restore EXIT/);
+  assert.match(fullRestore, /cleanup_temp_files\s+cleanup_deploy_lock\s+exit "\$result"/);
 
   const pcFailover = fs.readFileSync(path.join(__dirname, '../scripts/failover-restore-to-pc.ps1'), 'utf8');
   assert.match(pcFailover, /-globals-/);
@@ -304,6 +305,7 @@ test('Wave 2 & 3: Omnichannel duplicate variant movement keys, care deletion cle
 
   // Email marketing queue continues after skipping suppressed recipient
   await pool.query("INSERT INTO marketing_email_suppressions(email) VALUES('skip-me@example.test')");
+  await pool.query("INSERT INTO marketing_email_subscriptions(email,status,confirmed_at) VALUES('deliver-me@example.test','subscribed',now())");
   const cmp = (await pool.query("INSERT INTO marketing_email_campaigns(title,subject,body,sources,status,scheduled_at,rate_per_minute) VALUES('Batch Test','Subj','Body','[]'::jsonb,'scheduled',now()-interval '1 minute',12) RETURNING id")).rows[0];
   await pool.query("INSERT INTO marketing_email_recipients(campaign_id,email,status) VALUES($1,'skip-me@example.test','pending'),($1,'deliver-me@example.test','pending')", [cmp.id]);
   const sentTo = [];
