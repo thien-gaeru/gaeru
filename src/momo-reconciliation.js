@@ -134,6 +134,10 @@ function startMomoReconciliationWorker(pool, config) {
       for (let i = 0; i < 20 && !stopped; i++) {
         if (!(await reconcileNextMomoPayment(pool, config)).checked) break;
       }
+      const { reconcileNextMomoRefund } = require('./momo-refunds');
+      for (let i = 0; i < 10 && !stopped; i++) {
+        if (!(await reconcileNextMomoRefund(pool, config)).checked) break;
+      }
     } catch {
       console.error('MoMo status reconciliation will retry after a database error.');
     } finally {

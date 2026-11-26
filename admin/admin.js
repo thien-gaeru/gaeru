@@ -1648,7 +1648,9 @@ function renderOrders() {
         ? `Cảnh báo đối soát tự động ${gatewayName}: ${order.paymentStatusCheckError}.`
         : "");
     const latePaymentWarning = order.status === "cancelled" && order.paymentStatus === "paid"
-      ? "Đơn đã hủy nhưng đã nhận tiền; cần đối soát/hoàn tiền thủ công trong merchant portal."
+      ? (order.paymentMethod === "momo"
+        ? "Đơn đã hủy nhưng đã nhận tiền MoMo; chủ doanh nghiệp có thể gửi lệnh hoàn tiền tại mục Vận chuyển & Thanh toán → Hoàn tiền qua API MoMo hoặc đối chiếu trên M4B Portal."
+        : "Đơn đã hủy nhưng đã nhận tiền; cần đối soát/hoàn tiền thủ công trong merchant portal.")
       : "";
     const phone = String(order.phone || "").replace(/[^+0-9]/g, "");
     const itemCount = order.items.reduce((sum, item) => sum + item.quantity, 0);

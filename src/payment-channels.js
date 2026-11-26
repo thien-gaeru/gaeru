@@ -36,7 +36,7 @@ function defaultChannelData(id){
  if(id==='cod')return {enabled:true,maxAmountVnd:50000000,instructions:'Thanh toán tiền mặt trực tiếp cho bưu tá khi nhận hàng.'};
  if(id==='bank_transfer')return {bankName:'',accountNumber:'',accountHolder:'',branch:'',transferSyntax:'GAERU {MA_DON}',webhookSecret:'',enabled:false};
  if(id==='vnpay')return {tmnCode:'',environment:'sandbox',enabled:false};
- if(id==='momo')return {partnerCode:'',accessKey:'',environment:'sandbox',enabled:false};
+ if(id==='momo')return {partnerCode:'',accessKey:'',environment:'sandbox',requestType:'captureWallet',enabled:false};
  if(id==='zalopay')return {appId:'',environment:'sandbox',enabled:false};
  return {};
 }
@@ -523,6 +523,10 @@ async function assertPaymentConfigurationChange(client,id,before,after){
   const inFlight=(await client.query("SELECT 1 FROM checkout_payment_intents WHERE provider=$1 AND status='pending_provider' LIMIT 1",[id])).rows.length;
   if(inFlight)throw fail('Đang tạo phiên thanh toán. Chờ hoàn tất trước khi đổi tài khoản, khóa hoặc môi trường.',409);
  }
+ if(id==='momo'){
+  const pendingRefunds=(await client.query("SELECT 1 FROM momo_refunds WHERE status IN ('pending_provider','pending','ambiguous') LIMIT 1")).rows.length;
+  if(pendingRefunds)throw fail('Còn lệnh hoàn tiền MoMo đang xử lý hoặc chưa rõ kết quả. Tra cứu xong trước khi đổi tài khoản, khóa hoặc môi trường.',409);
+ }
 }
 function authenticatedProof(method,scope){
  return method==='signed_callback'?scope==='callback_signature':['authenticated_api','provider_order_create'].includes(method)&&scope==='api_credentials';
@@ -546,7 +550,7 @@ async function getCheckoutPaymentChannels(pool,config={},fallbackVnpay=null){
  const storedVnpay=await readChannelRecord(pool,config,'vnpay');
  const vnpayConfig=storedVnpay.version?await getVnpay(pool,config):(await getVnpay(pool,config))||fallbackVnpay||null;
  const callbackVnpay=await getVnpay(pool,config,{forCallback:true});
- const methods=[],configs={},callbackConfigs={},versions={};let bankTransfer=null,cod=null;
+ const methods=[],configs={},callbackConfigs={},versions={};let bankTransfer=null,cod=null,momo=null;
  for(const id of channelIds){
   const record=await readChannelRecord(pool,config,id);versions[id]=record.version;
   if(id==='vnpay'){const callback=storedVnpay.version?callbackVnpay:callbackVnpay||fallbackVnpay;if(callback)callbackConfigs.vnpay=callback;}
@@ -555,8 +559,9 @@ async function getCheckoutPaymentChannels(pool,config={},fallbackVnpay=null){
   methods.push(id);configs[id]=id==='vnpay'?vnpayConfig:record.data;
   if(id==='bank_transfer')bankTransfer=formatBankTransferInstructions(record.data);
   if(id==='cod')cod={maxAmountVnd:Number(record.data.maxAmountVnd||50000000),instructions:String(record.data.instructions||'')};
+  if(id==='momo')momo={requestType:momoProtocol.normalizeRequestType(record.data.requestType),minAmountVnd:momoProtocol.MIN_AMOUNT,maxAmountVnd:momoProtocol.MAX_AMOUNT,cardMinAmountVnd:momoProtocol.ATM_MIN_AMOUNT};
  }
- return {methods,bankTransfer,cod,configs,callbackConfigs,versions};
+ return {methods,bankTransfer,cod,momo,configs,callbackConfigs,versions};
 }
 
 async function verifyPaymentChannel(id,settings,{config={},pool=null,fetcher=fetch}={}){
@@ -633,6 +638,7 @@ async function listPaymentChannels(pool,config){
    enabled,
    configured:isChannelConfigured(id,record,vnpayConfig),
    environment:record.data.environment||null,
+   ...(id==='momo'?{requestType:momoProtocol.normalizeRequestType(record.data.requestType)}:{}),
     ...state,method:current?row.last_method:null,checkedAt:current?row.last_checked_at:null,reachable:current?row.reachable:null,verificationScope:verified?row.verification_scope:null,callbackVerified:verified&&row.last_method==='signed_callback'
   });
  }
@@ -745,6 +751,51 @@ function createPaymentAdmin(pool,config,{fetcher,finance}={}){
    });
   }catch(e){
    if(e instanceof z.ZodError)return res.status(400).json({error:'Nhập đúng kênh thanh toán, mã đơn (GR-...) và số tiền giao dịch để đối soát.'});
+   next(e);
+  }
+ });
+ router.get('/owner/payments/momo/refunds',async(req,res,next)=>{
+  try{
+   const orderNumber=typeof req.query.orderNumber==='string'?extractOrderNumber(req.query.orderNumber):'';
+   res.json(await require('./momo-refunds').listMomoRefunds(pool,{orderNumber}));
+  }catch(e){next(e);}
+ });
+ router.post('/owner/payments/momo/refunds',requireCsrf,rateLimit({...require('./security-hardening').sharedStore(pool,config,'owner-momo-refund'),windowMs:900000,limit:20,standardHeaders:'draft-8',legacyHeaders:false}),async(req,res,next)=>{
+  try{
+   const parsed=z.object({
+    orderNumber:z.string().trim().min(5).max(80),
+    amountVnd:z.number().int().min(momoProtocol.MIN_AMOUNT).max(momoProtocol.MAX_AMOUNT),
+    description:z.string().trim().max(255).optional().default(''),
+    requestKey:z.string().trim().min(8).max(120).regex(/^[A-Za-z0-9_.:-]+$/).optional()
+   }).parse({
+    ...req.body,
+    orderNumber:extractOrderNumber(req.body?.orderNumber)
+   });
+   await config.accountSecurity.authorize(req,async()=>true);
+   const outcome=await require('./momo-refunds').initiateMomoRefund(pool,config,{
+    orderNumber:parsed.orderNumber,
+    amountVnd:parsed.amountVnd,
+    description:parsed.description,
+    requestKey:parsed.requestKey,
+    actor:req.admin,
+    fetcher:fetcher||config.paymentFetcher
+   });
+   res.status(outcome.replayed?200:201).json(outcome);
+  }catch(e){
+   if(e instanceof z.ZodError)return res.status(400).json({error:'Nhập mã đơn (GR-...) và số tiền hoàn từ 1.000 ₫ đến 50.000.000 ₫.'});
+   next(e);
+  }
+ });
+ router.post('/owner/payments/momo/refunds/:id/query',requireCsrf,rateLimit({...require('./security-hardening').sharedStore(pool,config,'owner-momo-refund-query'),windowMs:900000,limit:30,standardHeaders:'draft-8',legacyHeaders:false}),async(req,res,next)=>{
+  try{
+   const id=z.string().uuid().parse(req.params.id);
+   const outcome=await require('./momo-refunds').queryMomoRefundStatus(pool,config,id,{
+    actor:req.admin,
+    fetcher:fetcher||config.paymentFetcher
+   });
+   res.json(outcome);
+  }catch(e){
+   if(e instanceof z.ZodError)return res.status(400).json({error:'Mã lệnh hoàn tiền không hợp lệ.'});
    next(e);
   }
  });

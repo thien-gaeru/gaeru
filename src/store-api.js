@@ -785,6 +785,7 @@ function createStoreApi(pool, { ordersEnabled = false, getOrdersEnabled = null, 
         paymentMethods: req.paymentChannels?.methods || ["cod", ...(req.vnpayConfig ? ["vnpay"] : [])],
         ...(req.paymentChannels?.bankTransfer ? { bankTransfer: req.paymentChannels.bankTransfer } : {}),
         ...(req.paymentChannels?.cod ? { cod: req.paymentChannels.cod } : {}),
+        ...(req.paymentChannels?.momo ? { momo: req.paymentChannels.momo } : {}),
         ordersEnabled: req.ordersEnabled,
         gaMeasurementId
       });

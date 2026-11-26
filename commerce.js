@@ -1019,9 +1019,11 @@ async function renderCheckout() {
       icon: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="5" width="20" height="14" rx="2"/><path d="M2 10h20"/><path d="M6 15h4"/></svg>'
     },
     momo: {
-      title: "Ví điện tử MoMo",
-      sub: "Ví MoMo, quét AIO QR hoặc Ví Trả Sau (1.000 ₫ – 50.000.000 ₫)",
-      badge: "",
+      title: storeSettings.momo?.requestType === "payWithMethod" ? "Cổng thanh toán MoMo (All-in-One)" : "Ví điện tử MoMo",
+      sub: storeSettings.momo?.requestType === "payWithMethod"
+        ? "Ví MoMo, AIO QR, Thẻ ATM nội địa & Visa/Master/JCB (thẻ từ 10.000 ₫)"
+        : "Ví MoMo, quét AIO QR hoặc Ví Trả Sau (1.000 ₫ – 50.000.000 ₫)",
+      badge: storeSettings.momo?.requestType === "payWithMethod" ? "All-in-One" : "",
       icon: '<picture><source srcset="/assets/brand/momo-logo.webp" type="image/webp"><img class="payment-brand-logo" src="/assets/brand/momo-logo.png" alt="" width="28" height="28" loading="lazy" decoding="async"></picture>'
     },
     zalopay: {
@@ -1221,12 +1223,17 @@ async function renderCheckout() {
   updateShippingTotal();
   const updatePaymentHelp = () => {
     const bank = storeSettings.bankTransfer;
+    const momoAio = storeSettings.momo?.requestType === "payWithMethod";
     const payableEstimate = currentCheckoutFee === undefined ? currentNetProductTotal : currentNetProductTotal + currentCheckoutFee;
-    let momoHelp = "Bạn sẽ được chuyển tới trang thanh toán chính thức của MoMo (Ví MoMo, AIO QR hoặc Ví Trả Sau · phiên có hiệu lực 15 phút). Giao dịch thành công sẽ tự động duyệt đơn sang Chờ gửi hàng.";
+    let momoHelp = momoAio
+      ? "Bạn sẽ được chuyển tới cổng thanh toán MoMo All-in-One để chọn Ví MoMo, AIO QR, Thẻ ATM nội địa hoặc Visa/Master/JCB (phiên có hiệu lực 15 phút). Giao dịch thành công sẽ tự động duyệt đơn sang Chờ gửi hàng."
+      : "Bạn sẽ được chuyển tới trang thanh toán chính thức của MoMo (Ví MoMo, AIO QR hoặc Ví Trả Sau · phiên có hiệu lực 15 phút). Giao dịch thành công sẽ tự động duyệt đơn sang Chờ gửi hàng.";
     if (payableEstimate > 50000000) {
       momoHelp = "Lưu ý: Tổng đơn hiện tại vượt hạn mức tối đa 50.000.000 ₫ mỗi giao dịch của MoMo. Vui lòng chọn Chuyển khoản VietQR, VNPAY hoặc COD.";
     } else if (currentCheckoutFee !== undefined && payableEstimate < 1000) {
       momoHelp = "Lưu ý: MoMo yêu cầu tổng thanh toán tối thiểu 1.000 ₫. Vui lòng giảm số GAERU Xu sử dụng hoặc chọn COD.";
+    } else if (momoAio && currentCheckoutFee !== undefined && payableEstimate < 10000) {
+      momoHelp = "Bạn sẽ được chuyển tới cổng MoMo (Ví MoMo/AIO QR từ 1.000 ₫; tùy chọn thẻ ATM nội địa và Visa/Master/JCB kích hoạt cho đơn từ 10.000 ₫).";
     }
     const map = {
       cod: storeSettings.cod?.instructions || "Thanh toán trực tiếp khi nhận hàng. GAERU sẽ xác nhận đơn trước khi gửi.",

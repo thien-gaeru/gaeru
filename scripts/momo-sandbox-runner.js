@@ -11,7 +11,7 @@
 const crypto = require('node:crypto');
 const express = require('express');
 const { createStoreApi } = require('../src/store-api');
-const { createGatewayPayment, queryGatewayPayment } = require('../src/payment-provider-clients');
+const { createGatewayPayment, queryGatewayPayment, refundGatewayPayment, queryGatewayRefund } = require('../src/payment-provider-clients');
 
 function signMomo(payload, secretKey, accessKey) {
   const raw = `accessKey=${accessKey}&amount=${payload.amount}&extraData=${payload.extraData}&message=${payload.message}&orderId=${payload.orderId}&orderInfo=${payload.orderInfo}&orderType=${payload.orderType}&partnerCode=${payload.partnerCode}&payType=${payload.payType}&requestId=${payload.requestId}&responseTime=${payload.responseTime}&resultCode=${payload.resultCode}&transId=${payload.transId}`;
@@ -375,6 +375,89 @@ async function runAcceptance() {
         pass
       });
     }
+
+    // SC-11: Collection Link payWithMethod (All-in-One: Ví + ATM + Visa/Master/JCB)
+    {
+      let captured = null;
+      const aioSettings = { ...momoSettings, requestType: 'payWithMethod' };
+      const created = await createGatewayPayment('momo', aioSettings, {
+        txnRef: 'GR-20261102-MM11A',
+        amountVnd: 250000,
+        baseUrl: 'https://gaeru.com',
+        storeName: 'GAERU',
+        fetcher: async (_u, init) => {
+          captured = JSON.parse(init.body);
+          return new Response(JSON.stringify({
+            partnerCode, orderId: captured.orderId, requestId: captured.requestId,
+            amount: captured.amount, responseTime: Date.now(), message: 'Success', resultCode: 0,
+            payUrl: 'https://test-payment.momo.vn/v2/gateway/pay?t=aio-token',
+            shortLink: 'https://test-payment.momo.vn/shortlink/gaeruAio1'
+          }), { status: 200, headers: { 'content-type': 'application/json' } });
+        }
+      });
+      const pass = captured?.requestType === 'payWithMethod' && created.requestType === 'payWithMethod'
+        && created.shortLink === 'https://test-payment.momo.vn/shortlink/gaeruAio1';
+      results.push({
+        id: 'SC-11', title: 'Collection Link payWithMethod + shortLink',
+        expectedHttp: '200 OK', actualHttp: pass ? '200 OK' : 'FAIL',
+        orderState: 'AIO Ví+ATM+Thẻ',
+        pass
+      });
+    }
+
+    // SC-12: API Hoàn tiền POST /v2/gateway/api/refund (7-field HMAC + orderId mới)
+    {
+      let captured = null;
+      const refunded = await refundGatewayPayment('momo', momoSettings, {
+        originalOrderId: 'GR-20261102-MM01',
+        refundOrderId: 'RF-20261102-MM01-A1B2',
+        requestId: 'RF-REQ-12',
+        originalTransId: 9988776655,
+        amountVnd: 150000,
+        description: 'Hoan tien mot phan',
+        fetcher: async (url, init) => {
+          captured = { url, body: JSON.parse(init.body) };
+          return new Response(JSON.stringify({
+            partnerCode, orderId: captured.body.orderId, requestId: captured.body.requestId,
+            amount: 150000, transId: 2820086739, resultCode: 0, message: 'Successful.', responseTime: Date.now()
+          }), { status: 200, headers: { 'content-type': 'application/json' } });
+        }
+      });
+      const expectedSig = crypto.createHmac('sha256', secretKey).update(
+        `accessKey=${accessKey}&amount=150000&description=Hoan tien mot phan&orderId=RF-20261102-MM01-A1B2&partnerCode=${partnerCode}&requestId=RF-REQ-12&transId=9988776655`
+      ).digest('hex');
+      const pass = captured?.url.endsWith('/v2/gateway/api/refund') && captured.body.signature === expectedSig
+        && refunded.successful && refunded.refundTransId === '2820086739';
+      results.push({
+        id: 'SC-12', title: 'API Refund v2 (chữ ký 7 trường + orderId mới)',
+        expectedHttp: '200 OK', actualHttp: pass ? '200 OK' : 'FAIL',
+        orderState: 'succeeded/2820086739',
+        pass
+      });
+    }
+
+    // SC-13: API Tra cứu hoàn tiền POST /v2/gateway/api/refund/query (khớp refundTrans)
+    {
+      const queried = await queryGatewayRefund('momo', momoSettings, {
+        refundOrderId: 'RF-20261102-MM01-A1B2',
+        amountVnd: 150000,
+        fetcher: async (url, init) => {
+          const body = JSON.parse(init.body);
+          return new Response(JSON.stringify({
+            partnerCode, orderId: 'GR-20261102-MM01', requestId: body.requestId,
+            resultCode: 0, message: 'Successful.', responseTime: Date.now(),
+            refundTrans: [{ orderId: 'RF-20261102-MM01-A1B2', amount: 150000, resultCode: 0, transId: 2820086739, createdTime: Date.now() }]
+          }), { status: 200, headers: { 'content-type': 'application/json' } });
+        }
+      });
+      const pass = queried.found && queried.successful && queried.refundTransId === '2820086739';
+      results.push({
+        id: 'SC-13', title: 'API Query Refund v2 (đối chiếu refundTrans)',
+        expectedHttp: '200 OK', actualHttp: pass ? '200 OK' : 'FAIL',
+        orderState: 'found / succeeded',
+        pass
+      });
+    }
   } finally {
     server.close();
   }
@@ -388,7 +471,7 @@ async function runAcceptance() {
   console.log();
 
   if (results.every(r => r.pass)) {
-    console.log('10/10 kịch bản mô phỏng đạt chuẩn tài liệu MoMo 239 trang.');
+    console.log('13/13 kịch bản mô phỏng đạt chuẩn tài liệu MoMo 239 trang (captureWallet + payWithMethod + Refund + Query Refund).');
     console.log('Khi có khóa Test M4B, chạy thêm: MOMO_PARTNER_CODE=... MOMO_ACCESS_KEY=... MOMO_SECRET_KEY=... node scripts/momo-sandbox-runner.js --live-sandbox');
   } else {
     console.error('Cảnh báo: Có kịch bản kiểm thử chưa đạt yêu cầu.');

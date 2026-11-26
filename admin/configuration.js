@@ -278,7 +278,8 @@ async function mountPayments(){
   }else if(chId==='vnpay'){
    snapshotHtml='<div class="payment-snapshot-item"><span class="payment-snapshot-label">Mã website (TMN):</span><span class="payment-snapshot-val"><code>'+esc(v.tmnCode||'Chưa thiết lập')+'</code></span></div><div class="payment-snapshot-item"><span class="payment-snapshot-label">Môi trường:</span><span class="payment-snapshot-val">'+(v.environment==='production'?'Chính thức':'Thử nghiệm')+'</span></div><div class="payment-snapshot-item"><span class="payment-snapshot-label">Khóa Hash Secret:</span><span class="payment-snapshot-val">'+(v.secretConfigured?'✓ Đã mã hóa':'Chưa nhập khóa')+'</span></div>';
   }else if(chId==='momo'){
-   snapshotHtml='<div class="payment-snapshot-item"><span class="payment-snapshot-label">Partner Code:</span><span class="payment-snapshot-val"><code>'+esc(v.partnerCode||'Chưa thiết lập')+'</code></span></div><div class="payment-snapshot-item"><span class="payment-snapshot-label">Môi trường:</span><span class="payment-snapshot-val">'+(v.environment==='production'?'Chính thức':'Thử nghiệm')+'</span></div><div class="payment-snapshot-item"><span class="payment-snapshot-label">Secret Key:</span><span class="payment-snapshot-val">'+(v.secretConfigured?'✓ Đã mã hóa':'Chưa nhập khóa')+'</span></div>';
+   const isAio=v.requestType==='payWithMethod';
+   snapshotHtml='<div class="payment-snapshot-item"><span class="payment-snapshot-label">Partner Code:</span><span class="payment-snapshot-val"><code>'+esc(v.partnerCode||'Chưa thiết lập')+'</code></span></div><div class="payment-snapshot-item"><span class="payment-snapshot-label">Chế độ cổng:</span><span class="payment-snapshot-val">'+(isAio?'All-in-One (payWithMethod)':'Ví MoMo &amp; AIO QR (captureWallet)')+'</span></div><div class="payment-snapshot-item"><span class="payment-snapshot-label">Môi trường:</span><span class="payment-snapshot-val">'+(v.environment==='production'?'Chính thức':'Thử nghiệm')+'</span></div><div class="payment-snapshot-item"><span class="payment-snapshot-label">Secret Key:</span><span class="payment-snapshot-val">'+(v.secretConfigured?'✓ Đã mã hóa':'Chưa nhập khóa')+'</span></div>';
   }else{
    snapshotHtml='<div class="payment-snapshot-item"><span class="payment-snapshot-label">App ID:</span><span class="payment-snapshot-val"><code>'+esc(v.appId||'Chưa thiết lập')+'</code></span></div><div class="payment-snapshot-item"><span class="payment-snapshot-label">Môi trường:</span><span class="payment-snapshot-val">'+(v.environment==='production'?'Chính thức':'Thử nghiệm')+'</span></div><div class="payment-snapshot-item"><span class="payment-snapshot-label">Key 1 &amp; Key 2:</span><span class="payment-snapshot-val">'+(v.secretConfigured?'✓ Đã mã hóa':'Chưa nhập khóa')+'</span></div>';
   }
@@ -302,12 +303,28 @@ async function mountPayments(){
   const enableBlocked=!channel.enabled&&(channel.canEnable===false||channel.supported===false);
   const readinessHtml=channel.unsupportedReason?'<p class="help-text">'+esc(channel.unsupportedReason)+'</p>':channel.enabled&&channel.checkoutReady===false?'<p class="help-text">Kênh đã bật nhưng chưa sẵn sàng nhận thanh toán.</p>':'';
 
-  return '<article class="payment-card configuration-panel '+(channel.enabled?'card-enabled':'')+'" id="config-panel-'+configId+'" data-channel-id="'+chId+'"><div class="payment-card-header"><div class="payment-card-icon">'+meta.icon+'</div><div class="payment-card-header-main"><h3 class="payment-card-title">'+meta.title+'</h3><p class="payment-card-sub">'+meta.sub+'</p><div class="payment-card-badges">'+statusPill+verifyPill+envPill+'</div></div></div><div class="payment-card-body">'+snapshotHtml+readinessHtml+'</div><div class="payment-card-actions"><button type="button" class="payment-action-btn payment-btn-setup" data-open-config-popup="'+configId+'" data-toggle-drawer="'+configId+'">⚙ Cấu hình &amp; Khóa</button><button type="button" class="payment-action-btn '+(channel.enabled?'payment-btn-disable':'payment-btn-enable')+'" data-payment-enable="'+chId+'" data-enabled="'+(!channel.enabled)+'" '+(enableBlocked?'disabled':'')+'>'+(channel.enabled?'Tắt kênh':'Bật kênh')+'</button><button type="button" class="payment-action-btn payment-btn-test" data-payment-test="'+chId+'">Kiểm tra kết nối</button><p role="status" class="payment-card-status" data-payment-result></p></div><details class="payment-card-drawer" id="drawer-'+configId+'" style="display:none"><summary class="payment-drawer-summary"><span>⚙ Chi tiết cấu hình, Khóa bảo mật &amp; Webhook</span></summary>'+webhookBox+form(configId)+'</details></article>';
+  const cardSub=chId==='momo'&&v.requestType==='payWithMethod'?'All-in-One: Ví MoMo, AIO QR, Thẻ ATM nội địa & Visa/Master/JCB':meta.sub;
+  return '<article class="payment-card configuration-panel '+(channel.enabled?'card-enabled':'')+'" id="config-panel-'+configId+'" data-channel-id="'+chId+'"><div class="payment-card-header"><div class="payment-card-icon">'+meta.icon+'</div><div class="payment-card-header-main"><h3 class="payment-card-title">'+meta.title+'</h3><p class="payment-card-sub">'+esc(cardSub)+'</p><div class="payment-card-badges">'+statusPill+verifyPill+envPill+'</div></div></div><div class="payment-card-body">'+snapshotHtml+readinessHtml+'</div><div class="payment-card-actions"><button type="button" class="payment-action-btn payment-btn-setup" data-open-config-popup="'+configId+'" data-toggle-drawer="'+configId+'">⚙ Cấu hình &amp; Khóa</button><button type="button" class="payment-action-btn '+(channel.enabled?'payment-btn-disable':'payment-btn-enable')+'" data-payment-enable="'+chId+'" data-enabled="'+(!channel.enabled)+'" '+(enableBlocked?'disabled':'')+'>'+(channel.enabled?'Tắt kênh':'Bật kênh')+'</button><button type="button" class="payment-action-btn payment-btn-test" data-payment-test="'+chId+'">Kiểm tra kết nối</button><p role="status" class="payment-card-status" data-payment-result></p></div><details class="payment-card-drawer" id="drawer-'+configId+'" style="display:none"><summary class="payment-drawer-summary"><span>⚙ Chi tiết cấu hình, Khóa bảo mật &amp; Webhook</span></summary>'+webhookBox+form(configId)+'</details></article>';
  }).join('');
 
  const reconcileHtml='<details class="configuration-panel" id="config-panel-payment-reconcile"><summary>Xác nhận thanh toán sau đối chiếu</summary><p class="help-text">Chỉ xác nhận tại đây sau khi đã đối chiếu tiền thực nhận và chứng từ của đúng đơn hàng. Thao tác này ghi nhận thanh toán thủ công; không truy vấn số dư ngân hàng và không chuyển tiền.</p><form class="configuration-form" data-payment-reconcile-form><div class="form-grid"><label>Kênh thanh toán trước<select name="provider"><option value="bank_transfer">Chuyển khoản ngân hàng</option><option value="momo">Ví điện tử MoMo</option><option value="zalopay">Ví điện tử ZaloPay</option><option value="vnpay">Cổng VNPAY</option></select></label><label>Mã đơn / Nội dung giao dịch<input name="orderNumber" required maxlength="120" placeholder="VD: GAERU GR-20261027-ABCDE12345"></label><label>Số tiền giao dịch (₫)<input name="amountVnd" type="number" required min="1" max="2000000000" placeholder="Nhập đúng tổng tiền đơn"></label><label>Mã giao dịch tham chiếu<input name="providerTransactionId" maxlength="120" placeholder="Mã GD ngân hàng / ví (tùy chọn)"></label></div><div class="configuration-reauth"><p>Xác nhận bằng mật khẩu hiện tại của chủ doanh nghiệp.</p><div class="form-grid"><label>Mật khẩu hiện tại<input name="password" type="password" autocomplete="current-password" required maxlength="200"></label><label>Mã xác thực / mã dự phòng<input name="factorCode" autocomplete="one-time-code" maxlength="32"></label></div></div><div class="configuration-actions"><button type="submit" class="primary-button">Xác nhận đã đối chiếu và nhận tiền</button><p role="status" data-reconcile-result></p></div></form></details>';
 
- root.innerHTML=introHtml+'<div class="payment-channel-grid">'+cardsHtml+'</div>'+reconcileHtml;
+ const momoRefundHtml='<details class="configuration-panel" id="config-panel-momo-refund"><summary>Hoàn tiền qua API MoMo (Toàn phần / Một phần)</summary><p class="help-text">Gửi lệnh hoàn tiền trực tiếp tới MoMo (<code>POST /v2/gateway/api/refund</code>) cho đơn MoMo đã thanh toán thành công và có mã giao dịch số (<code>transId</code>). Mỗi lệnh tạo mã hoàn tiền mới tách biệt mã đơn gốc; với thẻ ATM nội địa MoMo yêu cầu hoàn tối thiểu 10.000 ₫.</p><form class="configuration-form" data-momo-refund-form><div class="form-grid"><label>Mã đơn hàng MoMo<input name="orderNumber" required maxlength="80" placeholder="VD: GR-20261126-ABCDE12345"></label><label>Số tiền hoàn (₫)<input name="amountVnd" type="number" required min="1000" max="50000000" placeholder="Từ 1.000 đến 50.000.000"></label><label>Lý do hoàn tiền<input name="description" maxlength="255" placeholder="VD: Khách trả hàng / hủy đơn trước khi giao"></label></div><div class="configuration-reauth"><p>Xác nhận bằng mật khẩu và mã xác thực hiện tại của chủ doanh nghiệp.</p><div class="form-grid"><label>Mật khẩu hiện tại<input name="password" type="password" autocomplete="current-password" required maxlength="200"></label><label>Mã xác thực / mã dự phòng<input name="factorCode" autocomplete="one-time-code" maxlength="32"></label></div><button type="button" data-config-email>Gửi mã qua email</button></div><div class="configuration-actions"><button type="submit" class="primary-button">Gửi lệnh hoàn tiền MoMo</button><button type="button" class="secondary-button" data-momo-refund-refresh>Tải lại lịch sử hoàn tiền</button><p role="status" data-momo-refund-result></p></div></form><div data-momo-refund-list style="margin-top:14px;"></div></details>';
+
+ root.innerHTML=introHtml+'<div class="payment-channel-grid">'+cardsHtml+'</div>'+reconcileHtml+momoRefundHtml;
+ void loadMomoRefunds();
+}
+
+const momoRefundStatusLabels={succeeded:'✓ Đã hoàn tiền',pending:'⏳ Đang xử lý',pending_provider:'⏳ Đang gửi MoMo',ambiguous:'⚠️ Cần tra cứu',failed:'✕ Thất bại'};
+async function loadMomoRefunds(){
+ const box=document.querySelector('[data-momo-refund-list]');
+ if(!box||!owner())return;
+ try{
+  const res=await admin.request('/api/gaeru_ceo/owner/payments/momo/refunds');
+  const rows=res?.refunds||[];
+  if(!rows.length){box.innerHTML='<p class="help-text">Chưa có lệnh hoàn tiền MoMo nào được thực hiện qua API.</p>';return;}
+  box.innerHTML='<div style="overflow-x:auto;"><table class="admin-table" style="width:100%;font-size:12.5px;"><thead><tr><th>Mã đơn</th><th>Mã hoàn tiền</th><th>Số tiền</th><th>Trạng thái</th><th>Mã GD hoàn</th><th>Thao tác</th></tr></thead><tbody>'+rows.map(r=>'<tr><td><strong>'+esc(r.orderNumber)+'</strong><br><small>'+esc(new Date(r.createdAt).toLocaleString('vi-VN'))+'</small></td><td><code>'+esc(r.refundOrderId)+'</code></td><td>'+Number(r.amountVnd).toLocaleString('vi-VN')+' ₫</td><td>'+esc(momoRefundStatusLabels[r.status]||r.status)+(r.resultCode?' <small>(mã '+esc(r.resultCode)+')</small>':'')+'</td><td><code>'+esc(r.refundTransId||'—')+'</code></td><td>'+(r.status==='succeeded'?'—':'<button type="button" class="secondary-button" data-momo-refund-query="'+esc(r.id)+'" style="padding:4px 10px;font-size:12px;">Tra cứu trạng thái</button>')+'</td></tr>').join('')+'</tbody></table></div>';
+ }catch(_){}
 }
 
 document.addEventListener('submit',async event=>{
@@ -509,7 +526,7 @@ function form(id){
   ?'<button type="button" class="secondary-button" data-payment-test="'+(id==='vnpay'?'vnpay':id.slice(8))+'">Kiểm tra kết nối đã lưu</button>'
   :'';
 
- const markup='<form class="configuration-form" data-config-form="'+id+'" data-version="'+record.version+'"><div class="form-grid">'+(id==='payment_cod'?'<div style="grid-column:1/-1;background:#f0fdf4;border:1px solid #bbf7d0;color:#166534;padding:10px 14px;border-radius:10px;font-size:12.5px;line-height:1.6;margin-bottom:6px;"><strong>✓ COD Toàn quốc:</strong> GAERU chấp nhận thanh toán khi nhận hàng trên toàn quốc. Cấu hình mức phí hoặc miễn phí COD toàn quốc tại mục <strong>Thanh toán &amp; giao hàng</strong>.</div>':'')+(fields[id]||[]).map(([name,label,type])=>'<label>'+label+'<input name="'+name+'" type="'+(type||'text')+'" maxlength="'+(type==='password'?2000:500)+'" '+(type==='password'?'autocomplete="new-password" placeholder="'+((name==='webhookSecret'?v.webhookSecretConfigured:name==='customerPassword'?v.customerPasswordConfigured:v.secretConfigured)?'Đã lưu · để trống để giữ khóa':'Nhập khóa bí mật')+'"':'value="'+esc(values[name])+'"'+(fieldPlaceholders[id]?.[name]?' placeholder="'+esc(fieldPlaceholders[id][name])+'"':''))+(id==='security'?(name==='idleMinutes'?' min="5" max="60"':' min="1" max="8"'):id==='payment_cod'&&name==='maxAmountVnd'?' min="100000" max="2000000000"':'')+'></label>').join('')+(id==='shipping_jt'?'<label>Môi trường J&T<select name="environment"><option value="sandbox">Thử nghiệm</option><option value="production" '+(v.environment==='production'?'selected':'')+'>Chính thức</option></select></label><label>Người trả cước theo hợp đồng<select name="payType"><option value="">Chọn theo hợp đồng J&T</option>'+[['PP_PM','Người gửi · trả theo kỳ'],['PP_CASH','Người gửi · trả ngay'],['CC_CASH','Người nhận · trả ngay']].map(([key,label])=>'<option value="'+key+'" '+(v.payType===key?'selected':'')+'>'+label+'</option>').join('')+'</select></label><label>Hình thức gửi<select name="serviceType"><option value="1">Lấy tại kho</option><option value="6" '+(v.serviceType===6?'selected':'')+'>Gửi tại bưu cục</option></select></label>':'')+(id==='operations'?'<label class="operation-switch"><input type="checkbox" name="ordersEnabled" '+(values.ordersEnabled?'checked':'')+'> Tiếp nhận đơn đặt hàng trực tuyến</label>':'')+(['vnpay','payment_momo','payment_zalopay'].includes(id)?'<label>Môi trường<select name="environment"><option value="sandbox">Thử nghiệm</option><option value="production" '+(v.environment==='production'?'selected':'')+'>Chính thức</option></select></label><label><input type="checkbox" name="enabled" '+(v.enabled?'checked':'')+'> Cho phép sử dụng '+titles[id]+'</label>':'')+(['payment_cod','payment_bank_transfer'].includes(id)?'<label><input type="checkbox" name="enabled" '+(values.enabled?'checked':'')+'> Cho phép sử dụng '+titles[id]+'</label>':'')+(id==='misa'?'<label>Môi trường kết nối<select name="environment"><option value="sandbox" '+(values.environment!=='production'?'selected':'')+'>Thử nghiệm (Sandbox)</option><option value="production" '+(values.environment==='production'?'selected':'')+'>Chính thức (Production)</option></select></label><label class="operation-switch"><input type="checkbox" name="autoIssue" '+(values.autoIssue?'checked':'')+'> Lưu tùy chọn xuất tự động (chưa hoạt động)</label><label class="operation-switch"><input type="checkbox" name="enabled" '+(values.enabled?'checked':'')+'> Lưu yêu cầu bật MISA (chưa xác minh, chưa phát hành)</label>':'')+'</div>'+(id!=='profile'?'<div class="configuration-reauth"><p>Xác nhận bằng mật khẩu và mã xác thực hiện tại của chủ doanh nghiệp.</p><div class="form-grid"><label>Mật khẩu hiện tại<input name="password" type="password" autocomplete="current-password" required maxlength="200"></label><label>Mã xác thực / mã dự phòng<input name="factorCode" autocomplete="one-time-code" maxlength="32"></label></div><button type="button" data-config-email>Gửi mã qua email</button></div>':'<p class="help-text">Thông tin hồ sơ không thay đổi tên đăng nhập hoặc liên hệ khôi phục đã xác minh.</p>')+'<div class="configuration-actions">'+testBtnHtml+'<button type="submit" class="primary-button">Lưu '+esc(titles[id].toLowerCase())+'</button><p role="status" aria-live="polite"></p></div></form>';
+ const markup='<form class="configuration-form" data-config-form="'+id+'" data-version="'+record.version+'"><div class="form-grid">'+(id==='payment_cod'?'<div style="grid-column:1/-1;background:#f0fdf4;border:1px solid #bbf7d0;color:#166534;padding:10px 14px;border-radius:10px;font-size:12.5px;line-height:1.6;margin-bottom:6px;"><strong>✓ COD Toàn quốc:</strong> GAERU chấp nhận thanh toán khi nhận hàng trên toàn quốc. Cấu hình mức phí hoặc miễn phí COD toàn quốc tại mục <strong>Thanh toán &amp; giao hàng</strong>.</div>':'')+(fields[id]||[]).map(([name,label,type])=>'<label>'+label+'<input name="'+name+'" type="'+(type||'text')+'" maxlength="'+(type==='password'?2000:500)+'" '+(type==='password'?'autocomplete="new-password" placeholder="'+((name==='webhookSecret'?v.webhookSecretConfigured:name==='customerPassword'?v.customerPasswordConfigured:v.secretConfigured)?'Đã lưu · để trống để giữ khóa':'Nhập khóa bí mật')+'"':'value="'+esc(values[name])+'"'+(fieldPlaceholders[id]?.[name]?' placeholder="'+esc(fieldPlaceholders[id][name])+'"':''))+(id==='security'?(name==='idleMinutes'?' min="5" max="60"':' min="1" max="8"'):id==='payment_cod'&&name==='maxAmountVnd'?' min="100000" max="2000000000"':'')+'></label>').join('')+(id==='shipping_jt'?'<label>Môi trường J&T<select name="environment"><option value="sandbox">Thử nghiệm</option><option value="production" '+(v.environment==='production'?'selected':'')+'>Chính thức</option></select></label><label>Người trả cước theo hợp đồng<select name="payType"><option value="">Chọn theo hợp đồng J&T</option>'+[['PP_PM','Người gửi · trả theo kỳ'],['PP_CASH','Người gửi · trả ngay'],['CC_CASH','Người nhận · trả ngay']].map(([key,label])=>'<option value="'+key+'" '+(v.payType===key?'selected':'')+'>'+label+'</option>').join('')+'</select></label><label>Hình thức gửi<select name="serviceType"><option value="1">Lấy tại kho</option><option value="6" '+(v.serviceType===6?'selected':'')+'>Gửi tại bưu cục</option></select></label>':'')+(id==='operations'?'<label class="operation-switch"><input type="checkbox" name="ordersEnabled" '+(values.ordersEnabled?'checked':'')+'> Tiếp nhận đơn đặt hàng trực tuyến</label>':'')+(['vnpay','payment_momo','payment_zalopay'].includes(id)?'<label>Môi trường<select name="environment"><option value="sandbox">Thử nghiệm</option><option value="production" '+(v.environment==='production'?'selected':'')+'>Chính thức</option></select></label>'+(id==='payment_momo'?'<label>Chế độ cổng MoMo<select name="requestType"><option value="captureWallet" '+(v.requestType!=='payWithMethod'?'selected':'')+'>Ví MoMo, AIO QR &amp; Ví Trả Sau (captureWallet)</option><option value="payWithMethod" '+(v.requestType==='payWithMethod'?'selected':'')+'>All-in-One: Ví MoMo + ATM + Visa/Master/JCB (payWithMethod)</option></select></label>':'')+'<label><input type="checkbox" name="enabled" '+(v.enabled?'checked':'')+'> Cho phép sử dụng '+titles[id]+'</label>':'')+(['payment_cod','payment_bank_transfer'].includes(id)?'<label><input type="checkbox" name="enabled" '+(values.enabled?'checked':'')+'> Cho phép sử dụng '+titles[id]+'</label>':'')+(id==='misa'?'<label>Môi trường kết nối<select name="environment"><option value="sandbox" '+(values.environment!=='production'?'selected':'')+'>Thử nghiệm (Sandbox)</option><option value="production" '+(values.environment==='production'?'selected':'')+'>Chính thức (Production)</option></select></label><label class="operation-switch"><input type="checkbox" name="autoIssue" '+(values.autoIssue?'checked':'')+'> Lưu tùy chọn xuất tự động (chưa hoạt động)</label><label class="operation-switch"><input type="checkbox" name="enabled" '+(values.enabled?'checked':'')+'> Lưu yêu cầu bật MISA (chưa xác minh, chưa phát hành)</label>':'')+'</div>'+(id!=='profile'?'<div class="configuration-reauth"><p>Xác nhận bằng mật khẩu và mã xác thực hiện tại của chủ doanh nghiệp.</p><div class="form-grid"><label>Mật khẩu hiện tại<input name="password" type="password" autocomplete="current-password" required maxlength="200"></label><label>Mã xác thực / mã dự phòng<input name="factorCode" autocomplete="one-time-code" maxlength="32"></label></div><button type="button" data-config-email>Gửi mã qua email</button></div>':'<p class="help-text">Thông tin hồ sơ không thay đổi tên đăng nhập hoặc liên hệ khôi phục đã xác minh.</p>')+'<div class="configuration-actions">'+testBtnHtml+'<button type="submit" class="primary-button">Lưu '+esc(titles[id].toLowerCase())+'</button><p role="status" aria-live="polite"></p></div></form>';
  return markup;
 }
 
@@ -530,6 +547,24 @@ async function load(){
 }
 
 document.addEventListener('click',async e=>{
+ const qBtn=e.target.closest('[data-momo-refund-query]');
+ if(qBtn&&!qBtn.disabled){
+  if(admin.setButtonBusy)admin.setButtonBusy(qBtn,true,'Đang tra cứu…');else qBtn.disabled=true;
+  try{
+   const res=await admin.request('/api/gaeru_ceo/owner/payments/momo/refunds/'+encodeURIComponent(qBtn.dataset.momoRefundQuery)+'/query',{method:'POST',body:'{}'});
+   admin.showGlobal(res.message);
+   const st=document.querySelector('[data-momo-refund-result]');
+   if(st)st.textContent=res.message;
+   await loadMomoRefunds();
+  }catch(err){
+   const st=document.querySelector('[data-momo-refund-result]');
+   if(st)st.textContent=err.message;
+  }finally{
+   if(admin.setButtonBusy)admin.setButtonBusy(qBtn,false);else qBtn.disabled=false;
+  }
+  return;
+ }
+ if(e.target.closest('[data-momo-refund-refresh]')){void loadMomoRefunds();return;}
  const button=e.target.closest('[data-config-email]');
  if(!button||button.disabled)return;
  const f=button.closest('form'),status=f.querySelector('[role=status]');
@@ -547,6 +582,38 @@ document.addEventListener('click',async e=>{
 });
 
 document.addEventListener('submit',async e=>{
+ const mrf=e.target.closest('[data-momo-refund-form]');
+ if(mrf){
+  e.preventDefault();
+  const btn=mrf.querySelector('[type=submit]'),st=mrf.querySelector('[data-momo-refund-result]');
+  if(btn?.disabled)return;
+  if(btn&&admin.setButtonBusy)admin.setButtonBusy(btn,true,'Đang gửi lệnh hoàn tiền…');else if(btn)btn.disabled=true;
+  try{
+   const res=await admin.request('/api/gaeru_ceo/owner/payments/momo/refunds',{
+    method:'POST',
+    body:JSON.stringify({
+     orderNumber:mrf.elements.orderNumber.value.trim(),
+     amountVnd:Number(mrf.elements.amountVnd.value),
+     description:mrf.elements.description.value.trim(),
+     password:mrf.elements.password.value,
+     factorCode:mrf.elements.factorCode.value,
+     factorChallengeId:mrf.dataset.challenge
+    })
+   });
+   st.textContent=res.message;
+   admin.showGlobal(res.message);
+   await loadMomoRefunds();
+  }catch(err){
+   st.textContent=err.message;
+  }finally{
+   mrf.elements.password.value='';
+   mrf.elements.factorCode.value='';
+   delete mrf.dataset.challenge;
+   if(btn&&admin.setButtonBusy)admin.setButtonBusy(btn,false);else if(btn)btn.disabled=false;
+  }
+  return;
+ }
+
  const rf=e.target.closest('[data-payment-reconcile-form]');
  if(rf){
   e.preventDefault();
@@ -640,6 +707,7 @@ document.addEventListener('submit',async e=>{
   if(id==='payment_momo'){
    if(typeof values.partnerCode==='string')values.partnerCode=values.partnerCode.trim();
    if(typeof values.accessKey==='string')values.accessKey=values.accessKey.trim();
+   if(f.elements.requestType)values.requestType=f.elements.requestType.value;
   }
   if(id==='payment_zalopay'&&typeof values.appId==='string')values.appId=values.appId.trim();
 

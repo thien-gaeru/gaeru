@@ -1,8 +1,8 @@
 # Tích hợp và nghiệm thu thanh toán MoMo
 
-Đối chiếu ngày 26/11/2026 với tài liệu kỹ thuật chính thức của MoMo: *MoMo Payment Platform — Technical Documentation (API & Integration Guide)*, trọn bộ **239 trang**. Phần áp dụng: Onboarding/M4B & môi trường (trang 13–18), chữ ký HMAC-SHA256 (trang 19), thanh toán một lần `captureWallet` (trang 22–30), truy vấn `query` (trang 215–216), mã kết quả (trang 226–229), IPN & Redirect (trang 230–232), bộ logo chính thức MoMo (trang 239).
+Đối chiếu ngày 26/11/2026 với tài liệu kỹ thuật chính thức của MoMo: *MoMo Payment Platform — Technical Documentation (API & Integration Guide)*, trọn bộ **239 trang**. Phần áp dụng: Onboarding/M4B & môi trường (trang 13–18), chữ ký HMAC-SHA256 (trang 19), thanh toán một lần `captureWallet` (trang 22–30), Collection Link `payWithMethod` (trang 191–197), truy vấn `query` & hoàn tiền `refund`/`refund/query` (trang 215–222), mã kết quả (trang 226–229), IPN & Redirect (trang 230–232), bộ logo chính thức MoMo (trang 239).
 
-Phạm vi triển khai là checkout website qua `captureWallet`, `autoCapture: true`, chuyển khách tới `payUrl` chính thức của MoMo (hỗ trợ Ví MoMo, AIO QR MoMo/Ngân hàng và Ví Trả Sau). Liên kết ví/tokenization, trừ tiền định kỳ, thẻ độc lập (`payWithMethod`/`payWithATM`/`payWithCC`), POS/EDC và hoàn tiền qua API (`/v2/gateway/api/refund`) là các luồng mở rộng riêng chưa bật trong bản này. Hoàn tiền tiếp tục được đối soát và thực hiện trong M4B Merchant Portal; ghi nhận trả hàng trong GAERU không tự gửi lệnh chuyển tiền sang MoMo.
+Phạm vi triển khai hỗ trợ chọn cấu hình **`captureWallet`** (mặc định: Ví MoMo, AIO QR và Ví Trả Sau) hoặc **`payWithMethod`** (Collection Link All-in-One: Ví MoMo + AIO QR + Thẻ ATM nội địa + Visa/Master/JCB, thẻ kích hoạt từ `10.000 ₫`) với `autoCapture: true`, chuyển khách tới `payUrl` chính thức của MoMo; đồng thời tích hợp **API Hoàn tiền** (`POST /v2/gateway/api/refund`) và **Tra cứu hoàn tiền** (`POST /v2/gateway/api/refund/query`) trực tiếp trong GAERU CEO (yêu cầu xác thực mật khẩu + MFA chủ doanh nghiệp). Liên kết ví/tokenization, trừ tiền định kỳ và thiết bị POS/EDC tại quầy vẫn nằm ngoài phạm vi website TMĐT độc lập.
 
 Chưa có khóa merchant và chưa chạy giao dịch MoMo thật. Test/runner trong repository chạy mô phỏng giao thức chuẩn; kết quả đạt không thay thế SIT trên Sandbox thật, UAT trên Production và xác nhận go-live của MoMo.
 
@@ -11,9 +11,10 @@ Chưa có khóa merchant và chưa chạy giao dịch MoMo thật. Test/runner t
 | Nội dung | Triển khai tại GAERU |
 | --- | --- |
 | Sandbox / Production | `https://test-payment.momo.vn` / `https://payment.momo.vn` |
-| Tạo phiên | `POST /v2/gateway/api/create` (`requestType: "captureWallet"`, `autoCapture: true`, `orderExpireTime: 15`) |
-| Ngữ cảnh đơn hàng | Gửi kèm `storeName: "GAERU"`, `items` (tối đa 50 SKU đã khử trùng ID tránh mã `45`, `currency: "VND"`), `deliveryInfo`, `userInfo` |
-| Tra cứu | `POST /v2/gateway/api/query` |
+| Tạo phiên | `POST /v2/gateway/api/create` (`requestType: "captureWallet"` hoặc `"payWithMethod"`, `autoCapture: true`, `orderExpireTime: 15`) |
+| Ngữ cảnh đơn hàng | Gửi kèm `storeName: "GAERU"`, `items` (tối đa 50 SKU đã khử trùng ID tránh mã `45`, `currency: "VND"`), `deliveryInfo` (cho `captureWallet`), `userInfo` |
+| Tra cứu giao dịch | `POST /v2/gateway/api/query` (chữ ký 4 trường a–z) |
+| Hoàn tiền & Tra cứu hoàn tiền | `POST /v2/gateway/api/refund` (chữ ký 7 trường a–z, `orderId` hoàn tiền mới tách biệt đơn gốc, toàn phần/một phần `1.000–50.000.000 ₫`, tối thiểu `10.000 ₫` cho ATM `napas`) & `POST /v2/gateway/api/refund/query` (chữ ký 4 trường, đối chiếu `refundTrans`, xử lý mã `1080/1081/1088` và tự động tra cứu lại khi `7000/7002`) |
 | Số tiền | Số nguyên VND từ `1.000` đến `50.000.000`, tính phía máy chủ và cảnh báo sớm trên Checkout UI |
 | Định danh (`orderId` / `requestId`) | `orderId = GR-YYYYMMDD-XXXXXXXXXX` (22 byte, `< 64 byte`, không PII, khớp regex MoMo); `requestId` lưu ở `payment_attempts.provider_request_id` |
 | Chữ ký | HMAC-SHA256 đúng chuỗi trường a–z MoMo quy định, đối chiếu bằng `timingSafeEqual` |

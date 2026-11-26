@@ -9,7 +9,10 @@ const PROVIDERS = Object.freeze({
     name: 'MoMo',
     sandbox: 'https://test-payment.momo.vn',
     production: 'https://payment.momo.vn',
-    create: '/v2/gateway/api/create', query: '/v2/gateway/api/query',
+    create: '/v2/gateway/api/create',
+    query: '/v2/gateway/api/query',
+    refund: '/v2/gateway/api/refund',
+    refundQuery: '/v2/gateway/api/refund/query',
     paymentHosts: { sandbox: ['test-payment.momo.vn'], production: ['payment.momo.vn'] }
   },
   zalopay: {
@@ -41,7 +44,8 @@ function credentials(provider, settings) {
   if (provider === 'momo') {
     if (!validText(settings.partnerCode, 2, 50) || !/^[A-Za-z0-9_-]+$/.test(settings.partnerCode)
       || !validText(settings.accessKey, 2, 160) || !/^[A-Za-z0-9_-]+$/.test(settings.accessKey)
-      || !validText(settings.secretKey, 8, 500)) throw fail(provider, 'PAYMENT_CONFIGURATION_INVALID', { status: 400 });
+      || !validText(settings.secretKey, 8, 500)
+      || (settings.requestType !== undefined && !momoProtocol.REQUEST_TYPES.includes(settings.requestType))) throw fail(provider, 'PAYMENT_CONFIGURATION_INVALID', { status: 400 });
   } else if (!/^[1-9]\d{0,9}$/.test(String(settings.appId || '')) || Number(settings.appId) > 2147483647
     || !validText(settings.key1, 8, 500) || !validText(settings.key2, 8, 500)) {
     throw fail(provider, 'PAYMENT_CONFIGURATION_INVALID', { status: 400 });
@@ -259,23 +263,27 @@ async function createGatewayPayment(provider, settings, options = {}) {
   const baseUrl = publicOrigin(provider, options.baseUrl);
   let body;
   if (provider === 'momo') {
+    if (options.requestType !== undefined && !momoProtocol.REQUEST_TYPES.includes(options.requestType)) throw fail(provider, 'PAYMENT_REQUEST_INVALID', { status: 400 });
+    const requestType = momoProtocol.normalizeRequestType(options.requestType ?? settings.requestType);
     const expireMinutes = options.orderExpireTime === undefined ? MOMO_DEFAULT_EXPIRE_MINUTES : options.orderExpireTime;
     if (!Number.isInteger(expireMinutes) || expireMinutes < 1 || expireMinutes > 1440) throw fail(provider, 'PAYMENT_REQUEST_INVALID', { status: 400 });
     body = { partnerCode: settings.partnerCode, requestId, orderId: options.txnRef, amount,
       orderInfo: 'Thanh toan don hang ' + options.txnRef,
       redirectUrl: baseUrl + '/api/payments/momo/return', ipnUrl: baseUrl + '/api/payments/momo/ipn',
-      requestType: 'captureWallet', extraData: '', autoCapture: true, orderExpireTime: expireMinutes, lang: 'vi' };
+      requestType, extraData: '', autoCapture: true, orderExpireTime: expireMinutes, lang: 'vi' };
     const storeName = cleanOptionalString(options.storeName, 100);
     if (storeName) body.storeName = storeName;
     const storeId = cleanOptionalString(options.storeId, 50);
     if (storeId) body.storeId = storeId;
     const items = sanitizeMomoItems(options.items);
     if (items) body.items = items;
-    const deliveryInfo = sanitizeMomoDeliveryInfo(options.deliveryInfo);
-    if (deliveryInfo) body.deliveryInfo = deliveryInfo;
+    if (requestType === 'captureWallet') {
+      const deliveryInfo = sanitizeMomoDeliveryInfo(options.deliveryInfo);
+      if (deliveryInfo) body.deliveryInfo = deliveryInfo;
+    }
     const userInfo = sanitizeMomoUserInfo(options.userInfo);
     if (userInfo) body.userInfo = userInfo;
-    body.signature = hmac(settings.secretKey, `accessKey=${settings.accessKey}&amount=${amount}&extraData=&ipnUrl=${body.ipnUrl}&orderId=${body.orderId}&orderInfo=${body.orderInfo}&partnerCode=${body.partnerCode}&redirectUrl=${body.redirectUrl}&requestId=${requestId}&requestType=captureWallet`);
+    body.signature = hmac(settings.secretKey, `accessKey=${settings.accessKey}&amount=${amount}&extraData=&ipnUrl=${body.ipnUrl}&orderId=${body.orderId}&orderInfo=${body.orderInfo}&partnerCode=${body.partnerCode}&redirectUrl=${body.redirectUrl}&requestId=${requestId}&requestType=${requestType}`);
   } else {
     body = { app_id: Number(settings.appId), app_user: 'gaeru', app_trans_id: requestId, app_time: time,
       expire_duration_seconds: 900, amount, description: 'Thanh toan don hang ' + options.txnRef,
@@ -297,7 +305,12 @@ async function createGatewayPayment(provider, settings, options = {}) {
     if (data.return_code !== 1 || (data.sub_return_code !== undefined && (!Number.isInteger(data.sub_return_code) || data.sub_return_code < 0))) throw Object.assign(fail(provider, 'PAYMENT_PROVIDER_REJECTED', { ambiguous: data.sub_return_code === -68 }), { gatewayResultCode: data.return_code });
     if ((data.app_trans_id !== undefined && data.app_trans_id !== requestId) || (data.app_id !== undefined && Number(data.app_id) !== Number(settings.appId)) || (data.amount !== undefined && data.amount !== amount)) throw fail(provider, 'PAYMENT_RESPONSE_MISMATCH', { ambiguous: true });
   }
+  const validatedShortLink = provider === 'momo' && data.shortLink !== undefined
+    ? paymentUrl(provider, settings.environment, data.shortLink)
+    : undefined;
   return { paymentUrl: paymentUrl(provider, settings.environment, provider === 'momo' ? data.payUrl : data.order_url), requestId,
+    ...(provider === 'momo' ? { requestType: body.requestType } : {}),
+    ...(validatedShortLink ? { shortLink: validatedShortLink } : {}),
     providerTransactionId: safeTransactionId(provider === 'momo' ? data.transId : data.zp_trans_id),
     verificationScope: 'api_credentials', callbackVerified: false };
 }
@@ -353,4 +366,170 @@ async function verifyGatewayAccount(provider, settings, options = {}) {
       message: 'Chưa xác minh được thông tin merchant ' + PROVIDERS[provider].name + '. Kiểm tra cấu hình và thử lại sau.' };
   }
 }
-module.exports = { createGatewayPayment, queryGatewayPayment, verifyGatewayAccount, extractMomoReconciliationMeta };
+function sanitizeMomoTransGroup(rawGroup) {
+  if (!Array.isArray(rawGroup) || rawGroup.length === 0) return undefined;
+  const out = [];
+  for (const item of rawGroup.slice(0, 50)) {
+    if (!item || typeof item !== 'object') continue;
+    const itemId = cleanOptionalString(String(item.itemId ?? ''), 120);
+    const amount = Number(item.amount);
+    if (!itemId || !Number.isSafeInteger(amount) || amount < 1) continue;
+    const entry = { itemId, amount };
+    if (item.transId !== undefined && item.transId !== null && item.transId !== '') {
+      const tid = Number(item.transId);
+      if (Number.isSafeInteger(tid) && tid > 0) entry.transId = tid;
+    }
+    out.push(entry);
+  }
+  return out.length ? out : undefined;
+}
+
+async function refundGatewayPayment(provider, settings, options = {}) {
+  if (provider !== 'momo') throw fail(provider, 'PAYMENT_REQUEST_INVALID', { status: 400 });
+  credentials(provider, settings);
+  const refundOrderId = options.refundOrderId;
+  const originalOrderId = options.originalOrderId;
+  if (!validReference(refundOrderId, 50) || (originalOrderId && refundOrderId === originalOrderId)) {
+    throw fail(provider, 'PAYMENT_REQUEST_INVALID', { status: 400 });
+  }
+  const requestId = options.requestId || randomUUID();
+  if (!validText(requestId, 1, 50) || !/^[A-Za-z0-9._-]+$/.test(requestId)) {
+    throw fail(provider, 'PAYMENT_REQUEST_INVALID', { status: 400 });
+  }
+  const amount = Number(options.amountVnd);
+  if (!Number.isSafeInteger(amount) || amount < momoProtocol.MIN_AMOUNT || amount > momoProtocol.MAX_AMOUNT) {
+    throw fail(provider, 'PAYMENT_REQUEST_INVALID', { status: 400 });
+  }
+  const transId = Number(options.originalTransId);
+  if (!Number.isSafeInteger(transId) || transId <= 0) {
+    throw fail(provider, 'PAYMENT_REQUEST_INVALID', { status: 400 });
+  }
+  const description = options.description === undefined || options.description === null
+    ? ''
+    : (cleanOptionalString(String(options.description), 255) || '');
+  const body = {
+    partnerCode: settings.partnerCode,
+    orderId: refundOrderId,
+    requestId,
+    amount,
+    transId,
+    lang: options.lang === 'en' ? 'en' : 'vi',
+    description
+  };
+  const transGroup = sanitizeMomoTransGroup(options.transGroup);
+  if (transGroup) body.transGroup = transGroup;
+  // MoMo 2026 guide, p. 219: exact 7-field alphabetical HMAC-SHA256 signature
+  body.signature = hmac(
+    settings.secretKey,
+    `accessKey=${settings.accessKey}&amount=${amount}&description=${description}&orderId=${refundOrderId}&partnerCode=${settings.partnerCode}&requestId=${requestId}&transId=${transId}`
+  );
+  const data = await post(provider, settings, 'refund', body, options);
+  if (!Number.isInteger(data.resultCode)) throw fail(provider, 'PAYMENT_RESPONSE_INVALID', { ambiguous: true });
+  const state = momoProtocol.refundState(data.resultCode);
+  if (['succeeded', 'pending'].includes(state)) {
+    if (data.partnerCode !== settings.partnerCode || data.orderId !== refundOrderId || data.requestId !== requestId || data.amount !== amount) {
+      throw fail(provider, 'PAYMENT_RESPONSE_MISMATCH', { ambiguous: true });
+    }
+  }
+  const refundTransId = safeTransactionId(data.transId && Number(data.transId) > 0 ? data.transId : null);
+  return {
+    provider,
+    refundOrderId,
+    requestId,
+    amountVnd: amount,
+    originalTransId: String(transId),
+    refundTransId,
+    resultCode: data.resultCode,
+    state,
+    successful: state === 'succeeded',
+    pending: state === 'pending',
+    ambiguous: state === 'ambiguous',
+    message: cleanOptionalString(String(data.message ?? ''), 300) || '',
+    responseTime: Number.isSafeInteger(data.responseTime) ? data.responseTime : null,
+    transGroup: Array.isArray(data.transGroup) ? data.transGroup : null
+  };
+}
+
+async function queryGatewayRefund(provider, settings, options = {}) {
+  if (provider !== 'momo') throw fail(provider, 'PAYMENT_REQUEST_INVALID', { status: 400 });
+  credentials(provider, settings);
+  const refundOrderId = options.refundOrderId;
+  if (!validReference(refundOrderId, 50)) throw fail(provider, 'PAYMENT_REQUEST_INVALID', { status: 400 });
+  const requestId = options.queryRequestId || randomUUID();
+  if (!validText(requestId, 1, 50) || !/^[A-Za-z0-9._-]+$/.test(requestId)) {
+    throw fail(provider, 'PAYMENT_REQUEST_INVALID', { status: 400 });
+  }
+  const body = {
+    partnerCode: settings.partnerCode,
+    requestId,
+    orderId: refundOrderId,
+    lang: options.lang === 'en' ? 'en' : 'vi'
+  };
+  // MoMo 2026 guide, p. 221: exact 4-field alphabetical HMAC-SHA256 signature
+  body.signature = hmac(
+    settings.secretKey,
+    `accessKey=${settings.accessKey}&orderId=${refundOrderId}&partnerCode=${settings.partnerCode}&requestId=${requestId}`
+  );
+  const data = await post(provider, settings, 'refundQuery', body, options);
+  if (!Number.isInteger(data.resultCode)) throw fail(provider, 'PAYMENT_RESPONSE_INVALID', { ambiguous: true });
+  if (data.partnerCode !== undefined && data.partnerCode !== settings.partnerCode) {
+    throw fail(provider, 'PAYMENT_RESPONSE_MISMATCH', { ambiguous: true });
+  }
+  if (data.requestId !== undefined && data.requestId !== requestId) {
+    throw fail(provider, 'PAYMENT_RESPONSE_MISMATCH', { ambiguous: true });
+  }
+  const refundTransList = Array.isArray(data.refundTrans) ? data.refundTrans : [];
+  // Per MoMo p. 222 example, top-level orderId may echo the original order while refundTrans[].orderId matches refundOrderId.
+  const matchedRefund = refundTransList.find(item => item && String(item.orderId) === refundOrderId) || null;
+  if (matchedRefund) {
+    const entryCode = Number(matchedRefund.resultCode);
+    if (!Number.isInteger(entryCode)) throw fail(provider, 'PAYMENT_RESPONSE_INVALID', { ambiguous: true });
+    const entryAmount = Number(matchedRefund.amount);
+    if (options.amountVnd !== undefined && Number.isSafeInteger(entryAmount) && entryAmount !== options.amountVnd) {
+      throw fail(provider, 'PAYMENT_RESPONSE_MISMATCH', { ambiguous: true });
+    }
+    const state = momoProtocol.refundState(entryCode);
+    return {
+      provider,
+      found: true,
+      refundOrderId,
+      requestId,
+      amountVnd: Number.isSafeInteger(entryAmount) ? entryAmount : null,
+      refundTransId: safeTransactionId(matchedRefund.transId && Number(matchedRefund.transId) > 0 ? matchedRefund.transId : null),
+      resultCode: entryCode,
+      state,
+      successful: state === 'succeeded',
+      pending: state === 'pending',
+      ambiguous: state === 'ambiguous',
+      message: cleanOptionalString(String(data.message ?? ''), 300) || '',
+      createdTime: Number.isSafeInteger(matchedRefund.createdTime) ? matchedRefund.createdTime : null,
+      refundTrans: refundTransList
+    };
+  }
+  const topState = data.resultCode === 0 ? 'ambiguous' : momoProtocol.refundState(data.resultCode);
+  return {
+    provider,
+    found: false,
+    refundOrderId,
+    requestId,
+    amountVnd: null,
+    refundTransId: null,
+    resultCode: data.resultCode,
+    state: topState,
+    successful: false,
+    pending: topState === 'pending',
+    ambiguous: topState === 'ambiguous',
+    message: cleanOptionalString(String(data.message ?? ''), 300) || '',
+    createdTime: null,
+    refundTrans: refundTransList
+  };
+}
+
+module.exports = {
+  createGatewayPayment,
+  queryGatewayPayment,
+  verifyGatewayAccount,
+  refundGatewayPayment,
+  queryGatewayRefund,
+  extractMomoReconciliationMeta
+};
