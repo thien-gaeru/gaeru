@@ -114,6 +114,10 @@ function createStaffApi(pool, config) {
       const parsed = staffCreateSchema.safeParse(req.body);
       if (!parsed.success) return res.status(400).json({ error: "Thông tin nhân viên chưa hợp lệ. Mật khẩu cần ít nhất 12 ký tự và tối đa 72 byte UTF-8.", details: parsed.error.issues });
       const input = parsed.data;
+      const isBootstrapOwner = req.admin?.role === "owner" && req.admin?.source === "bootstrap";
+      if (input.role === "admin" && !isBootstrapOwner) {
+        throw problem(403, "Chỉ tài khoản Chủ sở hữu hệ thống mới được cấp vai trò Quản lý (admin).");
+      }
       if (input.username.toLowerCase() === config.ADMIN_USERNAME.toLowerCase()) throw problem(409, "Tên đăng nhập này dành cho tài khoản chủ doanh nghiệp.");
       const passwordHash = await bcrypt.hash(input.password, 12);
       const staff = await withTransaction(pool, async (client) => {
@@ -144,6 +148,13 @@ function createStaffApi(pool, config) {
         );
         const current = locked.rows[0];
         if (!current) throw problem(404, "Không tìm thấy nhân viên.");
+        const isBootstrapOwner = req.admin?.role === "owner" && req.admin?.source === "bootstrap";
+        if ((current.role === "admin" || input.role === "admin") && !isBootstrapOwner) {
+          throw problem(403, "Chỉ tài khoản Chủ sở hữu hệ thống mới được chỉnh sửa hoặc gán vai trò Quản lý (admin).");
+        }
+        if (req.admin?.id && String(req.admin.id) === String(current.id) && (passwordHash !== null || (input.role !== undefined && input.role !== current.role) || (input.active !== undefined && input.active !== current.active))) {
+          throw problem(403, "Không thể tự đổi mật khẩu, vai trò hoặc trạng thái khóa của chính mình tại đây. Hãy dùng mục Bảo mật tài khoản.");
+        }
         if (current.version !== input.version) throw problem(409, "Thông tin nhân viên đã thay đổi. Tải lại trước khi lưu.");
         if (input.departmentId !== undefined && input.departmentId !== current.departmentId) await requireActiveDepartment(client, input.departmentId);
         const revoke = (input.role !== undefined && input.role !== current.role)
@@ -156,6 +167,26 @@ function createStaffApi(pool, config) {
           [current.id, input.fullName ?? current.fullName, input.role ?? current.role, input.active ?? current.active,
             input.departmentId === undefined ? current.departmentId : input.departmentId, passwordHash, revoke ? 1 : 0]
         );
+        if (revoke) {
+          await client.query("SAVEPOINT sp_staff_sec_revoke");
+          try {
+            const secKey = "staff:" + current.id;
+            await client.query(
+              `INSERT INTO account_security (account_key, version, updated_at)
+               VALUES ($1, 2, now())
+               ON CONFLICT (account_key) DO UPDATE SET version = account_security.version + 1, updated_at = now()`,
+              [secKey]
+            );
+            await client.query(
+              "UPDATE security_challenges SET used_at = now() WHERE account_key = $1 AND used_at IS NULL",
+              [secKey]
+            );
+            await client.query("RELEASE SAVEPOINT sp_staff_sec_revoke");
+          } catch (secErr) {
+            await client.query("ROLLBACK TO SAVEPOINT sp_staff_sec_revoke");
+            if (secErr?.code !== "42P01") throw secErr;
+          }
+        }
         const record = await loadStaff(client, current.id);
         await appendAudit(client, {
           actor: req.admin, action: "staff.update", entityType: "staff", entityId: record.id, before, after: record,
@@ -163,6 +194,7 @@ function createStaffApi(pool, config) {
         });
         return record;
       });
+      try { require("./cache").invalidateTags(["account-security"], { immediate: true }); } catch (_) {}
       res.json({ staff });
     } catch (error) { handleError(error, res, next); }
   });

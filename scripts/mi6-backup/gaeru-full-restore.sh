@@ -13,6 +13,8 @@ MEDIA_DIR="/userdata/storage/gaeru-media-backups"
 CHROOT="/userdata/storage/ubuntu"
 CHROOT_STORAGE="/storage/ubuntu"
 
+DEPLOY_LOCK="/run/gaeru-deploy.lock"
+DEPLOY_LOCK_OWNED=0
 GAERU_TMP_CLEANUP_FILES=()
 cleanup_temp_files() {
   local f
@@ -20,10 +22,48 @@ cleanup_temp_files() {
     [ -n "$f" ] && rm -f -- "$f" 2>/dev/null || true
   done
 }
+cleanup_deploy_lock() {
+  if [ "$DEPLOY_LOCK_OWNED" -eq 1 ]; then
+    rm -f -- "$DEPLOY_LOCK" 2>/dev/null || true
+    DEPLOY_LOCK_OWNED=0
+  fi
+}
 trap cleanup_temp_files EXIT
+trap 'cleanup_temp_files; cleanup_deploy_lock' INT TERM
+
+acquire_deploy_lock() {
+  [ "$DEPLOY_LOCK_OWNED" -eq 1 ] && return 0
+  mkdir -p "$(dirname "$DEPLOY_LOCK")" 2>/dev/null || true
+  exec 9>"$DEPLOY_LOCK"
+  if command -v flock >/dev/null 2>&1; then
+    flock -n 9 || die "Another deploy or restore operation is holding $DEPLOY_LOCK"
+  fi
+  printf '%s\n' "$$" >&9
+  DEPLOY_LOCK_OWNED=1
+}
+
+stop_gaeru_app() {
+  say "Stopping node-app (APP=gaeru)..."
+  initctl stop node-app APP=gaeru 2>/dev/null || true
+  local w=0
+  while [ "$w" -lt 20 ] && pgrep -f '/storage/apps/gaeru/src/' >/dev/null 2>&1; do
+    sleep 0.5
+    w=$((w + 1))
+  done
+  if pgrep -f '/storage/apps/gaeru/src/' >/dev/null 2>&1; then
+    pkill -f '/storage/apps/gaeru/src/' 2>/dev/null || true
+    sleep 1
+  fi
+}
+
+start_gaeru_app() {
+  say "Starting node-app (APP=gaeru)..."
+  initctl start node-app APP=gaeru
+  initctl status node-app APP=gaeru | grep -q 'start/running' || die "node-app APP=gaeru failed to reach start/running state"
+}
 
 say() { printf '[%s] %s\n' "$(date -Is)" "$*"; }
-die() { printf '[%s] ERROR: %s\n' "$(date -Is)" "$*" >&2; exit 1; }
+die() { cleanup_deploy_lock; printf '[%s] ERROR: %s\n' "$(date -Is)" "$*" >&2; exit 1; }
 
 resolve_chroot() {
   if [ -d "$CHROOT/usr" ]; then
@@ -153,10 +193,10 @@ restore_db() {
   local chroot_dir
   chroot_dir=$(resolve_chroot)
 
+  acquire_deploy_lock
   say "Verifying dump TOC before restore: $dump_file"
   chroot "$chroot_dir" /usr/bin/pg_restore -l < "$dump_file" >/dev/null
-  say "Stopping node-app before database restore..."
-  initctl stop node-app 2>/dev/null || true
+  stop_gaeru_app
 
   say "Restoring database gaeru_store from $dump_file ..."
   chroot "$chroot_dir" runuser -u postgres -- /usr/bin/env -u LANGUAGE LANG=C.UTF-8 LC_ALL=C.UTF-8 pg_restore --clean --if-exists --no-owner --no-privileges -v -d gaeru_store < "$dump_file"
@@ -171,8 +211,8 @@ ALTER DEFAULT PRIVILEGES FOR ROLE postgres IN SCHEMA public GRANT ALL ON SEQUENC
 EOSQL
   local stats
   stats=$(chroot "$chroot_dir" runuser -u postgres -- /usr/bin/env -u LANGUAGE LANG=C.UTF-8 LC_ALL=C.UTF-8 psql -tA -d gaeru_store -c "SELECT 'public_tables=' || count(*) FROM pg_tables WHERE schemaname='public' UNION ALL SELECT 'products=' || count(*) FROM products UNION ALL SELECT 'orders=' || count(*) FROM orders UNION ALL SELECT 'media_upload_originals=' || count(*) FROM media_upload_originals;" | tr '\n' ' ')
-  say "Starting node-app..."
-  initctl start node-app 2>/dev/null || true
+  start_gaeru_app
+  cleanup_deploy_lock
   say "Database restore completed successfully: $stats"
 }
 
@@ -189,17 +229,17 @@ restore_media_code() {
   local archive
   archive=$(prepare_restore_input "$raw_input" "$tmp_plain")
 
+  acquire_deploy_lock
   say "Testing archive integrity: $archive"
   gzip -t "$archive"
-  say "Stopping node-app before extracting codebase & configs..."
-  initctl stop node-app 2>/dev/null || true
+  stop_gaeru_app
   say "Extracting Media, Codebase, Admin Dashboard, and Server Configs to / ..."
   if (set +o pipefail; tar -tzf "$archive" | grep -qE '(^|/)\.\.(/|$)|^/'); then
     die "Unsafe path traversal or absolute entry detected in archive: $archive"
   fi
   tar -xzpf "$archive" -C / --numeric-owner
-  say "Starting node-app..."
-  initctl start node-app 2>/dev/null || true
+  start_gaeru_app
+  cleanup_deploy_lock
   say "Media + Codebase + System Configs restored cleanly."
 }
 

@@ -8,19 +8,12 @@
   let threads = [];
   let isSending = false;
 
-  function getCsrfToken() {
-    return document.querySelector('meta[name="csrf-token"]')?.getAttribute('content') ||
-           document.querySelector('input[name="_csrf"]')?.value ||
-           window.__GAERU_CSRF__ || '';
-  }
-
   async function api(path, options = {}) {
     if (window.GAERUAdmin?.request) {
       return window.GAERUAdmin.request('/api/gaeru_ceo/internal-ai' + path, options);
     }
     const headers = {
       'Content-Type': 'application/json',
-      'X-CSRF-Token': getCsrfToken(),
       ...(options.headers || {})
     };
     const res = await fetch('/api/gaeru_ceo/internal-ai' + path, {
@@ -152,8 +145,17 @@
       const roleBadge = document.getElementById('copilot-user-role');
       const modalRoleBadge = document.getElementById('modal-copilot-user-role');
       if (roleBadge) {
-        const isOwner = session?.isOwner || session?.role === 'owner' || document.querySelector('[data-view="owner"]:not([hidden])');
-        const roleText = isOwner ? 'Vai trò: Chủ doanh nghiệp' : 'Vai trò: Quản lý';
+        const isOwner = Boolean(session?.isOwner || (session?.role === 'owner' && session?.source === 'bootstrap'));
+        const roleLabels = {
+          owner: 'Chủ doanh nghiệp',
+          admin: 'Quản trị viên',
+          sales: 'Kinh doanh',
+          warehouse: 'Kho vận',
+          accountant: 'Kế toán',
+          viewer: 'Chỉ xem'
+        };
+        const mappedRole = isOwner ? 'Chủ doanh nghiệp' : (roleLabels[session?.role] || 'Nhân sự');
+        const roleText = `Vai trò: ${mappedRole}`;
         roleBadge.textContent = roleText;
         if (modalRoleBadge) modalRoleBadge.textContent = roleText;
       }

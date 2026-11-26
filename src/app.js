@@ -33,7 +33,7 @@ const PUBLIC_CACHEABLE_API_READ_RE = /^\/api\/(?:products(?:\/[^/]+(?:\/bundles)
 
 function attachTransactionalCacheInvalidation(pool) {
   if (!pool || typeof pool.query !== 'function' || pool.__gaeruCacheHooked) return pool;
-  const CATALOG_TABLES_RE = /\b(?:products|product_variants|product_presentations|product_promotions|product_promotion_variants|catalog_images|news_posts|news_images|site_pages|store_settings|marketing_banner_images|site_asset_snapshots)\b/i;
+  const CATALOG_TABLES_RE = /\b(?:products|product_variants|product_presentations|product_promotions|product_promotion_variants|product_bundles|product_bundle_items|catalog_images|news_posts|news_images|site_pages|store_settings|marketing_banner_images|site_asset_snapshots)\b/i;
   const SETTINGS_TABLES_RE = /\b(?:store_settings|shipping_carrier_connections|payment_channel_connections)\b/i;
   const SECURITY_TABLES_RE = /\b(?:account_security|staff_accounts)\b/i;
   const classifyMutation = sql => {
@@ -215,8 +215,15 @@ function createApp({ config, pool, sessionStore, customerMailer, oauthClient = n
     const isLoopback = remoteAddr === "127.0.0.1" || remoteAddr === "::1" || remoteAddr === "::ffff:127.0.0.1";
     const cfConnectingIp = String(req.headers["cf-connecting-ip"] || "").trim();
     const cfRay = String(req.headers["cf-ray"] || "").trim();
-    if (isLoopback && cfConnectingIp && CF_RAY_RE.test(cfRay) && net.isIP(cfConnectingIp)) {
+    const trustCfLoopback = String(config?.TRUST_CLOUDFLARE_LOOPBACK ?? process.env.TRUST_CLOUDFLARE_LOOPBACK ?? "true").trim().toLowerCase() !== "false";
+    const trustLocalXff = String(config?.TRUST_LOCAL_X_FORWARDED_FOR ?? process.env.TRUST_LOCAL_X_FORWARDED_FOR ?? "false").trim().toLowerCase() === "true";
+    if (isLoopback && trustCfLoopback && cfConnectingIp && CF_RAY_RE.test(cfRay) && net.isIP(cfConnectingIp)) {
       req.headers["x-forwarded-for"] = cfConnectingIp;
+    } else if (isLoopback && trustLocalXff && req.headers["x-forwarded-for"]) {
+      delete req.headers["cf-connecting-ip"];
+      const firstHop = String(req.headers["x-forwarded-for"]).split(",")[0].trim();
+      if (net.isIP(firstHop)) req.headers["x-forwarded-for"] = firstHop;
+      else delete req.headers["x-forwarded-for"];
     } else if ((config?.NODE_ENV || process.env.NODE_ENV) === "production") {
       delete req.headers["cf-connecting-ip"];
       delete req.headers["x-forwarded-for"];
@@ -344,6 +351,7 @@ function createApp({ config, pool, sessionStore, customerMailer, oauthClient = n
 
   const { getFailoverSync } = require("./failover-sync");
   const failoverSync = getFailoverSync(config, pool);
+  app.locals.failoverSync = failoverSync;
 
   app.get("/health", (_req, res) => {
     res.set({ 'Cache-Control': 'no-store' }).json({ status: "ok" });
@@ -377,10 +385,17 @@ function createApp({ config, pool, sessionStore, customerMailer, oauthClient = n
     ];
     app.post(['/auth/google', '/account.html', '/tai-khoan', '/account'], ...gisRedirectMiddlewares);
   }
-  app.get('/account/link-required', (req, res) => {
+  const linkRequiredLimit = rateLimit({
+    windowMs: 15 * 60 * 1000,
+    limit: config?.NODE_ENV === 'test' || process.env.NODE_ENV === 'test' ? 500 : 20,
+    standardHeaders: 'draft-8',
+    legacyHeaders: false
+  });
+  app.get('/account/link-required', linkRequiredLimit, (req, res) => {
     res.set('Cache-Control', 'no-store');
     const email = typeof req.query.email === 'string' ? req.query.email.trim().slice(0, 254) : '';
-    if (req.session && email && !req.session.pendingOAuthLink?.googleSub) {
+    const validEmail = /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email);
+    if (req.session && validEmail && !req.session.pendingOAuthLink?.googleSub) {
       req.session.pendingOAuthLink = {
         email,
         provider: 'google',
@@ -494,7 +509,7 @@ function createApp({ config, pool, sessionStore, customerMailer, oauthClient = n
   const productWriteBody = express.Router();
   productWriteBody.use(
     requirePermission("catalog.write"),
-    express.json({ limit: require("node:buffer").constants.MAX_STRING_LENGTH }),
+    express.json({ limit: "16mb" }),
     honeypot
   );
   app.use((req, res, next) => res.locals.productWriteJson ? productWriteBody(req, res, next) : next());
@@ -735,6 +750,9 @@ function createApp({ config, pool, sessionStore, customerMailer, oauthClient = n
       return res.status(400).json({ error: 'Dữ liệu hoặc tham số yêu cầu chưa hợp lệ.' });
     }
     if (error.code && typeof error.code === 'string') {
+      if (error.code === '40P01' || error.code === '40001') {
+        return res.status(409).json({ error: 'Hệ thống đang xử lý đồng thời yêu cầu khác. Vui lòng thử lại sau giây lát.' });
+      }
       const isCodRelated = ['cod_settlement_allocations', 'cod_settlement_batches', 'carrier_shipments', 'sales_receipts'].includes(error.table) ||
         (typeof error.constraint === 'string' && /cod_settlement|cap_check|sales_receipts/.test(error.constraint));
       if (isCodRelated) {
@@ -751,9 +769,6 @@ function createApp({ config, pool, sessionStore, customerMailer, oauthClient = n
             ? 'Tổng tiền phân bổ vượt quá tổng tiền sao kê khai báo của lô đối soát.'
             : 'Trạng thái đối soát của vận đơn không hợp lệ.';
           return res.status(409).json({ error: msg });
-        }
-        if (error.code === '40P01' || error.code === '40001') {
-          return res.status(409).json({ error: 'Hệ thống đang xử lý đồng thời yêu cầu khác trên đơn hàng này. Vui lòng thử lại sau giây lát.' });
         }
       }
     }

@@ -12,14 +12,15 @@ function storageKey(content){
  else if(prefix==='GAERU_S3_V1:')key=value.subarray(12).toString('utf8');else return null;
  disk.checkKey(key);return key;
 }
+function safeStorageKey(content){try{return storageKey(content);}catch{return null;}}
 async function liveReferences(client,key){
  if((await client.query('SELECT storage_key FROM media_library_files WHERE storage_key=$1',[key])).rows.length)return true;
  if((await client.query('SELECT storage_key FROM site_asset_snapshots WHERE storage_key=$1',[key])).rows.length)return true;
  const originals=(await client.query("SELECT original_content AS content FROM shopping_chat_files WHERE original_content IS NOT NULL AND deleted_at IS NULL AND octet_length(original_content)<=2048 AND position(convert_to($1,'UTF8') in original_content)>0",[key])).rows;
- for(const row of originals)if(storageKey(row.content)===key)return true;
+ for(const row of originals)if(safeStorageKey(row.content)===key)return true;
  for(const table of TABLES){
   const rows=(await client.query('SELECT content FROM '+table+" WHERE content IS NOT NULL AND octet_length(content)<=2048 AND position(convert_to($1,'UTF8') in content)>0",[key])).rows;
-  for(const row of rows)if(storageKey(row.content)===key)return true;
+  for(const row of rows)if(safeStorageKey(row.content)===key)return true;
  }
  return false;
 }
@@ -81,8 +82,8 @@ async function deleteChatFilesByKey(pool,{key,actor,confirm=false}){
  let changed=0;
  await withTransaction(pool,async client=>{
   await client.query("SELECT pg_advisory_xact_lock(hashtext('shopping-chat-storage'))");
-  const rows=(await client.query('SELECT * FROM shopping_chat_files WHERE deleted_at IS NULL AND content IS NOT NULL AND octet_length(content)<=2048 FOR UPDATE')).rows;
-  for(const row of rows)if(storageKey(row.content)===key||storageKey(row.original_content)===key)changed+=Number(await removeAttachment(client,row,'admin',actor));
+  const rows=(await client.query("SELECT * FROM shopping_chat_files WHERE deleted_at IS NULL AND ((content IS NOT NULL AND octet_length(content)<=2048 AND position(convert_to($1,'UTF8') in content)>0) OR (original_content IS NOT NULL AND octet_length(original_content)<=2048 AND position(convert_to($1,'UTF8') in original_content)>0)) FOR UPDATE",[key])).rows;
+  for(const row of rows)if(safeStorageKey(row.content)===key||safeStorageKey(row.original_content)===key)changed+=Number(await removeAttachment(client,row,'admin',actor));
   // Orphaned copies of conversation uploads can also be removed by an admin.
   if(!changed)await appendAudit(client,{actor,action:'shopping.chat.file.delete',entityType:'media_file',entityId:key,metadata:{orphan:true}});
   await client.query('INSERT INTO shopping_chat_file_cleanup(storage_key) VALUES($1) ON CONFLICT(storage_key) DO UPDATE SET next_attempt_at=now()',[key]);

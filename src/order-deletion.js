@@ -62,6 +62,17 @@ async function deleteOrderPermanently(client, orderId, { actor = { username: 'sy
     WHERE a.order_id=$1 AND e.status='posted' AND a.status NOT IN ('resolved','rejected') LIMIT 1`, [order.id]);
   if (openExchange.rows.length) throw Object.assign(new Error('Đơn đang có chứng từ xuất hàng đổi chưa hoàn tất. Hủy chứng từ trước khi bàn giao hoặc hoàn tất giao đổi và đóng hồ sơ trước khi xóa đơn.'), { status: 409 });
 
+  const hasMomoRefundsTable = Boolean((await client.query("SELECT to_regclass('public.momo_refunds') AS tbl")).rows[0]?.tbl);
+  if (hasMomoRefundsTable) {
+    const inFlightMomoRefund = await client.query(
+      `SELECT id FROM momo_refunds WHERE order_id = $1 AND status IN ('pending_provider', 'pending', 'ambiguous') LIMIT 1`,
+      [order.id]
+    );
+    if (inFlightMomoRefund.rows.length) {
+      throw Object.assign(new Error('Đơn hàng đang có lệnh hoàn tiền MoMo đang xử lý hoặc chờ đối soát kết quả. Vui lòng hoàn tất tra cứu trước khi xóa.'), { status: 409 });
+    }
+  }
+
   if (isOwner) {
     // Quản trị tối cao có quyền xóa vĩnh viễn đơn hàng không bị các hạn chế về chứng từ, hóa đơn, phiếu thu & vận đơn
     await client.query("SET LOCAL gaeru.allow_owner_order_purge = 'on'");
@@ -124,6 +135,15 @@ async function deleteOrderPermanently(client, orderId, { actor = { username: 'sy
         new Error('Không thể xóa cứng đơn hàng đã có biên bản kiểm nhận hoàn kho vật lý.'),
         { status: 409 }
       );
+    }
+    if (hasMomoRefundsTable) {
+      const anyMomoRefund = await client.query('SELECT id FROM momo_refunds WHERE order_id = $1 LIMIT 1', [order.id]);
+      if (anyMomoRefund.rows.length) {
+        throw Object.assign(
+          new Error('Không thể xóa cứng đơn hàng đã phát sinh lịch sử hoàn tiền cổng MoMo.'),
+          { status: 409 }
+        );
+      }
     }
   }
 
@@ -226,7 +246,10 @@ async function deleteOrderPermanently(client, orderId, { actor = { username: 'sy
   await client.query('DELETE FROM order_email_outbox WHERE order_id = $1', [order.id]);
   await client.query('DELETE FROM order_admin_email_outbox WHERE order_id = $1', [order.id]);
 
-  // N. Payment attempts
+  // N. MoMo refunds (before payment_attempts & orders due to ON DELETE RESTRICT) & Payment attempts
+  if (hasMomoRefundsTable) {
+    await client.query('DELETE FROM momo_refunds WHERE order_id = $1', [order.id]);
+  }
   await client.query('DELETE FROM payment_attempts WHERE order_id = $1', [order.id]);
 
   // O. Order items

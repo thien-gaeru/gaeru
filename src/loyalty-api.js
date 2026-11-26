@@ -56,28 +56,27 @@ async function expireLockedLoyaltyIfDue(client, row, actor = { username: 'loyalt
   if (!Number.isFinite(expMs) || expMs > Date.now()) return row;
   const expiredPoints = Number(row.pointsBalance);
   const eventKey = `expire:${row.customerId}:${Math.floor(expMs / 1000)}`;
-  const existing = await client.query('SELECT id FROM customer_loyalty_ledger WHERE event_key = $1', [eventKey]);
+  const ledgerIns = await client.query(
+    `INSERT INTO customer_loyalty_ledger (customer_id, order_id, type, points, balance_after, reason, event_key)
+     VALUES ($1, NULL, 'expire', $2, 0, $3, $4)
+     ON CONFLICT (event_key) DO NOTHING
+     RETURNING id`,
+    [row.customerId, -expiredPoints, 'Thu hồi tự động GAERU Xu hết hạn sau 12 tháng không phát sinh giao dịch tích Xu mới', eventKey]
+  );
   await client.query(
     `UPDATE customer_loyalty
         SET points_balance = 0, expires_at = NULL, updated_at = now()
       WHERE customer_id = $1`,
     [row.customerId]
   );
-  if (!existing.rows.length) {
-    await client.query(
-      `INSERT INTO customer_loyalty_ledger (customer_id, order_id, type, points, balance_after, reason, event_key)
-       VALUES ($1, NULL, 'expire', $2, 0, $3, $4)`,
-      [row.customerId, -expiredPoints, 'Thu hồi tự động GAERU Xu hết hạn sau 12 tháng không phát sinh giao dịch tích Xu mới', eventKey]
-    );
-    if (actor) {
-      await appendAudit(client, {
-        actor,
-        action: 'loyalty.expire',
-        entityType: 'customer',
-        entityId: row.customerId,
-        metadata: { expiredPoints, expiredAt: new Date(expMs).toISOString() }
-      });
-    }
+  if (ledgerIns.rows.length && actor) {
+    await appendAudit(client, {
+      actor,
+      action: 'loyalty.expire',
+      entityType: 'customer',
+      entityId: row.customerId,
+      metadata: { expiredPoints, expiredAt: new Date(expMs).toISOString() }
+    });
   }
   return { ...row, pointsBalance: 0, expiresAt: null };
 }
@@ -299,7 +298,7 @@ async function earnPoints(client, { customerId, orderId, orderTotalVnd, pointsRa
   };
 }
 
-async function redeemPoints(client, { customerId, orderId, pointsToRedeem, maxRedeemRatio = 0.5, orderTotalVnd, maxPayableVnd, cycleKey = null, reason, actor }) {
+async function redeemPoints(client, { customerId, orderId, pointsToRedeem, maxRedeemRatio = 0.5, orderTotalVnd, maxPayableVnd, cycleKey = null, alreadyReservedPoints = 0, reason, actor }) {
   if (!customerId) throw fail('Khách hàng cần đăng nhập để sử dụng GAERU Xu.', 401);
   let redeemAmount = Number(pointsToRedeem) || 0;
   if (!Number.isSafeInteger(redeemAmount) || redeemAmount < 0) {
@@ -334,17 +333,19 @@ async function redeemPoints(client, { customerId, orderId, pointsToRedeem, maxRe
   }
 
   const loyalty = await getOrCreateLoyalty(client, customerId);
-  if (loyalty.pointsBalance < redeemAmount) {
-    throw fail(`Số dư GAERU Xu không đủ (Hiện có: ${loyalty.pointsBalance} Xu, yêu cầu: ${redeemAmount} Xu).`, 409);
+  const reserved = Math.max(0, Number(alreadyReservedPoints) || 0);
+  const availableWithReserve = loyalty.pointsBalance + reserved;
+  if (availableWithReserve < redeemAmount) {
+    throw fail(`Số dư GAERU Xu không đủ (Hiện có: ${availableWithReserve} Xu, yêu cầu: ${redeemAmount} Xu).`, 409);
   }
 
-  const newBalance = loyalty.pointsBalance - redeemAmount;
+  const newBalance = availableWithReserve - redeemAmount;
   const newLifetimeSpent = loyalty.lifetimeSpent + redeemAmount;
 
   await client.query(
     `UPDATE customer_loyalty
      SET points_balance = $2, lifetime_spent = $3,
-         expires_at = CASE WHEN $2 > 0 THEN COALESCE(expires_at, now() + interval '12 months') ELSE NULL END,
+         expires_at = COALESCE(expires_at, now() + interval '12 months'),
          updated_at = now()
      WHERE customer_id = $1`,
     [customerId, newBalance, newLifetimeSpent]
@@ -412,13 +413,21 @@ async function refundPoints(client, { customerId, orderId, reason = 'Hoàn trả
       if (newBalance > 2147483647) throw fail('Số dư Xu vượt giới hạn cho phép.', 409);
       const newSpent = Math.max(0, loyalty.lifetimeSpent - pointsToRefund);
 
+      const origExpMs = loyalty.expiresAt ? new Date(loyalty.expiresAt).getTime() : NaN;
+      const alreadyPastOriginalExpiry = Number.isFinite(origExpMs) && origExpMs <= Date.now();
+      const restoredBalance = alreadyPastOriginalExpiry ? loyalty.pointsBalance : newBalance;
+
       await client.query(
         `UPDATE customer_loyalty
          SET points_balance = $2, lifetime_spent = $3,
-             expires_at = CASE WHEN $2 > 0 THEN COALESCE(expires_at, now() + interval '12 months') ELSE NULL END,
+             expires_at = CASE
+               WHEN $4::boolean THEN CASE WHEN $2 > 0 THEN expires_at ELSE NULL END
+               WHEN $2 > 0 THEN COALESCE(expires_at, now() + interval '12 months')
+               ELSE expires_at
+             END,
              updated_at = now()
          WHERE customer_id = $1`,
-        [customerId, newBalance, newSpent]
+        [customerId, restoredBalance, newSpent, alreadyPastOriginalExpiry]
       );
 
       await client.query(
@@ -426,9 +435,17 @@ async function refundPoints(client, { customerId, orderId, reason = 'Hoàn trả
          VALUES ($1, $2, 'refund', $3, $4, $5, $6)`,
         [customerId, orderId, pointsToRefund, newBalance, `Hoàn lại Xu đã dùng cho đơn #${orderId}: ${reason}`, refundEventKey]
       );
-      loyalty.pointsBalance = newBalance;
+      if (alreadyPastOriginalExpiry) {
+        await client.query(
+          `INSERT INTO customer_loyalty_ledger (customer_id, order_id, type, points, balance_after, reason, event_key)
+           VALUES ($1, $2, 'expire', $3, $4, $5, $6)
+           ON CONFLICT (event_key) DO NOTHING`,
+          [customerId, orderId, -pointsToRefund, restoredBalance, `Thu hồi tự động GAERU Xu đã quá hạn gốc khi hủy đơn #${orderId}`, `expire-on-refund:${refundEventKey}`]
+        );
+      }
+      loyalty.pointsBalance = restoredBalance;
       loyalty.lifetimeSpent = newSpent;
-      refundedRedeem = pointsToRefund;
+      refundedRedeem = alreadyPastOriginalExpiry ? 0 : pointsToRefund;
     }
   }
 
@@ -537,7 +554,10 @@ async function adjustPoints(pool, { customerId, points, reason, actor, requestKe
     if (newBalance < 0) throw fail('Số dư Xu sau điều chỉnh không thể âm.', 409);
     if (newBalance > 2147483647) throw fail('Số dư Xu vượt giới hạn cho phép.', 409);
 
-    const newEarned = points > 0 ? loyalty.lifetimeEarned + points : loyalty.lifetimeEarned;
+    const excessEarned = Math.max(0, loyalty.lifetimeEarned - (loyalty.lifetimeSpent + newBalance));
+    const newEarned = points > 0
+      ? loyalty.lifetimeEarned + points
+      : Math.max(0, loyalty.lifetimeEarned - Math.min(Math.abs(points), excessEarned));
     if (newEarned > 2147483647) throw fail('Tổng Xu đã tích vượt giới hạn cho phép.', 409);
     const newTier = calculateTier(newEarned, await readPolicy(client));
 
@@ -726,8 +746,9 @@ function createLoyaltyApi(pool) {
       const q=z.string().max(100).default('').parse(req.query.q).trim();
       const policy=await readPolicy(pool);
       const where="c.deleted_at IS NULL AND ($1::text='' OR c.full_name ILIKE '%'||$1||'%' OR c.email ILIKE '%'||$1||'%' OR c.phone ILIKE '%'||$1||'%')";
-      const rows=(await pool.query(`SELECT c.id,c.full_name AS "fullName",c.email,c.phone,c.active,COALESCE(l.points_balance,0)::int AS "pointsBalance",COALESCE(l.lifetime_earned,0)::int AS "lifetimeEarned",COALESCE(l.lifetime_spent,0)::int AS "lifetimeSpent",COALESCE(l.clawback_debt_points,0)::int AS "clawbackDebtPoints" FROM customers c LEFT JOIN customer_loyalty l ON l.customer_id=c.id WHERE ${where} ORDER BY COALESCE(l.points_balance,0) DESC,c.id LIMIT 25 OFFSET $2`,[q,(page-1)*25])).rows;
-      const summary=(await pool.query(`SELECT count(*)::int AS total,COALESCE(sum(l.points_balance),0)::text AS balance,COALESCE(sum(l.lifetime_earned),0)::text AS earned,COALESCE(sum(l.lifetime_spent),0)::text AS spent,COALESCE(sum(l.clawback_debt_points),0)::text AS debt FROM customers c LEFT JOIN customer_loyalty l ON l.customer_id=c.id WHERE ${where}`,[q])).rows[0];
+      const activeBalanceExpr = "CASE WHEN l.expires_at IS NOT NULL AND l.expires_at <= now() THEN 0 ELSE COALESCE(l.points_balance,0) END";
+      const rows=(await pool.query(`SELECT c.id,c.full_name AS "fullName",c.email,c.phone,c.active,(${activeBalanceExpr})::int AS "pointsBalance",COALESCE(l.lifetime_earned,0)::int AS "lifetimeEarned",COALESCE(l.lifetime_spent,0)::int AS "lifetimeSpent",COALESCE(l.clawback_debt_points,0)::int AS "clawbackDebtPoints" FROM customers c LEFT JOIN customer_loyalty l ON l.customer_id=c.id WHERE ${where} ORDER BY (${activeBalanceExpr}) DESC,c.id LIMIT 25 OFFSET $2`,[q,(page-1)*25])).rows;
+      const summary=(await pool.query(`SELECT count(*)::int AS total,COALESCE(sum(${activeBalanceExpr}),0)::text AS balance,COALESCE(sum(l.lifetime_earned),0)::text AS earned,COALESCE(sum(l.lifetime_spent),0)::text AS spent,COALESCE(sum(l.clawback_debt_points),0)::text AS debt FROM customers c LEFT JOIN customer_loyalty l ON l.customer_id=c.id WHERE ${where}`,[q])).rows[0];
       res.json({members:rows.map(row=>({...row,tier:calculateTier(row.lifetimeEarned,policy)})),summary,tierBenefits:tierBenefits(policy),pagination:{page,pageCount:Math.max(1,Math.ceil(summary.total/25)),total:summary.total,pageSize:25}});
     }catch(error){next(error);}
   });
@@ -739,9 +760,10 @@ function createLoyaltyApi(pool) {
         const customerId = z.string().uuid().parse(req.params.id);
         const page = z.coerce.number().int().min(1).max(1000000).default(1).parse(req.query.ledgerPage);
         const loyaltyRes = await pool.query(
-          `SELECT points_balance AS "pointsBalance", lifetime_earned AS "lifetimeEarned",
+          `SELECT CASE WHEN expires_at IS NOT NULL AND expires_at <= now() THEN 0 ELSE points_balance END AS "pointsBalance",
+                  lifetime_earned AS "lifetimeEarned",
                   lifetime_spent AS "lifetimeSpent", COALESCE(clawback_debt_points, 0)::int AS "clawbackDebtPoints",
-                  tier, expires_at AS "expiresAt", updated_at AS "updatedAt"
+                  tier, CASE WHEN expires_at IS NOT NULL AND expires_at <= now() THEN NULL ELSE expires_at END AS "expiresAt", updated_at AS "updatedAt"
            FROM customer_loyalty WHERE customer_id = $1`,
           [customerId]
         );

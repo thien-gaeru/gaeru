@@ -321,7 +321,10 @@ function createInternalAiRouter(pool, config) {
   }
 
   // Tool 5: Sức khỏe hệ thống
-  async function toolCheckSystemHealth() {
+  async function toolCheckSystemHealth(user) {
+    if (user && !hasReadPermission(user, ['settings.read', 'dashboard.read'])) {
+      return { error: 'Bạn không có quyền xem thông số hạ tầng và bảo mật máy chủ (cần quyền dashboard.read hoặc settings.read).' };
+    }
     try {
       const health = await getSystemHealth(pool, config);
       return {
@@ -364,7 +367,10 @@ function createInternalAiRouter(pool, config) {
   }
 
   // Tool 7: Thống kê lưu lượng truy cập Storefront (Traffic & Online Visitors)
-  async function toolGetTrafficAnalytics() {
+  async function toolGetTrafficAnalytics(user) {
+    if (user && !hasReadPermission(user, ['reports.read', 'marketing.read', 'dashboard.read'])) {
+      return { error: 'Bạn không có quyền xem thống kê lưu lượng truy cập (cần quyền reports.read hoặc marketing.read).' };
+    }
     try {
       const { getTrafficSummary } = require('./traffic-tracker');
       return await getTrafficSummary(pool);
@@ -571,7 +577,8 @@ Quy tắc cốt lõi:
         } else {
           const digitsOnly = rawNum.replace(/[.,]/g, '');
           const multiplier = unit === 'k' || unit === 'nghìn' || unit === 'ngàn' || digitsOnly.length <= 3 ? 1000 : 1;
-          amount = Math.max(1, parseInt(digitsOnly, 10) * multiplier || 1);
+          const computedAmount = parseInt(digitsOnly, 10) * multiplier || 1;
+          amount = Math.min(2_000_000_000, Math.max(1, Number.isSafeInteger(computedAmount) ? computedAmount : 2_000_000_000));
         }
       }
 
@@ -731,7 +738,7 @@ Quy tắc cốt lõi:
 
       // E. Lưu lượng truy cập Website (Traffic & Online Visitors)
       if (hasAnyBoundaryTerm(norm, ['truy cap', 'traffic', 'luot xem', 'pageview', 'khach online', 'dang online', 'nguoi online', 'ghe tham'])) {
-        const traffic = await toolGetTrafficAnalytics();
+        const traffic = await toolGetTrafficAnalytics(user);
         toolResults.push({ tool: 'get_traffic_analytics', data: traffic });
       }
 
@@ -749,7 +756,7 @@ Quy tắc cốt lõi:
 
       // H. Sức khỏe Hệ thống & Hạ tầng Máy chủ
       if (hasAnyBoundaryTerm(norm, ['he thong', 'may chu', 'server', 'cluster', 'bao mat', 'cpu', 'ram', 'waf', 'suc khoe'])) {
-        const sys = await toolCheckSystemHealth();
+        const sys = await toolCheckSystemHealth(user);
         toolResults.push({ tool: 'check_system_health', data: sys });
       }
 
@@ -799,7 +806,7 @@ Quy tắc cốt lõi:
                 } else if (intent === 'warranty_care') {
                   toolResults.push({ tool: 'get_customer_care', data: await toolGetCustomerCareOverview(user), semanticIntent: intent });
                 } else if (intent === 'system_health') {
-                  toolResults.push({ tool: 'check_system_health', data: await toolCheckSystemHealth(), semanticIntent: intent });
+                  toolResults.push({ tool: 'check_system_health', data: await toolCheckSystemHealth(user), semanticIntent: intent });
                 }
               }
             }
@@ -1046,17 +1053,19 @@ Quy tắc cốt lõi:
   // ROUTE ENDPOINTS
   // ==========================================================================
 
+  const resolveAiActorId = (admin) => admin?.id || (admin?.source === 'bootstrap' ? `owner:${admin.username || 'owner'}` : (admin?.username || 'admin'));
+
   // 1. Lấy danh sách hội thoại của user
   router.get('/threads', async (req, res, next) => {
     try {
-      const userId = req.admin?.id || 'admin';
+      const userId = resolveAiActorId(req.admin);
       const rows = (await pool.query(`
         SELECT id, title, created_at AS "createdAt", updated_at AS "updatedAt"
         FROM internal_ai_threads
-        WHERE user_id = $1
+        WHERE user_id = $1 OR ($2::boolean = true AND user_id = 'admin')
         ORDER BY updated_at DESC
         LIMIT 20
-      `, [userId])).rows;
+      `, [userId, Boolean(req.admin?.source === 'bootstrap')])).rows;
       res.json({ threads: rows });
     } catch (e) {
       next(e);
@@ -1066,7 +1075,7 @@ Quy tắc cốt lõi:
   // 2. Tạo hội thoại mới
   router.post('/threads', async (req, res, next) => {
     try {
-      const userId = req.admin?.id || 'admin';
+      const userId = resolveAiActorId(req.admin);
       const userRole = req.admin?.role || (req.admin?.isOwner ? 'owner' : 'staff');
       const userName = req.admin?.username || 'Quản trị viên';
       const title = (req.body?.title || 'Hội thoại mới').trim().slice(0, 100);
@@ -1091,7 +1100,7 @@ Quy tắc cốt lõi:
     try {
       const threadId = req.params.id;
       if (!isUuid(threadId)) return res.status(400).json({ error: 'Mã hội thoại không hợp lệ.' });
-      const userId = req.admin?.id || 'admin';
+      const userId = resolveAiActorId(req.admin);
       const isOwner = req.admin?.isOwner || req.admin?.role === 'owner';
       const thread = (await pool.query(`
         SELECT id, title, user_role AS "userRole", created_at AS "createdAt", updated_at AS "updatedAt"
@@ -1124,7 +1133,7 @@ Quy tắc cốt lõi:
     try {
       const threadId = req.params.id;
       if (!isUuid(threadId)) return res.status(400).json({ error: 'Mã hội thoại không hợp lệ.' });
-      const userId = req.admin?.id || 'admin';
+      const userId = resolveAiActorId(req.admin);
       const isOwner = req.admin?.isOwner || req.admin?.role === 'owner';
       const delRes = await pool.query(`
         DELETE FROM internal_ai_threads 
@@ -1159,7 +1168,7 @@ Quy tắc cốt lõi:
       if (!question) return res.status(400).json({ error: 'Nội dung câu hỏi không được để trống.' });
       if (question.length > 2000) return res.status(400).json({ error: 'Câu hỏi tối đa 2000 ký tự.' });
 
-      const userId = req.admin?.id || 'admin';
+      const userId = resolveAiActorId(req.admin);
       const isOwner = req.admin?.isOwner || req.admin?.role === 'owner';
       const thread = (await pool.query(`
         SELECT id, title 
@@ -1429,12 +1438,18 @@ Quy tắc cốt lõi:
         const p = row.payload || {};
 
         if (row.actionType === 'create_voucher') {
+          const safeKind = p.kind === 'percent' ? 'percent' : 'fixed';
+          const safeAmount = safeKind === 'percent'
+            ? Math.min(100, Math.max(1, Math.round(Number(p.amount) || 1)))
+            : Math.min(2_000_000_000, Math.max(1, Math.round(Number(p.amount) || 1)));
+          const safeMinSpend = Math.min(2_000_000_000, Math.max(0, Math.round(Number(p.minSpendVnd) || 0)));
+          const safeTotalLimit = Math.min(1_000_000, Math.max(1, Math.round(Number(p.totalLimit) || 50)));
           const insertRes = await client.query(`
             INSERT INTO marketing_vouchers (code, title, kind, amount, min_spend_vnd, starts_at, ends_at, total_limit, active)
             VALUES ($1, $2, $3, $4, $5, $6, $7, $8, true)
             ON CONFLICT (code) DO NOTHING
             RETURNING id
-          `, [p.code, p.title, p.kind, p.amount, p.minSpendVnd || 0, p.startsAt, p.endsAt, p.totalLimit || 50]);
+          `, [p.code, p.title, safeKind, safeAmount, safeMinSpend, p.startsAt, p.endsAt, safeTotalLimit]);
           const inserted = insertRes?.rows?.[0];
           if (!inserted && insertRes?.rowCount !== 1) {
             return { status: 409, body: { error: `Mã giảm giá ${p.code} đã tồn tại trên hệ thống.` } };

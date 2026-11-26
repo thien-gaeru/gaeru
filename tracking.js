@@ -197,10 +197,16 @@
               <span>Tạm tính tiền hàng:</span>
               <strong>${formatMoney(sum.subtotalVnd)}</strong>
             </div>
-            ${sum.discountVnd > 0 ? `
+            ${(sum.discountVnd - (sum.loyaltyDiscountVnd || 0)) > 0 ? `
               <div class="price-line" style="color:#2e7d32;">
                 <span>Giảm giá khuyến mại${sum.voucherCode ? ` (${escapeHtml(sum.voucherCode)})` : ''}:</span>
-                <strong>-${formatMoney(sum.discountVnd)}</strong>
+                <strong>-${formatMoney(sum.discountVnd - (sum.loyaltyDiscountVnd || 0))}</strong>
+              </div>
+            ` : ''}
+            ${sum.loyaltyDiscountVnd > 0 ? `
+              <div class="price-line" style="color:#0060c7;">
+                <span>Khấu trừ GAERU Xu${sum.loyaltyPointsRedeemed ? ` (${Number(sum.loyaltyPointsRedeemed).toLocaleString('vi-VN')} Xu)` : ''}:</span>
+                <strong>-${formatMoney(sum.loyaltyDiscountVnd)}</strong>
               </div>
             ` : ''}
             <div class="price-line">
@@ -236,6 +242,7 @@
           </div>
         </header>
 
+        ${order.afterSales ? `<section class="rma-warehouse-box" style="margin:14px 0;"><strong>Yêu cầu hỗ trợ / Đổi trả đang mở:</strong> <span class="pill pill-info">${escapeHtml(order.afterSales.status)}</span><div style="margin-top:4px;font-size:13px;color:#515154;">Lý do: ${escapeHtml(order.afterSales.reason || '')}${order.afterSales.resolution ? ' · Xử lý: ' + escapeHtml(order.afterSales.resolution) : ''}</div></section>` : ''}
         ${renderTimeline(order.timeline)}
         ${renderShipment(order.shipment)}
         ${renderItems(order.items)}
@@ -404,37 +411,18 @@
     const form = document.getElementById('tracking-form');
     const orderInput = document.getElementById('orderNumber');
     const challengeInput = document.getElementById('challenge');
-    if (form) {
-      bindPasteButtons(form);
-      if (window.GAERUCustomerSession && typeof window.GAERUCustomerSession.get === 'function') {
-        Promise.resolve(window.GAERUCustomerSession.get()).then(function (sess) {
-          const cust = sess && (sess.customer || (sess.authenticated ? sess : null));
-          if (!cust) return;
-          if (challengeInput && !challengeInput.value && (cust.phone || cust.email)) {
-            challengeInput.value = cust.phone || cust.email;
-          }
-          const banner = document.querySelector('[data-tracking-session]');
-          if (banner) {
-            banner.hidden = false;
-            banner.innerHTML = '<span>✓ Đã tự điền thông tin xác thực của <strong>' + escapeHtml(cust.fullName || cust.email || 'bạn') + '</strong></span><a href="/tai-khoan">Xem tất cả đơn trong Tài khoản →</a>';
-          }
-        }).catch(function () {});
-      }
-    }
-
-    if (form) {
-      form.addEventListener('submit', function (e) {
-        e.preventDefault();
-        const orderNumber = orderInput?.value?.trim() || '';
-        const challenge = challengeInput?.value?.trim() || '';
-        performLookup(orderNumber, challenge);
-      });
-    }
-
-    // Auto-fill and auto-search from URL query params
     const params = new URLSearchParams(window.location.search);
     const orderFromUrl = params.get('order') || params.get('orderNumber') || params.get('code') || '';
     const challengeFromUrl = params.get('phone') || params.get('email') || params.get('challenge') || '';
+    if ((params.has('phone') || params.has('email') || params.has('challenge') || params.has('code')) && typeof history !== 'undefined' && typeof history.replaceState === 'function') {
+      const cleanParams = new URLSearchParams(window.location.search);
+      cleanParams.delete('phone');
+      cleanParams.delete('email');
+      cleanParams.delete('challenge');
+      cleanParams.delete('code');
+      if (orderFromUrl && !cleanParams.has('order') && !cleanParams.has('orderNumber')) cleanParams.set('order', orderFromUrl);
+      history.replaceState(null, '', window.location.pathname + (cleanParams.size ? '?' + cleanParams : '') + window.location.hash);
+    }
 
     if (orderFromUrl && orderInput) {
       orderInput.value = orderFromUrl;
@@ -443,7 +431,43 @@
       challengeInput.value = challengeFromUrl;
     }
 
-    if (orderFromUrl && challengeFromUrl) {
+    let autoLookedUp = false;
+    function applyCustomerSessionToTracking() {
+      const sess = window.GAERUCustomerSession;
+      if (!sess) return;
+      const raw = typeof sess.get === 'function' ? sess.get() : sess.customer;
+      Promise.resolve(raw).then(function (resolved) {
+        const cust = resolved && (resolved.customer || (resolved.id || resolved.email || resolved.phone ? resolved : null));
+        if (!cust) return;
+        if (challengeInput && !challengeInput.value && (cust.phone || cust.email)) {
+          challengeInput.value = cust.phone || cust.email;
+        }
+        const banner = document.querySelector('[data-tracking-session]');
+        if (banner) {
+          banner.hidden = false;
+          banner.innerHTML = '<span>✓ Đã tự điền thông tin xác thực của <strong>' + escapeHtml(cust.fullName || cust.email || 'bạn') + '</strong></span><a href="/tai-khoan">Xem tất cả đơn trong Tài khoản →</a>';
+        }
+        if (!autoLookedUp && orderInput?.value?.trim() && challengeInput?.value?.trim()) {
+          autoLookedUp = true;
+          performLookup(orderInput.value.trim(), challengeInput.value.trim());
+        }
+      }).catch(function () {});
+    }
+
+    if (form) {
+      bindPasteButtons(form);
+      applyCustomerSessionToTracking();
+      document.addEventListener('gaeru:customer-updated', applyCustomerSessionToTracking);
+      form.addEventListener('submit', function (e) {
+        e.preventDefault();
+        const orderNumber = orderInput?.value?.trim() || '';
+        const challenge = challengeInput?.value?.trim() || '';
+        performLookup(orderNumber, challenge);
+      });
+    }
+
+    if (orderFromUrl && challengeFromUrl && !autoLookedUp) {
+      autoLookedUp = true;
       performLookup(orderFromUrl, challengeFromUrl);
     }
   }

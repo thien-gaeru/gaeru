@@ -45,6 +45,19 @@ const QUEUES = Object.freeze([
       status='sending' AND created_at<now()-interval '5 minutes' AS stale FROM carrier_shipment_attempts` }
 ]);
 
+const EMAIL_QUEUE_TABLES = Object.freeze({
+  'order-email': 'order_email_outbox',
+  'order-admin-email': 'order_admin_email_outbox',
+  'chat-email': 'shopping_chat_email_outbox',
+  'care-email': 'care_email_outbox',
+  'warranty-email': 'warranty_email_outbox',
+  'marketing-email': 'marketing_email_recipients'
+});
+
+const resolveJobSchema = z.object({
+  action: z.enum(['dismiss', 'retry'])
+}).strict();
+
 const queueById = new Map(QUEUES.map(queue => [queue.id, queue]));
 const querySchema = z.object({
   state: z.enum(['all', ...STATES]).default('all'),
@@ -114,6 +127,67 @@ function createOperationsQueues(pool, config = {}) {
       res.json({ queue: queueInfo(queue), jobs, state, page, pageSize: 20, total, checkedAt: new Date().toISOString() });
     } catch {
       res.status(503).json({ error: 'Chưa đọc được hàng đợi này. Kiểm tra kết nối dữ liệu và phiên bản cơ sở dữ liệu rồi thử lại.' });
+    }
+  });
+  router.post('/owner/operations/queues/:queueId/jobs/:jobId/resolve', require('./security').requireCsrf, async (req, res, next) => {
+    try {
+      const queueId = String(req.params.queueId || '');
+      const table = EMAIL_QUEUE_TABLES[queueId];
+      if (!table) return res.status(404).json({ error: 'Hàng đợi này không hỗ trợ xử lý bản ghi unknown trực tiếp.' });
+      if (!z.string().uuid().safeParse(req.params.jobId).success) {
+        return res.status(400).json({ error: 'Mã bản ghi hàng đợi không hợp lệ.' });
+      }
+      const parsed = resolveJobSchema.safeParse(req.body || {});
+      if (!parsed.success) return res.status(400).json({ error: 'Thao tác xử lý không hợp lệ (chỉ nhận dismiss hoặc retry).' });
+      const { action } = parsed.data;
+      const { withTransaction } = require('./db');
+      const { appendAudit } = require('./audit');
+      const outcome = await withTransaction(pool, async (client) => {
+        const current = (await client.query(`SELECT id, status FROM ${table} WHERE id = $1 FOR UPDATE`, [req.params.jobId])).rows[0];
+        if (!current) return { status: 404, error: 'Không tìm thấy bản ghi trong hàng đợi.' };
+        if (current.status !== 'unknown') {
+          return { status: 409, error: `Chỉ xử lý được bản ghi đang ở trạng thái unknown (hiện tại: ${current.status}).` };
+        }
+        const nextStatus = action === 'retry' ? 'pending' : 'failed';
+        if (table === 'marketing_email_recipients') {
+          await client.query(
+            `UPDATE marketing_email_recipients
+             SET status = $2, finished_at = CASE WHEN $2 = 'failed' THEN now() ELSE NULL END
+             WHERE id = $1`,
+            [req.params.jobId, nextStatus]
+          );
+        } else {
+          await client.query(
+            `UPDATE ${table}
+             SET status = $2,
+                 next_attempt_at = CASE WHEN $2 = 'pending' THEN now() ELSE next_attempt_at END,
+                 finished_at = CASE WHEN $2 = 'failed' THEN now() ELSE NULL END
+             WHERE id = $1`,
+            [req.params.jobId, nextStatus]
+          );
+        }
+        await appendAudit(client, {
+          actor: req.admin,
+          action: 'owner.operations.queue.resolve',
+          entityType: 'operations_queue',
+          entityId: `${queueId}:${req.params.jobId}`,
+          metadata: { queueId, jobId: req.params.jobId, resolution: action, nextStatus }
+        });
+        return { status: 200, nextStatus };
+      });
+      if (outcome.error) return res.status(outcome.status).json({ error: outcome.error });
+      res.json({
+        success: true,
+        queueId,
+        jobId: req.params.jobId,
+        action,
+        status: outcome.nextStatus,
+        message: action === 'retry'
+          ? 'Đã mở khóa gửi lại cho bản ghi hàng đợi.'
+          : 'Đã xác nhận đóng cảnh báo bản ghi unknown.'
+      });
+    } catch (err) {
+      next(err);
     }
   });
   return router;

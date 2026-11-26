@@ -89,7 +89,8 @@ const SSE_UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{1
 
 async function checkAdminSessionDbValid(pool, req) {
   if (pool && typeof pool.query === 'function') {
-    if (req.sessionID) {
+    const isMemorySessionStore = req?.sessionStore?.constructor?.name === 'MemoryStore';
+    if (req.sessionID && !isMemorySessionStore) {
       const sRow = (await pool.query('SELECT sess, expire FROM user_sessions WHERE sid = $1 LIMIT 1', [req.sessionID])).rows[0];
       if (!sRow || (sRow.expire && new Date(sRow.expire).getTime() <= Date.now())) {
         return false;

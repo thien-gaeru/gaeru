@@ -35,12 +35,14 @@ function publicAliasRedirect(req,res,next){
   const isSafeRead=['GET','HEAD'].includes(req.method);
   if(forwardedProto==='http'&&isPrimaryHost){
     const rawTarget=isSafeRead&&!isInternalRoute?require('../clean-urls').clean(req.originalUrl,PRIMARY):(req.originalUrl||'/');
-    const target=new URL(rawTarget,PRIMARY);
+    let target;
+    try { target=new URL(rawTarget,PRIMARY); } catch { return res.sendStatus(400); }
     if(target.host!=='gaeru.com'||target.protocol!=='https:'||target.username||target.password)return res.sendStatus(400);
     return res.redirect(isSafeRead?301:308,target.href);
   }
   if(!isSafeRead||req.hostname==='gaeru.com'||!isPrimaryHost||isInternalRoute)return next();
-  const target=new URL(require('../clean-urls').clean(req.originalUrl,PRIMARY),PRIMARY);
+  let target;
+  try { target=new URL(require('../clean-urls').clean(req.originalUrl,PRIMARY),PRIMARY); } catch { return res.sendStatus(400); }
   if(target.host!=='gaeru.com'||target.protocol!=='https:'||target.username||target.password)return res.sendStatus(400);
   return res.redirect(301,target.href);
 }

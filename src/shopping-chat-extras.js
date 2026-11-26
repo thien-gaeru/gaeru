@@ -1,6 +1,6 @@
 const {pipeline}=require('node:stream/promises');
 const mediaFilesystem=require('./lib/filesystem-media');
-const {storeUpload,storeStagedMedia,readMedia,readMediaRange,openMediaStream}=require('./lib/stored-media');
+const {storeUpload,storeStagedMedia,removeUploadedMedia,readMedia,readMediaRange,openMediaStream}=require('./lib/stored-media');
 const {processChatCompression,triggerManualChatCompression}=require('./shopping-chat-compression');
 const multer = require('multer');
 const uploadRules = require('./audit-fixes/upload-state');
@@ -121,6 +121,17 @@ async function persistChatFile({pool,chatThread,isAdmin,adminActor,requestKey,or
   }
   let safeName = String(originalName || 'attachment').replace(/[\x00-\x1f\x7f/\\]/g, '_').slice(0, 180);
   let fileRecord = null;
+  let preUploaded = null;
+  let committed = false;
+  if (!staged && requestKey) {
+    const preCheck = (await (client || pool).query('SELECT id FROM shopping_chat_messages WHERE thread_id=$1 AND request_key=$2', [chatThread.id, requestKey])).rows[0];
+    if (preCheck) {
+      return (await (client || pool).query('SELECT id, name, mime, byte_size, original_byte_size, compressed_byte_size, compression_status FROM shopping_chat_files WHERE message_id=$1', [preCheck.id])).rows[0];
+    }
+  }
+  if (!staged) {
+    preUploaded = await storeUpload('chat', buffer, mime);
+  }
   const persist = async (c) => {
     await c.query("SELECT pg_advisory_xact_lock(hashtext('shopping-chat-storage'))");
     const row = (await c.query('SELECT status FROM shopping_chat_threads WHERE id=$1 FOR UPDATE', [chatThread.id])).rows[0];
@@ -134,7 +145,8 @@ async function persistChatFile({pool,chatThread,isAdmin,adminActor,requestKey,or
     if (Number(quota.bytes) + originalSize > uploadRules.MAX_THREAD_BYTES) throw fail("Chat file quota exceeded.", 413);
     const uploaded = staged
       ? await storeStagedMedia('chat', staged.stageId, staged.mime || mime, originalSize)
-      : await storeUpload('chat', buffer, mime);
+      : preUploaded;
+    committed = true;
     if (staged) {
       if (Array.isArray(rollbackTasks) && typeof uploaded.rollback === 'function') rollbackTasks.push(uploaded.rollback);
       if (Array.isArray(commitTasks) && typeof uploaded.finish === 'function') commitTasks.push(uploaded.finish);
@@ -170,8 +182,25 @@ async function persistChatFile({pool,chatThread,isAdmin,adminActor,requestKey,or
       });
     }
   };
-  if (client) await persist(client);
-  else await withTransaction(pool, persist); try{require('./realtime-sse').publishChatEvent(chatThread.id,'chat:message',{threadId:chatThread.id,sender:isAdmin?'admin':'customer',body:'Tệp đính kèm: '+safeName,fileId:fileRecord?.id});}catch(_){}
+  try {
+    if (client) {
+      await persist(client);
+      if (preUploaded?.content && Array.isArray(rollbackTasks) && committed) {
+        rollbackTasks.push(() => removeUploadedMedia(preUploaded.content));
+      }
+    } else {
+      await withTransaction(pool, persist);
+    }
+  } catch (err) {
+    if (preUploaded?.content) {
+      await removeUploadedMedia(preUploaded.content).catch(() => {});
+    }
+    throw err;
+  }
+  if (preUploaded?.content && !committed) {
+    await removeUploadedMedia(preUploaded.content).catch(() => {});
+  }
+  try{require('./realtime-sse').publishChatEvent(chatThread.id,'chat:message',{threadId:chatThread.id,sender:isAdmin?'admin':'customer',body:'Tệp đính kèm: '+safeName,fileId:fileRecord?.id});}catch(_){}
   if (fileRecord?.compression_status === 'pending') {
     try { require('./shopping-chat-compression').nudgeChatCompressionWorker?.(); } catch (_) {}
   }

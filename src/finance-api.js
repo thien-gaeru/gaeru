@@ -100,10 +100,22 @@ function range(query, now = new Date()) {
 function createFinanceApi(pool) {
   const router = Router();
   const route = (handler) => async (req, res, next) => { try { await handler(req, res); } catch (error) { if (error.status) return res.status(error.status).json({ error: error.message }); next(error); } };
+  const unsettledCarrierCodSql = `EXISTS (SELECT 1 FROM carrier_shipments cs WHERE cs.order_id=o.id AND cs.status<>'cancelled' AND cs.cod_amount_vnd>0 AND cs.cod_settlement_status<>'settled')`;
+  const effectiveCollectedExpr = `CASE
+    WHEN o.status='cancelled' THEN 0::bigint
+    WHEN o.return_completed_at IS NOT NULL THEN LEAST(
+      CASE WHEN o.payment_status='paid' AND NOT (o.payment_method='cod' AND ${unsettledCarrierCodSql}) THEN COALESCE(o.total_vnd,0)::bigint ELSE COALESCE(r.received,0)::bigint END,
+      COALESCE((SELECT SUM(oas.loyalty_clawback_vnd)::bigint FROM order_after_sales oas WHERE oas.order_id=o.id AND oas.kind='return' AND oas.status='resolved' AND oas.loyalty_clawback_vnd>0),0)
+    )
+    WHEN o.payment_method='cod' AND ${unsettledCarrierCodSql} THEN COALESCE(r.received,0)::bigint
+    WHEN o.payment_status='paid' THEN GREATEST(0::bigint, COALESCE(o.total_vnd,0)::bigint - COALESCE(mr.refunded,0)::bigint)
+    ELSE GREATEST(0::bigint, COALESCE(r.received,0)::bigint - COALESCE(mr.refunded,0)::bigint)
+  END`;
+  const outstandingPredicateSql = `(o.payment_status<>'paid' OR (o.payment_method='cod' AND ${unsettledCarrierCodSql} AND COALESCE(r.received,0)<COALESCE(o.total_vnd,0))) AND o.status<>'cancelled' AND o.return_completed_at IS NULL`;
   router.get("/finance/summary", requirePermission("finance.read"), route(async (_req, res) => {
     const result = await pool.query(`SELECT
-      (SELECT COALESCE(SUM(CASE WHEN o.status='cancelled' THEN 0 WHEN o.return_completed_at IS NOT NULL THEN LEAST(CASE WHEN o.payment_status='paid' THEN COALESCE(o.total_vnd,0)::bigint ELSE COALESCE(r.received,0)::bigint END, COALESCE((SELECT SUM(oas.loyalty_clawback_vnd)::bigint FROM order_after_sales oas WHERE oas.order_id=o.id AND oas.kind='return' AND oas.status='resolved' AND oas.loyalty_clawback_vnd>0),0)) WHEN o.payment_status='paid' THEN o.total_vnd ELSE COALESCE(r.received,0) END),0) FROM orders o LEFT JOIN (SELECT order_id,SUM(amount_vnd) received FROM sales_receipts GROUP BY order_id) r ON r.order_id=o.id) AS "salesPaidVnd",
-      (SELECT COALESCE(SUM(GREATEST(COALESCE(o.total_vnd,0)-COALESCE(r.received,0),0)),0) FROM orders o LEFT JOIN (SELECT order_id,SUM(amount_vnd) received FROM sales_receipts GROUP BY order_id) r ON r.order_id=o.id WHERE o.payment_status<>'paid' AND o.status<>'cancelled' AND o.return_completed_at IS NULL) AS "salesOutstandingVnd",
+      (SELECT COALESCE(SUM(${effectiveCollectedExpr}),0) FROM orders o LEFT JOIN (SELECT order_id,SUM(amount_vnd) received FROM sales_receipts GROUP BY order_id) r ON r.order_id=o.id LEFT JOIN (SELECT order_id,SUM(amount_vnd) refunded FROM momo_refunds WHERE status='succeeded' GROUP BY order_id) mr ON mr.order_id=o.id) AS "salesPaidVnd",
+      (SELECT COALESCE(SUM(GREATEST(COALESCE(o.total_vnd,0)-COALESCE(r.received,0),0)),0) FROM orders o LEFT JOIN (SELECT order_id,SUM(amount_vnd) received FROM sales_receipts GROUP BY order_id) r ON r.order_id=o.id WHERE ${outstandingPredicateSql}) AS "salesOutstandingVnd",
       (SELECT COALESCE(SUM(line_total_vnd),0) FROM goods_receipt_items) AS "purchasesReceivedVnd",
       (SELECT COALESCE(SUM(amount_vnd),0) FROM supplier_payments WHERE status='posted') AS "supplierPaidVnd",
       (SELECT COALESCE(SUM(amount_vnd),0) FROM expense_requests WHERE status='posted') AS "expensesVnd"`);
@@ -113,8 +125,8 @@ function createFinanceApi(pool) {
   }));
   router.get("/finance/receivables", requirePermission("finance.read"), route(async (req, res) => {
     const { search } = pageQuery(req.query);
-    const where = `o.payment_status<>'paid' AND o.status<>'cancelled' AND o.return_completed_at IS NULL AND ($1::text='' OR o.order_number ILIKE '%'||$1||'%' OR o.customer_name ILIKE '%'||$1||'%' OR o.phone ILIKE '%'||$1||'%')`;
-    const result = await paged(pool, req.query, `SELECT o.id,o.order_number AS "orderNumber",o.customer_name AS "customerName",o.email,o.phone,o.total_vnd AS "totalVnd",COALESCE(r.received,0) AS "receivedVnd",GREATEST(COALESCE(o.total_vnd,0)-COALESCE(r.received,0),0) AS "outstandingVnd",o.status,o.payment_method AS "paymentMethod",o.created_at AS "createdAt" FROM orders o LEFT JOIN (SELECT order_id,SUM(amount_vnd) received FROM sales_receipts GROUP BY order_id) r ON r.order_id=o.id WHERE ${where} ORDER BY o.created_at DESC`, `SELECT COUNT(*)::int total FROM orders o WHERE ${where}`, [search]);
+    const where = `${outstandingPredicateSql} AND ($1::text='' OR o.order_number ILIKE '%'||$1||'%' OR o.customer_name ILIKE '%'||$1||'%' OR o.phone ILIKE '%'||$1||'%')`;
+    const result = await paged(pool, req.query, `SELECT o.id,o.order_number AS "orderNumber",o.customer_name AS "customerName",o.email,o.phone,o.total_vnd AS "totalVnd",COALESCE(r.received,0) AS "receivedVnd",GREATEST(COALESCE(o.total_vnd,0)-COALESCE(r.received,0),0) AS "outstandingVnd",o.status,o.payment_method AS "paymentMethod",o.created_at AS "createdAt" FROM orders o LEFT JOIN (SELECT order_id,SUM(amount_vnd) received FROM sales_receipts GROUP BY order_id) r ON r.order_id=o.id WHERE ${where} ORDER BY o.created_at DESC`, `SELECT COUNT(*)::int total FROM orders o LEFT JOIN (SELECT order_id,SUM(amount_vnd) received FROM sales_receipts GROUP BY order_id) r ON r.order_id=o.id WHERE ${where}`, [search]);
     res.json({ receivables: result.rows, pagination: result.pagination });
   }));
   router.get("/finance/payables", requirePermission("finance.read"), route(async (_req, res) => {
@@ -146,11 +158,16 @@ function createFinanceApi(pool) {
       if (!order) throw fail(404, "Không tìm thấy đơn hàng.");
       if (["vnpay", "momo", "zalopay"].includes(order.payment_method)) throw fail(409, "Thanh toán trực tuyến được đối soát qua cổng thanh toán.");
       if (order.return_completed_at) throw fail(409, "Đơn hàng đã hoàn trả xong; không thể ghi nhận phiếu thu mới.");
-      if (order.status === "cancelled" || order.payment_status === "paid" || order.total_vnd === null) throw fail(409, "Đơn đã kết thúc, đã thu đủ tiền hoặc chưa chốt tổng.");
+      if (order.status === "cancelled" || order.total_vnd === null) throw fail(409, "Đơn đã kết thúc, đã thu đủ tiền hoặc chưa chốt tổng.");
       if (order.payment_method === "cod" && !["shipped", "completed"].includes(order.status)) throw fail(409, "Chỉ ghi nhận tiền COD sau khi giao hàng.");
       const carrierCodShip = order.payment_method === "cod"
         ? (await client.query("SELECT * FROM carrier_shipments WHERE order_id=$1 AND status<>'cancelled' AND cod_amount_vnd>0 ORDER BY created_at DESC LIMIT 1 FOR UPDATE", [order.id])).rows[0]
         : null;
+      const received = await receiptTotal(client, order.id);
+      const isUnsettledCarrierCod = Boolean(carrierCodShip && carrierCodShip.cod_settlement_status !== "settled" && received < order.total_vnd);
+      if (order.payment_status === "paid" && !isUnsettledCarrierCod) {
+        throw fail(409, "Đơn đã kết thúc, đã thu đủ tiền hoặc chưa chốt tổng.");
+      }
       if (carrierCodShip) {
         if (carrierCodShip.status !== "delivered") {
           throw fail(409, "Vận đơn hãng chưa xác nhận Đã giao hàng (delivered); chưa thể ghi nhận phiếu thu COD hãng.");
@@ -159,7 +176,6 @@ function createFinanceApi(pool) {
           throw fail(409, "Bắt buộc nhập mã sao kê / giao dịch chuyển tiền thực tế của hãng vận chuyển (tối thiểu 4 ký tự).");
         }
       }
-      const received = await receiptTotal(client, order.id);
       if (data.amountVnd > order.total_vnd - received) throw fail(409, "Số tiền thu vượt số tiền còn phải thu.");
       const inserted = await client.query(`INSERT INTO sales_receipts (order_id,amount_vnd,method,reference,note,request_key,request_hash,created_by) VALUES ($1,$2,$3,$4,$5,$6,$7,$8) RETURNING id`, [order.id, data.amountVnd, data.method, data.reference, data.note, data.requestKey, digest(data), req.admin.username]);
       if (received + data.amountVnd === order.total_vnd) {
@@ -189,7 +205,7 @@ function createFinanceApi(pool) {
               [carrierCodShip.carrier_id, txRef, data.method, txRef, String(data.note || '').trim(), req.admin.username]
             )).rows[0];
           }
-          const totalSettledAmountVnd = received + data.amountVnd;
+          const allocAmountVnd = data.amountVnd;
           const allocKey = `cod-alloc:${carrierCodShip.carrier_id}:${txRef}:${order.id}`;
           const allocIns = await client.query(
             `INSERT INTO cod_settlement_allocations (
@@ -197,12 +213,12 @@ function createFinanceApi(pool) {
                was_legacy_verified, request_key, created_by
              ) VALUES ($1, $2, $3, $4, $5, false, $6, $7)
              ON CONFLICT (order_id) DO NOTHING RETURNING id`,
-            [batch.id, order.id, carrierCodShip.id, totalSettledAmountVnd, inserted.rows[0].id, allocKey, req.admin.username]
+            [batch.id, order.id, carrierCodShip.id, allocAmountVnd, inserted.rows[0].id, allocKey, req.admin.username]
           );
           if (allocIns.rows.length > 0) {
             await client.query(
               `UPDATE cod_settlement_batches SET allocated_total_vnd = allocated_total_vnd + $2, updated_at = now() WHERE id = $1`,
-              [batch.id, totalSettledAmountVnd]
+              [batch.id, allocAmountVnd]
             );
             await client.query(
               "UPDATE carrier_shipments SET cod_settlement_status='settled', cod_settled_at=now(), cod_settlement_ref=$2, cod_attestation_level='manually_attested', cod_attested_by=$3, updated_at=now() WHERE id=$1",
@@ -278,8 +294,8 @@ function createFinanceApi(pool) {
     const dates = range(req.query);
     const where = "(o.created_at AT TIME ZONE 'Asia/Ho_Chi_Minh')::date BETWEEN $1::date AND $2::date";
     const [summary, daily, top, inventory, purchases, payments, expenses] = await Promise.all([
-      pool.query(`SELECT COUNT(*)::int AS "orderCount",COALESCE(SUM(o.total_vnd) FILTER (WHERE o.status<>'cancelled' AND o.return_completed_at IS NULL),0) AS "orderValueVnd",COALESCE(SUM(CASE WHEN o.status='cancelled' THEN 0 WHEN o.return_completed_at IS NOT NULL THEN LEAST(CASE WHEN o.payment_status='paid' THEN COALESCE(o.total_vnd,0)::bigint ELSE COALESCE(r.received,0)::bigint END, COALESCE((SELECT SUM(oas.loyalty_clawback_vnd)::bigint FROM order_after_sales oas WHERE oas.order_id=o.id AND oas.kind='return' AND oas.status='resolved' AND oas.loyalty_clawback_vnd>0),0)) WHEN o.payment_status='paid' THEN o.total_vnd ELSE COALESCE(r.received,0) END),0) AS "collectedVnd",COALESCE(SUM(GREATEST(COALESCE(o.total_vnd,0)-COALESCE(r.received,0),0)) FILTER (WHERE o.payment_status<>'paid' AND o.status<>'cancelled' AND o.return_completed_at IS NULL),0) AS "outstandingVnd",COUNT(*) FILTER (WHERE o.status='completed' AND o.return_completed_at IS NULL)::int AS "completedCount",COUNT(*) FILTER (WHERE o.status='cancelled')::int AS "cancelledCount",COUNT(*) FILTER (WHERE o.return_completed_at IS NOT NULL)::int AS "returnedCount",COALESCE(SUM(o.total_vnd) FILTER (WHERE o.return_completed_at IS NOT NULL),0) AS "returnedValueVnd" FROM orders o LEFT JOIN (SELECT order_id,SUM(amount_vnd) received FROM sales_receipts GROUP BY order_id) r ON r.order_id=o.id WHERE ${where}`, dates),
-      pool.query(`SELECT (o.created_at AT TIME ZONE 'Asia/Ho_Chi_Minh')::date::text AS date,COUNT(*)::int AS "orderCount",COALESCE(SUM(o.total_vnd) FILTER (WHERE o.status<>'cancelled' AND o.return_completed_at IS NULL),0) AS "orderValueVnd",COALESCE(SUM(CASE WHEN o.status='cancelled' THEN 0 WHEN o.return_completed_at IS NOT NULL THEN LEAST(CASE WHEN o.payment_status='paid' THEN COALESCE(o.total_vnd,0)::bigint ELSE COALESCE(r.received,0)::bigint END, COALESCE((SELECT SUM(oas.loyalty_clawback_vnd)::bigint FROM order_after_sales oas WHERE oas.order_id=o.id AND oas.kind='return' AND oas.status='resolved' AND oas.loyalty_clawback_vnd>0),0)) WHEN o.payment_status='paid' THEN o.total_vnd ELSE COALESCE(r.received,0) END),0) AS "collectedVnd" FROM orders o LEFT JOIN (SELECT order_id,SUM(amount_vnd) received FROM sales_receipts GROUP BY order_id) r ON r.order_id=o.id WHERE ${where} GROUP BY 1 ORDER BY 1`, dates),
+      pool.query(`SELECT COUNT(*)::int AS "orderCount",COALESCE(SUM(o.total_vnd) FILTER (WHERE o.status<>'cancelled' AND o.return_completed_at IS NULL),0) AS "orderValueVnd",COALESCE(SUM(${effectiveCollectedExpr}),0) AS "collectedVnd",COALESCE(SUM(GREATEST(COALESCE(o.total_vnd,0)-COALESCE(r.received,0),0)) FILTER (WHERE ${outstandingPredicateSql}),0) AS "outstandingVnd",COUNT(*) FILTER (WHERE o.status='completed' AND o.return_completed_at IS NULL)::int AS "completedCount",COUNT(*) FILTER (WHERE o.status='cancelled')::int AS "cancelledCount",COUNT(*) FILTER (WHERE o.return_completed_at IS NOT NULL)::int AS "returnedCount",COALESCE(SUM(o.total_vnd) FILTER (WHERE o.return_completed_at IS NOT NULL),0) AS "returnedValueVnd" FROM orders o LEFT JOIN (SELECT order_id,SUM(amount_vnd) received FROM sales_receipts GROUP BY order_id) r ON r.order_id=o.id LEFT JOIN (SELECT order_id,SUM(amount_vnd) refunded FROM momo_refunds WHERE status='succeeded' GROUP BY order_id) mr ON mr.order_id=o.id WHERE ${where}`, dates),
+      pool.query(`SELECT (o.created_at AT TIME ZONE 'Asia/Ho_Chi_Minh')::date::text AS date,COUNT(*)::int AS "orderCount",COALESCE(SUM(o.total_vnd) FILTER (WHERE o.status<>'cancelled' AND o.return_completed_at IS NULL),0) AS "orderValueVnd",COALESCE(SUM(${effectiveCollectedExpr}),0) AS "collectedVnd" FROM orders o LEFT JOIN (SELECT order_id,SUM(amount_vnd) received FROM sales_receipts GROUP BY order_id) r ON r.order_id=o.id LEFT JOIN (SELECT order_id,SUM(amount_vnd) refunded FROM momo_refunds WHERE status='succeeded' GROUP BY order_id) mr ON mr.order_id=o.id WHERE ${where} GROUP BY 1 ORDER BY 1`, dates),
       pool.query(`SELECT i.product_name AS "productName",SUM(i.quantity)::int AS quantity,SUM(i.line_total_vnd) AS "salesVnd" FROM order_items i JOIN orders o ON o.id=i.order_id WHERE ${where} AND o.status<>'cancelled' AND o.return_completed_at IS NULL GROUP BY i.product_name ORDER BY SUM(i.line_total_vnd) DESC LIMIT 10`, dates),
       pool.query(`SELECT (SELECT COUNT(*)::int FROM warehouses WHERE active) AS "warehouseCount",COUNT(*)::int AS "variantCount",COALESCE(SUM(stock_quantity),0)::bigint AS "availableQuantity",COUNT(*) FILTER (WHERE active AND stock_quantity<=5)::int AS "lowStockCount" FROM product_variants`),
       pool.query(`SELECT COALESCE(SUM(i.line_total_vnd),0) AS total FROM goods_receipt_items i JOIN goods_receipts r ON r.id=i.goods_receipt_id WHERE (r.created_at AT TIME ZONE 'Asia/Ho_Chi_Minh')::date BETWEEN $1::date AND $2::date`, dates),

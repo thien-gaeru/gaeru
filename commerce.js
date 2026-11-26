@@ -468,7 +468,9 @@ async function loadAndRenderBundles(product, currentVariantId) {
       return;
     }
     window.__currentBundles = bundles;
-    renderBundlesHtml(container, bundles, currentVariantId);
+    const liveVariantId = document.querySelector("#product-variant")?.value || currentVariantId;
+    renderBundlesHtml(container, bundles, liveVariantId);
+    updateAllBundleCards(liveVariantId);
   } catch (_) {}
 }
 
@@ -498,11 +500,13 @@ function updateBundleCardPricing(card, bundle) {
   }
   const originalTotal = primaryPrice + secondaryTotal;
   let discount = 0;
+  const totalBundledCount = Array.isArray(bundle.bundledItems) ? bundle.bundledItems.length : 0;
   if (checkedBoxes.length > 0) {
     if (bundle.discountType === 'percent') {
       discount = Math.floor(secondaryTotal * bundle.discountValue / 100);
     } else {
-      discount = Math.min(originalTotal, bundle.discountValue);
+      const cap = (totalBundledCount > 0 && checkedBoxes.length >= totalBundledCount) ? originalTotal : secondaryTotal;
+      discount = Math.min(cap, bundle.discountValue);
     }
   }
   const finalTotal = Math.max(0, originalTotal - discount);
@@ -785,6 +789,7 @@ function updateCartShipping(root) {
   cartShippingRequest.then(apply).catch(()=>apply({}));
 }
 
+let cartQuoteRevision = 0;
 function renderCart() {
   const root = document.querySelector("#cart-content");
   if (!root) return;
@@ -839,12 +844,14 @@ function renderCart() {
       <a class="continue-shopping" href="/cua-hang">Tiếp tục mua sắm</a>
     </aside>`;
   updateCartShipping(root);
+  const quoteRev = ++cartQuoteRevision;
   if (availableRows.length >= 2) {
     apiRequest("/api/bundles/quote", {
       method: "POST",
       body: JSON.stringify({ items: availableRows.map(({ variantId, quantity }) => ({ variantId, quantity })) }),
       gaeruBackground: true
     }).then(q => {
+      if (quoteRev !== cartQuoteRevision) return;
       const disc = Number(q?.totalBundleDiscountVnd || 0);
       if (disc > 0) {
         const rowEl = root.querySelector("[data-cart-bundle-row]");
@@ -1500,6 +1507,13 @@ function renderMiniCart() {
     panelCount.hidden = count === 0;
   }
 
+  if (!rows.length && count > 0 && !products.length && !window.__gaeruProductsLoadFailed) {
+    if (panelTitle) panelTitle.textContent = "Đang tải giỏ hàng…";
+    cartHeading?.classList.remove("is-empty");
+    root.innerHTML = '<p class="mini-cart-loading" role="status">Đang đồng bộ danh mục sản phẩm…</p>';
+    if (footer) footer.hidden = true;
+    return;
+  }
   if (!rows.length) {
     if (panelTitle) panelTitle.textContent = "Giỏ hàng của bạn trống.";
     cartHeading?.classList.add("is-empty");
@@ -2425,7 +2439,10 @@ function showStoreError(error) {
   message.className = "store-error";
   message.setAttribute("role", "alert");
   message.textContent = "Không thể kết nối máy chủ cửa hàng. Hãy thử tải lại trang hoặc gọi 082 919 1080 để được hỗ trợ.";
-  const call=document.createElement("a");call.href="tel:0829191080";call.textContent=" Gọi GAERU 082 919 1080";message.append(call);
+  const call=document.createElement("a");call.href="tel:0829191080";call.textContent=" Gọi GAERU 082 919 1080";
+  const retry=document.createElement("button");retry.type="button";retry.className="secondary-button";retry.style.marginLeft="10px";retry.textContent="Thử lại";
+  retry.addEventListener("click",()=>{message.remove();window.__gaeruProductsLoadFailed=false;void initializeStore();});
+  message.append(call,retry);
   document.querySelector("main")?.prepend(message);
   const grid = document.querySelector(".product-grid, #catalog-grid");
   if (grid && !grid.hasAttribute("data-ssr")) grid.replaceChildren();
@@ -2450,6 +2467,8 @@ async function initializeStore() {
     if (typeof window !== "undefined" && window.GAERUCustomerSession?.customer) { void mergeCartWithServer(); }
     renderMiniCart();
   } catch (error) {
+    if (typeof window !== "undefined") window.__gaeruProductsLoadFailed = true;
+    renderMiniCart();
     showStoreError(error);
     document.dispatchEvent(new CustomEvent("gaeru:products-load-error"));
   }

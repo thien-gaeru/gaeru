@@ -44,7 +44,24 @@ function createOrderWorkflow({
           }
         }
         const receivedAmount = finance ? await finance.receiptTotal(client, current.id) : 0;
-        if (receivedAmount > 0 && ((update.status === "cancelled" && current.status !== "cancelled") || (update.shippingFeeVnd !== undefined && update.shippingFeeVnd !== current.shipping_fee_vnd))) {
+        let gatewayRefundedAmount = 0;
+        if (current.payment_method === "momo" && ((update.status === "cancelled" && current.status !== "cancelled") || (update.shippingFeeVnd !== undefined && update.shippingFeeVnd !== current.shipping_fee_vnd))) {
+          await client.query("SAVEPOINT sp_wf_momo_refunds");
+          try {
+            gatewayRefundedAmount = Number((await client.query(
+              "SELECT COALESCE(SUM(amount_vnd), 0) AS total FROM momo_refunds WHERE order_id = $1 AND status = 'succeeded'",
+              [current.id]
+            )).rows[0]?.total || 0);
+            await client.query("RELEASE SAVEPOINT sp_wf_momo_refunds");
+          } catch (rfErr) {
+            await client.query("ROLLBACK TO SAVEPOINT sp_wf_momo_refunds");
+            if (rfErr?.code !== "42P01") throw rfErr;
+          }
+        }
+        const fullyRefundedViaGateway = current.payment_method === "momo"
+          && gatewayRefundedAmount > 0
+          && gatewayRefundedAmount >= Math.max(receivedAmount, Number(current.total_vnd || 0));
+        if (receivedAmount > 0 && !fullyRefundedViaGateway && ((update.status === "cancelled" && current.status !== "cancelled") || (update.shippingFeeVnd !== undefined && update.shippingFeeVnd !== current.shipping_fee_vnd))) {
           const error = new Error("Đơn đã ghi nhận thu tiền; cần đối soát/hoàn tiền trước khi hủy hoặc đổi tổng tiền."); error.status = 409; throw error;
         }
         const prepaidAutoProcess = current.payment_method !== "cod" && (current.payment_status === "paid" || update.paymentStatus === "paid");
@@ -65,7 +82,7 @@ function createOrderWorkflow({
           error.status = 409;
           throw error;
         }
-        if (update.status === "cancelled" && current.status !== "cancelled" && current.payment_status === "paid") {
+        if (update.status === "cancelled" && current.status !== "cancelled" && current.payment_status === "paid" && !fullyRefundedViaGateway) {
           const error = new Error("Đơn đã thanh toán cần được xử lý hoàn tiền trước khi hủy.");
           error.status = 409;
           throw error;

@@ -28,7 +28,7 @@ function createBotProtection(pool,config,{fetchImpl=fetch}={}){
    }
    const json=res.json.bind(res);let sent=false;
    res.json=function(body){if(sent)return res;sent=true;const status=res.statusCode;const ignored=/Vui lòng đăng nhập|không có quyền|Yêu cầu không hợp lệ. Hãy tải lại trang/i.test(String(body?.error||''));const failed=[400,401,403,422].includes(status)&&!ignored;
-    (async()=>{if(failed)await pool.query("INSERT INTO bot_failures(key,failures,expires_at) VALUES($1,1,now()+interval '15 minutes') ON CONFLICT(key) DO UPDATE SET failures=CASE WHEN bot_failures.expires_at>now() THEN bot_failures.failures+1 ELSE 1 END,expires_at=now()+interval '15 minutes'",[key]);else if(verified&&status>=200&&status<300)await pool.query('DELETE FROM bot_failures WHERE key=$1',[key]);json(body);})().catch(()=>{res.status(503);json({error:'Chưa ghi nhận được kiểm tra bảo mật. Vui lòng thử lại.'});});return res;
+    (async()=>{if(failed)await pool.query("INSERT INTO bot_failures(key,failures,expires_at) VALUES($1,1,now()+interval '15 minutes') ON CONFLICT(key) DO UPDATE SET failures=CASE WHEN bot_failures.expires_at>now() THEN bot_failures.failures+1 ELSE 1 END,expires_at=now()+interval '15 minutes'",[key]);else if(verified&&status>=200&&status<300)await pool.query('DELETE FROM bot_failures WHERE key=$1',[key]);if(!res.headersSent)json(body);})().catch(()=>{if(!res.headersSent){res.status(503);json({error:'Chưa ghi nhận được kiểm tra bảo mật. Vui lòng thử lại.'});}});return res;
    };
    next();
   }catch(e){next(e);}

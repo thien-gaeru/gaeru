@@ -395,7 +395,7 @@ function createCustomerOAuthRouter(pool, { config = {}, accountSecurity, fetcher
         });
       }
 
-      const { checkCustomerPhoneStatus } = require('./customer-lifecycle');
+      const { checkCustomerPhoneStatus, autoLockAccount } = require('./customer-lifecycle');
       const phoneStatus = checkCustomerPhoneStatus({
         phone: outcome.customer.phone,
         phone_invalid_at: outcome.customer.phoneInvalidAt,
@@ -403,10 +403,7 @@ function createCustomerOAuthRouter(pool, { config = {}, accountSecurity, fetcher
       });
       if (phoneStatus.isExpired) {
         try {
-          await pool.query(
-            "UPDATE customers SET active = false, lock_reason = 'invalid_phone_timeout', locked_at = now(), updated_at = now() WHERE id = $1",
-            [outcome.customer.id]
-          );
+          await autoLockAccount(pool, outcome.customer.id, 'invalid_phone_timeout');
         } catch (_) {}
         return res.status(403).json({ error: 'Tài khoản đã bị tự động khóa do chưa cập nhật số điện thoại hợp lệ trong vòng 12 giờ. Vui lòng liên hệ GAERU để mở khóa.' });
       }
@@ -475,6 +472,9 @@ function createCustomerOAuthRouter(pool, { config = {}, accountSecurity, fetcher
             picture: googleUser.picture || null,
             createdAt: Date.now()
           };
+          if (typeof req.session.save === 'function') {
+            await new Promise(resolve => req.session.save(() => resolve()));
+          }
         }
         if (req.path === '/auth/google') {
           return res.redirect(303, '/account/link-required');
@@ -486,7 +486,7 @@ function createCustomerOAuthRouter(pool, { config = {}, accountSecurity, fetcher
         return res.status(403).send('Tài khoản đã bị khóa hoặc không còn hoạt động.');
       }
 
-      const { checkCustomerPhoneStatus } = require('./customer-lifecycle');
+      const { checkCustomerPhoneStatus, autoLockAccount } = require('./customer-lifecycle');
       const phoneStatus = checkCustomerPhoneStatus({
         phone: outcome.customer.phone,
         phone_invalid_at: outcome.customer.phoneInvalidAt,
@@ -494,10 +494,7 @@ function createCustomerOAuthRouter(pool, { config = {}, accountSecurity, fetcher
       });
       if (phoneStatus.isExpired) {
         try {
-          await pool.query(
-            "UPDATE customers SET active = false, lock_reason = 'invalid_phone_timeout', locked_at = now(), updated_at = now() WHERE id = $1",
-            [outcome.customer.id]
-          );
+          await autoLockAccount(pool, outcome.customer.id, 'invalid_phone_timeout');
         } catch (_) {}
         return res.status(403).send('Tài khoản đã bị tự động khóa do chưa cập nhật số điện thoại hợp lệ trong vòng 12 giờ.');
       }
@@ -644,11 +641,14 @@ function createCustomerOAuthRouter(pool, { config = {}, accountSecurity, fetcher
     try {
       const outcome = await withTransaction(pool, async (client) => {
         const cust = (await client.query(
-          `SELECT password_hash, email, phone FROM customers WHERE id = $1 FOR UPDATE`,
+          `SELECT password_hash, email, phone, active, deleted_at AS "deletedAt" FROM customers WHERE id = $1 FOR UPDATE`,
           [customerId]
         )).rows[0];
 
         if (!cust) throw Object.assign(new Error('Không tìm thấy tài khoản.'), { status: 404 });
+        if (cust.deletedAt || cust.active === false) {
+          throw Object.assign(new Error('Tài khoản đã bị khóa hoặc không khả dụng.'), { status: 403 });
+        }
 
         // Prevent Google-only account lockout (SC26, TC032)
         if (!cust.password_hash) {

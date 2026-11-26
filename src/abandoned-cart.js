@@ -45,18 +45,20 @@ async function captureAbandonedCart(pool, { email, customerName = null, phone = 
 
   if (suppressed) return null;
 
-  // Calculate cart subtotal from database
+  // Calculate cart subtotal from database (excluding soft-deleted products & applying active promotions)
   const variantIds = items.map(i => i.variantId);
-  const variants = (await pool.query(
+  const rawVariants = (await pool.query(
     `SELECT v.id, v.sku, v.name AS variant_name, v.price_vnd, v.stock_quantity,
             p.name AS product_name, p.slug AS product_slug, p.image_url AS product_image
      FROM product_variants v
      JOIN products p ON p.id = v.product_id
-     WHERE v.id = ANY($1::uuid[]) AND v.active = true AND p.active = true`,
+     WHERE v.id = ANY($1::uuid[]) AND v.active = true AND p.active = true AND p.deleted_at IS NULL`,
     [variantIds]
   )).rows;
 
-  if (!variants.length) return null;
+  if (!rawVariants.length) return null;
+
+  const variants = await require('./product-promotions').applyPromotions(pool, rawVariants);
 
   const itemDetails = items.map(it => {
     const v = variants.find(r => r.id === it.variantId);
@@ -211,15 +213,18 @@ async function optOutAbandonedCart(pool, recoveryToken) {
     if (!cart) return false;
     if (!cart.email) return true;
 
+    const retiredToken = 'retired:' + randomBytes(24).toString('hex');
+    const retiredHash = hash(retiredToken);
     await client.query(
       `UPDATE abandoned_carts
        SET status = CASE WHEN status='recovered' THEN status ELSE 'opted_out' END,
            recovery_consent = false, consent_confirmed_at = NULL, next_reminder_at = NULL,
+           recovery_token = $2, recovery_token_hash = $3,
            email = '', phone = NULL, customer_name = NULL, customer_id = NULL, items = '[]'::jsonb,
            subtotal_vnd = CASE WHEN status='recovered' THEN subtotal_vnd ELSE 0 END,
            version = version + 1, updated_at = now()
        WHERE id = $1`,
-      [cart.id]
+      [cart.id, retiredToken, retiredHash]
     );
     await client.query("UPDATE abandoned_cart_reminders SET email = '' WHERE cart_id = $1", [cart.id]);
 
@@ -481,7 +486,7 @@ async function processAbandonedCartReminders(pool, config, mailer) {
   const candidate = await withTransaction(pool, async (client) => {
     const row = (await client.query(
       `SELECT * FROM abandoned_carts
-       WHERE status = 'abandoned'
+       WHERE status IN ('abandoned', 'recovering')
          AND recovery_consent = true
          AND consent_confirmed_at IS NOT NULL
          AND next_reminder_at IS NOT NULL

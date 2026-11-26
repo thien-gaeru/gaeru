@@ -306,8 +306,9 @@ function handleRealtimeEvent(event, data = {}) {
       const currentView = activeBtn?.dataset?.view;
       if (currentView === 'overview') {
         loadSystemHealth().catch(() => {});
-      } else if (currentView === 'orders' && (event.startsWith('order:') || event === 'cache:invalidated')) {
+      } else if (currentView === 'orders' && (event.startsWith('order:') || event.startsWith('after_sales:') || event === 'cache:invalidated')) {
         loadOrders(state.orderPage).catch(() => {});
+        if (event.startsWith('after_sales:') && window.GAERUAfterSales?.load) window.GAERUAfterSales.load().catch(() => {});
       } else if (currentView === 'inventory' && (event.startsWith('inventory:') || event === 'cache:invalidated')) {
         if (window.GAERUEnterprise?.loadView) window.GAERUEnterprise.loadView('inventory').catch(() => {});
       } else if (currentView === 'care' && (event.startsWith('care:') || event === 'cache:invalidated')) {
@@ -2052,7 +2053,8 @@ async function loadSettings() {
   }
 
   try {
-    if (can("orders.read")) {
+    const isBootstrapOwner = (state.session?.role === 'owner' || state.user?.role === 'owner') && (state.session?.source === 'bootstrap' || state.user?.source === 'bootstrap');
+    if (isBootstrapOwner && can("orders.read")) {
       const shippingInfo = await request("/api/gaeru_ceo/owner/shipping");
       const activeCarriers = (shippingInfo.carriers || []).filter(c => c.enabled).map(c => c.name);
       const syncCarrierEl = document.querySelector("#sync-summary-carrier-status");
@@ -2281,6 +2283,17 @@ document.querySelector("#logout-button").addEventListener("click", async (event)
 
 async function activateView(view, { updateHistory = true } = {}) {
   if (view === "owner") return activateView("overview", { updateHistory });
+  if (view === "after-sales") {
+    await activateView("orders", { updateHistory });
+    const asPanel = document.getElementById("after-sales-panel");
+    if (asPanel) {
+      if (asPanel.tagName === "DETAILS") asPanel.open = true;
+      asPanel.hidden = false;
+      asPanel.scrollIntoView?.({ behavior: "smooth", block: "start" });
+    }
+    if (window.GAERUAfterSales?.load) await window.GAERUAfterSales.load().catch(() => {});
+    return;
+  }
   if (view === "business") return activateView("invoice", { updateHistory });
   if (view === "shipping" || view === "payments") {
     switchLogisticsTab(view);

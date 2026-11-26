@@ -182,6 +182,7 @@ class FailoverSyncManager {
       const actor = { username: 'failover-sync', source: 'system', fullName: 'Đồng bộ máy chủ dự phòng' };
       await withTransaction(this.pool, async client => {
         await client.query("SELECT pg_advisory_xact_lock(hashtext('gaeru:failover-catalog-sync'))");
+        const seenProductIds = [];
         for (const p of [...products].sort((a, b) => String(a?.slug).localeCompare(String(b?.slug)))) {
           if (!p?.slug || !p.name || !Array.isArray(p.variants)) throw new Error('Sản phẩm đồng bộ không hợp lệ.');
           const category = ['audio', 'video', 'accessory'].includes(p.category) ? p.category : 'audio';
@@ -211,9 +212,11 @@ class FailoverSyncManager {
           ])).rows[0];
 
           const productId = prodRow.id;
+          seenProductIds.push(productId);
+          const seenVariantIds = [];
           for (const v of [...p.variants].sort((a, b) => String(a?.sku).localeCompare(String(b?.sku)))) {
             const quantity = Number(v?.stockQuantity ?? v?.stock_quantity ?? 0);
-            const price = Number(v?.priceVnd ?? v?.price_vnd ?? 0);
+            const price = Number(v?.originalPriceVnd ?? v?.priceVnd ?? v?.price_vnd ?? 0);
             if (!v?.sku || !v.name || !Number.isSafeInteger(quantity) || quantity < 0 || quantity > 1_000_000_000 ||
                 !Number.isSafeInteger(price) || price < 0 || price > 2_000_000_000) {
               throw new Error('Giá hoặc tồn kho đồng bộ không hợp lệ.');
@@ -231,12 +234,30 @@ class FailoverSyncManager {
               RETURNING id, product_id, stock_quantity;
             `, [productId, v.sku, v.name, JSON.stringify(v.options || {}), price, variantActive])).rows[0];
             if (variant.product_id !== productId) throw new Error('SKU đồng bộ thuộc sản phẩm khác; cần đối soát trước khi đồng bộ.');
+            seenVariantIds.push(variant.id);
             // Preserve local IDs and inventory history. Initialize new (or legacy
             // unallocated) stock, then record a normal ledger adjustment so the
             // aggregate and warehouse balances agree.
             await inventory.initializeVariantStock(client, { variantId: variant.id, quantity: variant.stock_quantity, actor });
             await inventory.setVariantStock(client, { variantId: variant.id, quantity, actor, reason: 'Đối chiếu tồn khả dụng từ máy chủ chính' });
           }
+          if (seenVariantIds.length > 0) {
+            await client.query(
+              'UPDATE product_variants SET active = false, updated_at = NOW() WHERE product_id = $1 AND active = true AND NOT (id = ANY($2::uuid[]))',
+              [productId, seenVariantIds]
+            );
+          } else {
+            await client.query(
+              'UPDATE product_variants SET active = false, updated_at = NOW() WHERE product_id = $1 AND active = true',
+              [productId]
+            );
+          }
+        }
+        if (seenProductIds.length > 0) {
+          await client.query(
+            'UPDATE products SET active = false, updated_at = NOW() WHERE active = true AND NOT (id = ANY($1::uuid[]))',
+            [seenProductIds]
+          );
         }
         await client.query(`
           INSERT INTO store_settings (setting_key, setting_value, updated_at)
@@ -244,6 +265,22 @@ class FailoverSyncManager {
           ON CONFLICT (setting_key) DO UPDATE
           SET setting_value = EXCLUDED.setting_value, updated_at = NOW();
         `, [JSON.stringify(settings)]);
+        const mappedSettings = [
+          ['shipping_rates', settings.shippingRates ?? settings.shipping_rates],
+          ['shipping_note', settings.shippingNote ?? settings.shipping_note],
+          ['ga_measurement_id', settings.gaMeasurementId ?? settings.ga_measurement_id]
+        ];
+        for (const [sKey, sVal] of mappedSettings) {
+          if (sVal !== undefined) {
+            await client.query(
+              `INSERT INTO store_settings (setting_key, setting_value, updated_at)
+               VALUES ($1, $2::jsonb, NOW())
+               ON CONFLICT (setting_key) DO UPDATE
+               SET setting_value = EXCLUDED.setting_value, updated_at = NOW()`,
+              [sKey, JSON.stringify(sVal)]
+            );
+          }
+        }
       });
       stats.productsCount = products.length;
       stats.settingsSynced = true;
@@ -263,6 +300,32 @@ class FailoverSyncManager {
       this.state.lastError = e.message;
       this.saveState();
       return { ok: false, error: e.message };
+    }
+  }
+
+  setPool(pool) {
+    if (pool) this.pool = pool;
+    return this;
+  }
+
+  startBackgroundSync({ pool = null, fetcher = fetch } = {}) {
+    if (pool) this.pool = pool;
+    this.stopBackgroundSync();
+    if (this.state.role !== 'standby') return () => this.stopBackgroundSync();
+    const intervalMs = Math.max(60000, Math.round(this.autoSyncHours * 3600000));
+    this._bgTimer = setInterval(() => {
+      if (this.state.role === 'standby' && this.state.status !== 'syncing') {
+        void this.syncFromPrimary({ fetcher }).catch(() => {});
+      }
+    }, intervalMs);
+    this._bgTimer?.unref?.();
+    return () => this.stopBackgroundSync();
+  }
+
+  stopBackgroundSync() {
+    if (this._bgTimer) {
+      clearInterval(this._bgTimer);
+      this._bgTimer = null;
     }
   }
 

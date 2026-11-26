@@ -4,6 +4,12 @@
   if (!content) return;
   const orderNumber = result.get('order');
   const trackingToken = result.get('token') || result.get('trackingToken') || '';
+  if ((result.has('token') || result.has('trackingToken')) && typeof history !== 'undefined' && typeof history.replaceState === 'function') {
+    const clean = new URLSearchParams(location.search);
+    clean.delete('token');
+    clean.delete('trackingToken');
+    history.replaceState(null, '', location.pathname + (clean.size ? '?' + clean : '') + location.hash);
+  }
   const providerNames = { vnpay:'VNPAY', momo:'MoMo', zalopay:'ZaloPay', bank_transfer:'Chuyển khoản ngân hàng' };
   const waiting = {
     title:'Đang kiểm tra trạng thái thanh toán.',

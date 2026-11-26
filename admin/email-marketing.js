@@ -427,7 +427,7 @@
         admin.showGlobal('Đã xóa chiến dịch email thành công.');
       }
     } catch (error) {
-      b.disabled = false;
+      admin.setButtonBusy ? admin.setButtonBusy(b, false) : (b.disabled = false);
       const status = b.closest('form')?.querySelector('[role=status]');
       if (status) status.textContent = error.message;
       else admin.showGlobal(error.message, true);

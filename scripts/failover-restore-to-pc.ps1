@@ -48,7 +48,11 @@ function Assert-Sha256Companion([string]$FilePath) {
     if (-not (Test-Path -LiteralPath $shaFile)) {
         throw "Missing SHA256 file: $shaFile"
     }
-    $expected = ((Get-Content -LiteralPath $shaFile -Raw).Trim() -split '\s+')[0].ToLowerInvariant()
+    $rawSha = Get-Content -LiteralPath $shaFile -Raw
+    $expected = if ($null -ne $rawSha) { (($rawSha.Trim() -split '\s+')[0]).ToLowerInvariant() } else { "" }
+    if ($expected -notmatch '^[0-9a-f]{64}$') {
+        throw "Invalid or empty SHA256 companion file: $shaFile"
+    }
     $actual = Get-GaeruBackupSha256 $FilePath
     if ($expected -ne $actual) {
         throw "SHA256 mismatch for $FilePath (expected $expected, got $actual)"
@@ -172,16 +176,20 @@ elseif ($Mode -eq "TestDatabaseRestore") {
     Write-Output "=== Running Isolated Dry-Run PostgreSQL Restore Test on PC ==="
     . (Join-Path $scriptRoot "database-backup.ps1")
     $conn = Get-GaeruBackupConnection -EnvFile (Join-Path $repoRoot ".env")
-    foreach ($k in $conn.Keys) { [Environment]::SetEnvironmentVariable($k, $conn[$k], "Process") }
+    $savedEnv = @{}
+    foreach ($k in $conn.Keys) {
+        $savedEnv[$k] = [Environment]::GetEnvironmentVariable($k, "Process")
+        [Environment]::SetEnvironmentVariable($k, $conn[$k], "Process")
+    }
 
     $psql = Find-PgTool "psql.exe"
     $testDb = "gaeru_dr_verify_" + [guid]::NewGuid().ToString("N")
     $created = $false
-    Assert-Sha256Companion -FilePath $newestPgSql | Out-Null
-    $tmpSql = Expand-GzipToTempSql -GzPath $newestPgSql
-
+    $tmpSql = $null
     $prevEA = $ErrorActionPreference
     try {
+        Assert-Sha256Companion -FilePath $newestPgSql | Out-Null
+        $tmpSql = Expand-GzipToTempSql -GzPath $newestPgSql
         $ErrorActionPreference = "Continue"
         & $psql -q -v ON_ERROR_STOP=1 -d postgres -c "CREATE DATABASE $testDb;" *>$null
         if ($LASTEXITCODE -ne 0) { throw "Could not create isolated verification database." }
@@ -194,8 +202,9 @@ elseif ($Mode -eq "TestDatabaseRestore") {
         $counts | ForEach-Object { Write-Output "  $_" }
     } finally {
         $ErrorActionPreference = "Continue"
-        Remove-Item -LiteralPath $tmpSql -Force -ErrorAction SilentlyContinue
+        if ($tmpSql) { Remove-Item -LiteralPath $tmpSql -Force -ErrorAction SilentlyContinue }
         if ($created) { & $psql -q -d postgres -c "DROP DATABASE $testDb;" *>$null }
+        foreach ($k in $savedEnv.Keys) { [Environment]::SetEnvironmentVariable($k, $savedEnv[$k], "Process") }
         $ErrorActionPreference = $prevEA
     }
 }
@@ -204,19 +213,35 @@ elseif ($Mode -eq "FailoverToPC") {
     Assert-Sha256Companion -FilePath $newestPgSql | Out-Null
     Assert-Sha256Companion -FilePath $newestMedia | Out-Null
 
+    Write-Output "[0/3] Stopping any active GAERU Node/Supervisor processes on PC before DB restore..."
+    Disable-ScheduledTask -TaskName "GAERU_Server_AutoStart" -ErrorAction SilentlyContinue | Out-Null
+    Get-CimInstance Win32_Process -Filter "Name='node.exe'" -ErrorAction SilentlyContinue | Where-Object {
+        $_.CommandLine -like "*$repoRoot*" -and (
+            $_.CommandLine -like "*cluster-master.js*" -or
+            $_.CommandLine -like "*cluster.js*" -or
+            $_.CommandLine -like "*server.js*" -or
+            $_.CommandLine -like "*watchdog-supervisor.js*"
+        )
+    } | ForEach-Object { Stop-Process -Id $_.ProcessId -Force -ErrorAction SilentlyContinue }
+
     . (Join-Path $scriptRoot "database-backup.ps1")
     $conn = Get-GaeruBackupConnection -EnvFile (Join-Path $repoRoot ".env")
-    foreach ($k in $conn.Keys) { [Environment]::SetEnvironmentVariable($k, $conn[$k], "Process") }
+    $savedEnv = @{}
+    foreach ($k in $conn.Keys) {
+        $savedEnv[$k] = [Environment]::GetEnvironmentVariable($k, "Process")
+        [Environment]::SetEnvironmentVariable($k, $conn[$k], "Process")
+    }
 
     $psql = Find-PgTool "psql.exe"
-    $tmpSql = Expand-GzipToTempSql -GzPath $newestPgSql
+    $tmpSql = $null
     try {
+        $tmpSql = Expand-GzipToTempSql -GzPath $newestPgSql
         Write-Output "[1/3] Restoring PostgreSQL database $($conn.PGDATABASE) on PC from $([IO.Path]::GetFileName($newestPgSql))..."
         $psqlErrFile = Join-Path $env:TEMP ("gaeru_psql_err_" + [guid]::NewGuid().ToString("N") + ".log")
         New-Item -ItemType File -Path $psqlErrFile -Force | Out-Null
         Protect-TempPath $psqlErrFile
         try {
-            & $psql -q -v ON_ERROR_STOP=1 -d $conn.PGDATABASE -f $tmpSql 2>$psqlErrFile | Out-Null
+            & $psql -q -1 -v ON_ERROR_STOP=1 -d $conn.PGDATABASE -f $tmpSql 2>$psqlErrFile | Out-Null
             if ($LASTEXITCODE -ne 0) {
                 $errDetail = if (Test-Path -LiteralPath $psqlErrFile) { Get-Content -LiteralPath $psqlErrFile -Raw -ErrorAction SilentlyContinue } else { "" }
                 throw "psql failover restore failed: $($errDetail.Trim())"
@@ -225,7 +250,8 @@ elseif ($Mode -eq "FailoverToPC") {
             Remove-Item -LiteralPath $psqlErrFile -Force -ErrorAction SilentlyContinue
         }
     } finally {
-        Remove-Item -LiteralPath $tmpSql -Force -ErrorAction SilentlyContinue
+        if ($tmpSql) { Remove-Item -LiteralPath $tmpSql -Force -ErrorAction SilentlyContinue }
+        foreach ($k in $savedEnv.Keys) { [Environment]::SetEnvironmentVariable($k, $savedEnv[$k], "Process") }
     }
 
     Write-Output "[2/3] Restoring encrypted media library from $([IO.Path]::GetFileName($newestMedia))..."

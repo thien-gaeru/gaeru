@@ -157,6 +157,13 @@ function createCodReturnIntake(pool) {
       const data = intakeSchema.parse(req.body);
 
       const intakeResult = await withTransaction(pool, async client => {
+        const orderPeek = await client.query(
+          'SELECT order_id FROM carrier_shipments WHERE upper(tracking_number) = upper($1) LIMIT 1',
+          [data.trackingNumber]
+        );
+        if (orderPeek.rows[0]?.order_id) {
+          await client.query('SELECT id FROM orders WHERE id = $1 FOR UPDATE', [orderPeek.rows[0].order_id]);
+        }
         // Khóa carrier_shipments và orders FOR UPDATE
         const shipmentLookup = await client.query(
           `SELECT s.*, o.id AS "orderId", o.order_number AS "orderNumber",

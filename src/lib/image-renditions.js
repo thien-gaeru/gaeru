@@ -54,6 +54,45 @@ async function readDiskRendition(version) {
   return null;
 }
 
+let diskWritesSincePrune = 0;
+let diskPruneInFlight = false;
+const MAX_DISK_RENDITION_FILES = 2000;
+const MAX_DISK_RENDITION_BYTES = process.arch === 'arm64' ? 128 * 1024 * 1024 : 256 * 1024 * 1024;
+
+async function pruneDiskRenditionsIfNeeded(baseDir) {
+  if (diskPruneInFlight) return;
+  diskPruneInFlight = true;
+  try {
+    const subdirs = await fs.readdir(baseDir, { withFileTypes: true }).catch(() => []);
+    const entries = [];
+    let totalBytes = 0;
+    for (const d of subdirs) {
+      if (!d.isDirectory()) continue;
+      const subPath = path.join(baseDir, d.name);
+      const files = await fs.readdir(subPath, { withFileTypes: true }).catch(() => []);
+      for (const f of files) {
+        if (!f.isFile() || !f.name.endsWith('.bin')) continue;
+        const fp = path.join(subPath, f.name);
+        const st = await fs.stat(fp).catch(() => null);
+        if (!st) continue;
+        totalBytes += st.size;
+        entries.push({ fp, mtimeMs: st.mtimeMs, size: st.size });
+      }
+    }
+    if (entries.length <= MAX_DISK_RENDITION_FILES && totalBytes <= MAX_DISK_RENDITION_BYTES) return;
+    entries.sort((a, b) => a.mtimeMs - b.mtimeMs);
+    let idx = 0;
+    while (idx < entries.length && (entries.length - idx > Math.floor(MAX_DISK_RENDITION_FILES * 0.8) || totalBytes > Math.floor(MAX_DISK_RENDITION_BYTES * 0.8))) {
+      await fs.unlink(entries[idx].fp).catch(() => {});
+      totalBytes -= entries[idx].size;
+      idx++;
+    }
+  } catch (_) {
+  } finally {
+    diskPruneInFlight = false;
+  }
+}
+
 async function writeDiskRendition(version, bytes) {
   if (!isDiskRenditionCacheEnabled() || !Buffer.isBuffer(bytes) || !bytes.length || !/^[0-9a-f]{64}$/.test(version)) return;
   try {
@@ -65,6 +104,11 @@ async function writeDiskRendition(version, bytes) {
     await fs.rename(tempPath, filePath).catch(async () => {
       await fs.unlink(tempPath).catch(() => {});
     });
+    if (++diskWritesSincePrune >= 200) {
+      diskWritesSincePrune = 0;
+      const baseDir = process.env.RENDITION_CACHE_DIR || path.join(process.cwd(), '.local-data', 'renditions');
+      void pruneDiskRenditionsIfNeeded(baseDir);
+    }
   } catch (_) {}
 }
 

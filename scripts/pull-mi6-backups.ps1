@@ -65,35 +65,51 @@ function Sync-RemoteDirectory {
         if ($needsDownload) {
             Write-PullLog "[$Label] Pulling $fileName..."
             $tmpLocal = "${localPath}.part"
+            $tmpShaLocal = "${localShaPath}.part"
             $previousEA = $ErrorActionPreference
             try {
                 $ErrorActionPreference = "Continue"
                 & scp @sshCommonArgs -q "${Mi6Host}:${remotePath}" $tmpLocal
                 $scpExit = $LASTEXITCODE
-                & scp @sshCommonArgs -q "${Mi6Host}:${remoteShaPath}" $localShaPath 2>$null
+                & scp @sshCommonArgs -q "${Mi6Host}:${remoteShaPath}" $tmpShaLocal 2>$null
+                $shaExit = $LASTEXITCODE
             } finally {
                 $ErrorActionPreference = $previousEA
             }
-            if ($scpExit -ne 0) {
+            if ($scpExit -ne 0 -or $shaExit -ne 0) {
                 Remove-Item -LiteralPath $tmpLocal -Force -ErrorAction SilentlyContinue
-                throw "scp failed for $remotePath"
+                Remove-Item -LiteralPath $tmpShaLocal -Force -ErrorAction SilentlyContinue
+                throw "scp failed for $remotePath or companion .sha256 (scp=$scpExit, sha=$shaExit)"
             }
             Move-Item -LiteralPath $tmpLocal -Destination $localPath -Force
+            Move-Item -LiteralPath $tmpShaLocal -Destination $localShaPath -Force
         } elseif (-not (Test-Path -LiteralPath $localShaPath)) {
+            $tmpShaLocal = "${localShaPath}.part"
             $previousEA = $ErrorActionPreference
             try {
                 $ErrorActionPreference = "Continue"
-                & scp @sshCommonArgs -q "${Mi6Host}:${remoteShaPath}" $localShaPath 2>$null
+                & scp @sshCommonArgs -q "${Mi6Host}:${remoteShaPath}" $tmpShaLocal 2>$null
+                $shaExit = $LASTEXITCODE
             } finally {
                 $ErrorActionPreference = $previousEA
+            }
+            if ($shaExit -eq 0 -and (Test-Path -LiteralPath $tmpShaLocal)) {
+                Move-Item -LiteralPath $tmpShaLocal -Destination $localShaPath -Force
+            } else {
+                Remove-Item -LiteralPath $tmpShaLocal -Force -ErrorAction SilentlyContinue
             }
         }
 
         if (Test-Path -LiteralPath $localShaPath) {
-            $expectedLine = (Get-Content -LiteralPath $localShaPath -Raw).Trim()
+            $rawShaContent = Get-Content -LiteralPath $localShaPath -Raw
+            $expectedLine = if ($null -ne $rawShaContent) { $rawShaContent.Trim() } else { "" }
             $expectedHash = ($expectedLine -split '\s+')[0].ToLowerInvariant()
+            if ($expectedHash -notmatch '^[0-9a-f]{64}$') {
+                Remove-Item -LiteralPath $localShaPath -Force -ErrorAction SilentlyContinue
+                throw "[$Label] Invalid or empty .sha256 companion file for $fileName"
+            }
             $actualHash = (Get-FileHash -LiteralPath $localPath -Algorithm SHA256).Hash.ToLowerInvariant()
-            if ($expectedHash -and $expectedHash -ne $actualHash) {
+            if ($expectedHash -ne $actualHash) {
                 Remove-Item -LiteralPath $localPath -Force -ErrorAction SilentlyContinue
                 throw "[$Label] SHA256 mismatch for $fileName (expected $expectedHash, got $actualHash)"
             }
@@ -196,6 +212,8 @@ foreach ($relPath in @(
     "mi6-backup\gaeru-media-backup.sh",
     "mi6-backup\gaeru-backup-prune.sh",
     "database-backup.ps1",
+    "portable-database-backup.cjs",
+    "restart-server.ps1",
     "failover-restore-to-pc.ps1"
 )) {
     $f = Join-Path $scriptRoot $relPath

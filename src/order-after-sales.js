@@ -265,7 +265,7 @@ function afterSalesRouter(pool) {
 
       const result = await pool.query(
         `SELECT a.*, o.order_number, o.customer_id, o.customer_name, o.phone, o.email, o.status AS order_status, o.payment_status,
-          CASE WHEN o.payment_status='paid' THEN o.total_vnd ELSE COALESCE((SELECT SUM(r.amount_vnd) FROM sales_receipts r WHERE r.order_id=o.id),0) END AS refundable_amount_vnd
+          GREATEST(0, (CASE WHEN o.payment_status='paid' THEN COALESCE(o.total_vnd, 0) ELSE COALESCE((SELECT SUM(r.amount_vnd) FROM sales_receipts r WHERE r.order_id=o.id),0) END) - COALESCE((SELECT SUM(mr.amount_vnd) FROM momo_refunds mr WHERE mr.order_id=o.id AND mr.status='succeeded'),0)) AS refundable_amount_vnd
          FROM order_after_sales a
          JOIN orders o ON o.id = a.order_id
          WHERE ($1::text = '' OR a.status = $1)
@@ -326,12 +326,24 @@ function afterSalesRouter(pool) {
         }
 
         const { generateRmaNumber, generateRmaToken } = require('./rma-tickets');
-        const rmaNumber = data.kind === 'return' ? generateRmaNumber() : null;
         const rmaToken = data.kind === 'return' ? generateRmaToken() : null;
-        const row = (await c.query(
-          'INSERT INTO order_after_sales(order_id, kind, reason, rma_number, rma_token) VALUES($1, $2, $3, $4, $5) RETURNING *',
-          [id, data.kind, data.reason, rmaNumber, rmaToken]
-        )).rows[0];
+        let row = null;
+        for (let attempt = 0; attempt < 3; attempt++) {
+          const rmaNumber = data.kind === 'return' ? generateRmaNumber() : null;
+          await c.query('SAVEPOINT sp_admin_rma_ins');
+          try {
+            row = (await c.query(
+              'INSERT INTO order_after_sales(order_id, kind, reason, rma_number, rma_token) VALUES($1, $2, $3, $4, $5) RETURNING *',
+              [id, data.kind, data.reason, rmaNumber, rmaToken]
+            )).rows[0];
+            await c.query('RELEASE SAVEPOINT sp_admin_rma_ins');
+            break;
+          } catch (insErr) {
+            await c.query('ROLLBACK TO SAVEPOINT sp_admin_rma_ins');
+            if (insErr?.code === '23505' && data.kind === 'return' && attempt < 2) continue;
+            throw insErr;
+          }
+        }
 
         await appendAudit(c, {
           actor: req.admin,
@@ -414,7 +426,42 @@ function afterSalesRouter(pool) {
           const issue = await require('./rma-exchange').readIssue(c, row.id);
           if (!issue || row.outbound_status !== 'delivered') throw fail('Cần chứng từ xuất kho đổi mới đang hiệu lực và xác nhận khách đã nhận hàng trước khi đóng hồ sơ.');
           if (row.restock_eligible === true) {
-            await require('./inventory').releaseOrderStock(c, { orderId: row.order_id, actor: req.admin });
+            const inv = require('./inventory');
+            const activeAlloc = await c.query(
+              'SELECT 1 FROM order_stock_allocations WHERE order_id = $1 AND released_at IS NULL LIMIT 1',
+              [row.order_id]
+            );
+            if (activeAlloc.rows.length > 0) {
+              await inv.releaseOrderStock(c, { orderId: row.order_id, actor: req.admin });
+            } else {
+              const priorExch = await c.query(
+                `SELECT ei.id AS "itemId", ei.replacement_variant_id AS "variantId", ei.quantity, i.warehouse_id AS "warehouseId"
+                 FROM rma_exchange_issues i
+                 JOIN rma_exchange_issue_items ei ON ei.issue_id = i.id
+                 JOIN order_after_sales a ON a.id = i.case_id
+                 WHERE i.id = (
+                   SELECT i2.id FROM rma_exchange_issues i2
+                   JOIN order_after_sales a2 ON a2.id = i2.case_id
+                   WHERE a2.order_id = $1 AND a2.id <> $2 AND i2.status = 'posted'
+                   ORDER BY i2.created_at DESC LIMIT 1
+                 )
+                 ORDER BY ei.replacement_variant_id`,
+                [row.order_id, row.id]
+              );
+              for (const item of priorExch.rows) {
+                await c.query('SELECT id FROM product_variants WHERE id = $1 FOR UPDATE', [item.variantId]);
+                const before = Number((await c.query('SELECT quantity FROM warehouse_stock WHERE warehouse_id = $1 AND variant_id = $2', [item.warehouseId, item.variantId])).rows[0]?.quantity || 0);
+                await inv.adjustWarehouseStock(c, {
+                  warehouseId: item.warehouseId,
+                  variantId: item.variantId,
+                  delta: Number(item.quantity),
+                  expectedQuantity: before,
+                  reason: 'Tái nhập kho hàng đổi từ hồ sơ đổi trả RMA',
+                  requestKey: `after-sales-exch-cycle-restock:${id}:${item.itemId}`,
+                  actor: req.admin
+                });
+              }
+            }
             await c.query('UPDATE order_after_sales SET restocked_at=now() WHERE id=$1', [row.id]);
           }
         }
@@ -424,8 +471,18 @@ function afterSalesRouter(pool) {
         let loyaltyRefund = null;
         if (data.status === 'resolved' && row.kind === 'return' && row.return_type !== 'exchange') {
           const received = Number((await c.query('SELECT COALESCE(SUM(amount_vnd),0) AS received FROM sales_receipts WHERE order_id=$1', [order.id])).rows[0]?.received || 0);
-          const refundable = order.payment_status === 'paid' ? Number(order.total_vnd) : received;
-          if ((order.payment_status === 'paid' && order.total_vnd === null) || !Number.isSafeInteger(refundable) || refundable < 0 || refundable > 2000000000 || received > refundable) throw fail('Số tiền cần hoàn chưa hợp lệ. Cần đối soát thanh toán trước.');
+          let gatewayRefunded = 0;
+          await c.query('SAVEPOINT sp_as_momo_refunds');
+          try {
+            gatewayRefunded = Number((await c.query("SELECT COALESCE(SUM(amount_vnd),0) AS refunded FROM momo_refunds WHERE order_id=$1 AND status='succeeded'", [order.id])).rows[0]?.refunded || 0);
+            await c.query('RELEASE SAVEPOINT sp_as_momo_refunds');
+          } catch (mrErr) {
+            await c.query('ROLLBACK TO SAVEPOINT sp_as_momo_refunds');
+            if (mrErr?.code !== '42P01') throw mrErr;
+          }
+          const baseCollected = order.payment_status === 'paid' ? Number(order.total_vnd) : received;
+          const refundable = Math.max(0, baseCollected - gatewayRefunded);
+          if ((order.payment_status === 'paid' && order.total_vnd === null) || !Number.isSafeInteger(baseCollected) || baseCollected < 0 || baseCollected > 2000000000 || received > baseCollected) throw fail('Số tiền cần hoàn chưa hợp lệ. Cần đối soát thanh toán trước.');
           grossRefundable = refundable;
 
           const { previewEarnClawback, refundPoints } = require('./loyalty-api');
@@ -482,8 +539,13 @@ function afterSalesRouter(pool) {
                  FROM rma_exchange_issues i
                  JOIN rma_exchange_issue_items ei ON ei.issue_id = i.id
                  JOIN order_after_sales a ON a.id = i.case_id
-                 WHERE a.order_id = $1 AND i.status = 'posted'
-                 ORDER BY i.created_at DESC, ei.replacement_variant_id`,
+                 WHERE i.id = (
+                   SELECT i2.id FROM rma_exchange_issues i2
+                   JOIN order_after_sales a2 ON a2.id = i2.case_id
+                   WHERE a2.order_id = $1 AND i2.status = 'posted'
+                   ORDER BY i2.created_at DESC LIMIT 1
+                 )
+                 ORDER BY ei.replacement_variant_id`,
                 [row.order_id]
               );
               if (exchItems.rows.length > 0) {

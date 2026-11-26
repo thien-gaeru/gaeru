@@ -188,6 +188,15 @@ async function start() {
         intentSweepTimer?.unref?.();
       }
     }, 6000);
+    scheduleWorker(() => {
+      const fsync = app?.locals?.failoverSync;
+      if (fsync) {
+        fsync.setPool?.(lowPriorityPool);
+        if (fsync.state?.role === 'standby' && process.env.AUTO_FAILOVER_SYNC === 'true') {
+          fsync.startBackgroundSync?.({ pool: lowPriorityPool });
+        }
+      }
+    }, 7000);
   }
   if (!backgroundJobsEnabled) console.log('Background jobs disabled on this host; HTTP serving remains enabled.');
 
@@ -384,6 +393,7 @@ async function shutdown() {
   stopCareEmail?.();
   stopOrderEmail?.();
   const momoReconciliationStopped = stopMomoReconciliation?.();
+  try { app?.locals?.failoverSync?.stopBackgroundSync?.(); } catch (_) {}
   try { require('./lib/cache-warmup').stopWarmUpCache?.(); } catch (_) {}
 
   // 3. Settle in-flight startup work, conversion, verification and media sync in parallel under a bounded 4-second deadline

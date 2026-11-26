@@ -302,9 +302,13 @@
   const syncChatStream=()=>{
     const activeStream=Boolean(admin.user&&admin.can('customers.read')&&!root.hidden);
     if(activeStream){
+      const hasSharedAdminSse=typeof EventSource==='function';
+      if(hasSharedAdminSse)updateAdminLiveStatus('Thời gian thực (SSE)');
       if(!adminChatPoll){
-        adminChatPoll=window.GAERUCareLive.poll({streamUrl:'/api/gaeru_ceo/realtime-sse',delay:5000,active:()=>!root.hidden&&admin.can('customers.read'),run:load,status:updateAdminLiveStatus});
-      }else{
+        const pollOpts={streamUrl:'/api/gaeru_ceo/realtime-sse',delay:hasSharedAdminSse?20000:5000,active:()=>!root.hidden&&admin.can('customers.read'),run:load,status:hasSharedAdminSse?()=>{}:updateAdminLiveStatus};
+        if(hasSharedAdminSse)pollOpts.streamUrl=null;
+        adminChatPoll=window.GAERUCareLive.poll(pollOpts);
+      }else if(!hasSharedAdminSse){
         adminChatPoll.setStreamUrl('/api/gaeru_ceo/realtime-sse');
       }
     }else{

@@ -12,7 +12,7 @@ const MALICIOUS_PATH_PATTERNS = [
   /(?:\.\.[/\\])+/i,
   /%2e%2e(?:%2f|%5c|[/\\])/i,
   /\/etc\/passwd/i,
-  /\/win(?:\.ini|dows)/i,
+  /\/(?:win\.ini|windows\/(?:win\.ini|system32))/i,
   /\.env(?:\.local)?$/i,
   /\/\.git(?:\/|$)/i
 ];

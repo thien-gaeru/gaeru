@@ -80,11 +80,20 @@ OLD_LIST="/tmp/.gaeru-old-files.$$"
 NEW_LIST="/tmp/.gaeru-new-files.$$"
 DEPLOY_LOCK="/run/gaeru-deploy.lock"
 
+LOCK_OWNED=0
 cleanup() {
-  rm -f -- "$DEPLOY_LOCK" "$CODE_TAR" "$GIT_TAR" "$OLD_LIST" "$NEW_LIST"
+  rm -f -- "$CODE_TAR" "$GIT_TAR" "$OLD_LIST" "$NEW_LIST"
+  if [ "$LOCK_OWNED" -eq 1 ]; then
+    rm -f -- "$DEPLOY_LOCK"
+  fi
 }
 trap cleanup EXIT INT TERM
-printf '%s\n' "$$" > "$DEPLOY_LOCK"
+exec 9>"$DEPLOY_LOCK"
+if command -v flock >/dev/null 2>&1; then
+  flock -n 9 || { echo "ERROR: Another deploy or restore is holding $DEPLOY_LOCK" >&2; exit 1; }
+fi
+LOCK_OWNED=1
+printf '%s\n' "$$" >&9
 
 [ -d "$APP_DIR" ] || { echo "ERROR: Missing $APP_DIR" >&2; exit 1; }
 
@@ -189,7 +198,7 @@ NEW_MASTER_SHA=$(sha256sum "$APP_DIR/src/cluster-master.js" 2>/dev/null | awk '{
 NEW_CLUSTER_SHA=$(sha256sum "$APP_DIR/src/cluster.js" 2>/dev/null | awk '{print $1}' || true)
 
 if [ "$RELOAD_MODE" != "skip" ]; then
-  MASTER_PID=$(pgrep -f 'node src/cluster\.js' | head -n 1 || true)
+  MASTER_PID=$(pgrep -f 'node src/cluster(-master)?\.js' | head -n 1 || true)
   if [ "$RELOAD_MODE" = "restart" ] || [ -z "$MASTER_PID" ] || \
      [ "$OLD_NODE_CONF_SHA" != "$NEW_NODE_CONF_SHA" ] || \
      [ "$OLD_MASTER_SHA" != "$NEW_MASTER_SHA" ] || \

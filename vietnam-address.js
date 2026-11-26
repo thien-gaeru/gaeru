@@ -36,7 +36,7 @@
   const doc=city.ownerDocument,id='vn-address-'+(++serial),wrap=doc.createElement('div');wrap.className='vn-address-picker';
   const label=city.closest('label');if(label)for(const node of label.childNodes)if(node.nodeType===3&&node.textContent.trim())node.textContent='Tỉnh / thành phố, phường / xã';
   city.parentNode.insertBefore(wrap,city);wrap.append(city);const required=city.hasAttribute('required');city.hidden=true;city.removeAttribute('required');city.setAttribute('aria-hidden','true');city.tabIndex=-1;
-  const proxy=doc.createElement('input');proxy.type='text';proxy.className='vn-address-choice';proxy.placeholder='Chọn tỉnh / thành phố, phường / xã';proxy.autocomplete='off';proxy.required=required;proxy.setAttribute('role','combobox');proxy.setAttribute('aria-label','Chọn tỉnh / thành phố và phường / xã');proxy.setAttribute('aria-haspopup','dialog');proxy.setAttribute('aria-expanded','false');proxy.setAttribute('aria-controls',id);
+  const proxy=doc.createElement('input');proxy.type='text';proxy.id=id+'-input';if(label)label.htmlFor=proxy.id;proxy.className='vn-address-choice';proxy.placeholder='Chọn tỉnh / thành phố, phường / xã';proxy.autocomplete='off';proxy.required=required;proxy.setAttribute('role','combobox');proxy.setAttribute('aria-label','Chọn tỉnh / thành phố và phường / xã');proxy.setAttribute('aria-haspopup','dialog');proxy.setAttribute('aria-expanded','false');proxy.setAttribute('aria-controls',id);
   const panel=doc.createElement('div');panel.className='vn-address-panel';panel.id=id;panel.hidden=true;panel.setAttribute('role','dialog');panel.setAttribute('aria-label','Danh mục địa chỉ Việt Nam');
   const toolbar=doc.createElement('div');toolbar.className='vn-address-tabs';const back=doc.createElement('button');back.type='button';back.textContent='Tỉnh / thành phố';const wardTab=doc.createElement('span');wardTab.textContent='Phường / xã';toolbar.append(back,wardTab);
   const search=doc.createElement('input');search.type='search';search.className='vn-address-search';search.placeholder='Tìm tỉnh / thành phố';search.setAttribute('aria-label','Tìm địa chỉ');search.autocomplete='off';
@@ -59,7 +59,7 @@
   function open(){panel.hidden=false;proxy.setAttribute('aria-expanded','true');search.value='';render();search.focus();}
   back.addEventListener('click',()=>{stage='province';search.value='';render();search.focus();});
   proxy.addEventListener('click',open);proxy.addEventListener('keydown',e=>{if(['Enter','ArrowDown',' '].includes(e.key)){e.preventDefault();open();}});
-  proxy.addEventListener('input',()=>{const query=proxy.value;open();search.value=query;render();});
+  proxy.addEventListener('input',()=>{const raw=proxy.value,prev=chosenText();const query=prev&&raw.startsWith(prev)?raw.slice(prev.length).trim():raw;open();search.value=query;render();});
   search.addEventListener('input',render);panel.addEventListener('keydown',e=>{if(e.key==='Escape'){e.preventDefault();close();proxy.focus();return;}if(!['ArrowDown','ArrowUp'].includes(e.key))return;const buttons=[...list.querySelectorAll('button')];if(!buttons.length)return;e.preventDefault();const index=buttons.indexOf(doc.activeElement);buttons[index<0?(e.key==='ArrowDown'?0:buttons.length-1):(index+(e.key==='ArrowDown'?1:-1)+buttons.length)%buttons.length].focus();});
   const onDocClick=e=>{if(!wrap.isConnected){doc.removeEventListener('click',onDocClick);return;}if(!wrap.contains(e.target)&&!panel.hidden)close();};
   doc.addEventListener('click',onDocClick);

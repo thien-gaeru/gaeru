@@ -27,6 +27,7 @@ function enrich(html,original,origin,override,opts){const isError=Boolean(opts&&
  require('./responsive-images').apply(doc);
  for(const style of doc.querySelectorAll('link[href]')){const rel=String(style.getAttribute('rel')||'').toLowerCase();if(!rel||rel==='stylesheet'||rel==='preload'){style.setAttribute('href',versionedPublicAssetUrl(style.getAttribute('href')||''));}}
  for(const script of doc.querySelectorAll('script[src]')){script.setAttribute('src',versionedPublicAssetUrl(script.getAttribute('src')||''));}
+ for(const el of doc.querySelectorAll('[data-policy-commerce]')){el.setAttribute('data-policy-commerce',versionedPublicAssetUrl(el.getAttribute('data-policy-commerce')||''));}
  let pageTitle=setSafeTitle(doc,doc.title),descriptionNode=doc.head.querySelector('meta[name=description]'),rawDescription=normalizeBrandText(descriptionNode?.content||'');if(override){pageTitle=setSafeTitle(doc,override.title);rawDescription=normalizeBrandText(override.description);if(!descriptionNode){descriptionNode=doc.createElement('meta');descriptionNode.name='description';doc.head.append(descriptionNode)}descriptionNode.content=escapeHtml(rawDescription);}else if(descriptionNode){descriptionNode.content=escapeHtml(rawDescription);}
  doc.documentElement.setAttribute('lang','vi');let base=doc.head.querySelector('base');if(!base){base=doc.createElement('base');base.setAttribute('href','/');doc.head.prepend(base)}
  const footerNode=doc.getElementById('site-footer')||doc.querySelector('#site-footer');

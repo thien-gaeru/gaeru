@@ -108,7 +108,7 @@ foreach ($pidFile in @("cluster.pid", "server.pid", "cluster-sync.pid")) {
 }
 
 Get-CimInstance Win32_Process -Filter "Name='node.exe'" | Where-Object {
-    $_.CommandLine -like "*C:\Users\imdot\gaeru*" -and (
+    $_.CommandLine -like "*$(Split-Path -Parent $PSScriptRoot)*" -and (
         $_.CommandLine -like "*cluster-master.js*" -or
         $_.CommandLine -like "*server.js*" -or
         $_.CommandLine -like "*realtime-cluster-sync.js*" -or

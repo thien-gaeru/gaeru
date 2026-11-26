@@ -172,10 +172,7 @@ function createCustomerAuthRouter(pool, { smtpConfig = null, mailer = createMail
 
       if (phoneStatus.isExpired) {
         try {
-          await pool.query(
-            "UPDATE customers SET active = false, lock_reason = 'invalid_phone_timeout', locked_at = now(), updated_at = now() WHERE id = $1",
-            [customer.id]
-          );
+          await autoLockAccount(pool, customer.id, 'invalid_phone_timeout');
         } catch (_) {}
         return res.status(403).json({ error: "Tài khoản đã bị tự động khóa do chưa cập nhật số điện thoại hợp lệ trong vòng 12 giờ. Vui lòng liên hệ GAERU để mở khóa." });
       }
@@ -194,10 +191,7 @@ function createCustomerAuthRouter(pool, { smtpConfig = null, mailer = createMail
 
       if (regEmailStatus.isExpired) {
         try {
-          await pool.query(
-            "UPDATE customers SET active = false, lock_reason = 'reg_email_failed_timeout', locked_at = now(), updated_at = now() WHERE id = $1",
-            [customer.id]
-          );
+          await autoLockAccount(pool, customer.id, 'reg_email_failed_timeout');
         } catch (_) {}
         return res.status(403).json({ error: "Tài khoản đã bị tự động khóa do không thể gửi email thông báo đăng ký trong vòng 12 giờ. Vui lòng liên hệ GAERU để mở khóa." });
       }
@@ -255,10 +249,7 @@ function createCustomerAuthRouter(pool, { smtpConfig = null, mailer = createMail
 
       if (phoneStatus.isExpired) {
         try {
-          await pool.query(
-            "UPDATE customers SET active = false, lock_reason = 'invalid_phone_timeout', locked_at = now(), updated_at = now() WHERE id = $1",
-            [currentCustomer.id]
-          );
+          await autoLockAccount(pool, currentCustomer.id, 'invalid_phone_timeout');
         } catch (_) {}
         delete req.session.customer;
         return res.json({
@@ -282,10 +273,7 @@ function createCustomerAuthRouter(pool, { smtpConfig = null, mailer = createMail
 
       if (regEmailStatus.isExpired) {
         try {
-          await pool.query(
-            "UPDATE customers SET active = false, lock_reason = 'reg_email_failed_timeout', locked_at = now(), updated_at = now() WHERE id = $1",
-            [currentCustomer.id]
-          );
+          await autoLockAccount(pool, currentCustomer.id, 'reg_email_failed_timeout');
         } catch (_) {}
         delete req.session.customer;
         return res.json({
@@ -441,10 +429,7 @@ function createCustomerAuthRouter(pool, { smtpConfig = null, mailer = createMail
 
       if (isDisposableEmail(customerSession.email)) {
         try {
-          await pool.query(
-            "UPDATE customers SET active = false, lock_reason = 'spam_email', locked_at = now(), updated_at = now() WHERE id = $1",
-            [customerSession.id]
-          );
+          await autoLockAccount(pool, customerSession.id, 'spam_email');
         } catch (_) {}
         delete req.session.customer;
         return res.status(403).json({ error: "Tài khoản đã bị tự động khóa do địa chỉ email rác không thể gửi mail xác thực. Vui lòng liên hệ GAERU để được hỗ trợ." });
@@ -499,10 +484,7 @@ function createCustomerAuthRouter(pool, { smtpConfig = null, mailer = createMail
         }
         if (isPermanentSendMailError(error)) {
           try {
-            await pool.query(
-              "UPDATE customers SET active = false, lock_reason = 'spam_email', locked_at = now(), updated_at = now() WHERE id = $1",
-              [customer.id]
-            );
+            await autoLockAccount(pool, customer.id, 'spam_email');
           } catch (_) {}
           delete req.session.customer;
           return res.status(403).json({ error: "Địa chỉ email không thể nhận thư xác thực. Tài khoản đã bị tự động khóa do nghi ngờ email rác. Vui lòng liên hệ GAERU." });
@@ -544,7 +526,7 @@ function createCustomerAuthRouter(pool, { smtpConfig = null, mailer = createMail
 
         const updated = await client.query(
           `UPDATE customers SET email_verified_at = COALESCE(email_verified_at, now()), reg_email_failed_at = NULL, lock_reason = (CASE WHEN lock_reason = 'reg_email_failed_timeout' THEN NULL ELSE lock_reason END), updated_at = now()
-           WHERE id = $1
+           WHERE id = $1 AND active = true AND deleted_at IS NULL
            RETURNING id, full_name AS "fullName", email, phone,
                      email_verified_at IS NOT NULL AS "emailVerified"`,
           [customerId]

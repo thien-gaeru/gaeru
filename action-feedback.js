@@ -871,6 +871,11 @@
       }
     }
     if (firstInvalid) {
+      let parentDetails = firstInvalid.closest?.('details');
+      while (parentDetails) {
+        parentDetails.open = true;
+        parentDetails = parentDetails.parentElement?.closest?.('details') || null;
+      }
       try { firstInvalid.focus(); } catch {}
       const msg = firstInvalid.getAttribute?.('aria-invalid') === 'true'
         ? (firstInvalid.parentElement?.querySelector?.('.field-error-msg')?.textContent || 'Vui lòng kiểm tra lại thông tin nhập liệu.')

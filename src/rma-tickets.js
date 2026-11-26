@@ -30,13 +30,11 @@ const RETURN_WAREHOUSE_ADDRESS = Object.freeze({
  * Generate a human-readable unique RMA Number.
  * Format: RMA-YYMMDD-XXXX (e.g. RMA-261102-9AF1)
  */
-function generateRmaNumber() {
-  const now = new Date();
-  const yy = String(now.getFullYear()).slice(-2);
-  const mm = String(now.getMonth() + 1).padStart(2, '0');
-  const dd = String(now.getDate()).padStart(2, '0');
+function generateRmaNumber(nowMs = Date.now()) {
+  const vnIso = new Date(nowMs + 7 * 60 * 60 * 1000).toISOString();
+  const yymmdd = vnIso.slice(2, 10).replaceAll('-', '');
   const rand = crypto.randomBytes(2).toString('hex').toUpperCase();
-  return `RMA-${yy}${mm}${dd}-${rand}`;
+  return `RMA-${yymmdd}-${rand}`;
 }
 
 /**
@@ -53,6 +51,7 @@ function generateRmaToken() {
 async function updateRmaInboundTracking(pool, {
   rmaNumber,
   token = null,
+  phone = null,
   inboundCarrier,
   inboundTrackingNumber,
   actor = null,
@@ -63,10 +62,14 @@ async function updateRmaInboundTracking(pool, {
     if (!reference) throw fail('Không tìm thấy phiếu RMA.', 404);
     const row = await require('./rma-exchange').lockCase(client, reference.id);
 
-    // Verify capability token or order ownership (fail closed)
+    // Verify capability token, guest phone challenge (for guest orders), or order ownership (fail closed)
+    const { normalizePhone } = require('./tracking-api');
     const tokenOk = safeTokenEqual(token, row.rma_token);
     const ownerOk = Boolean(actor?.id && row.customer_id && actor.id === row.customer_id);
-    if (!tokenOk && !ownerOk) {
+    const inputPhone = normalizePhone(phone || '');
+    const orderPhone = normalizePhone(row.phone || '');
+    const guestPhoneOk = Boolean(!row.customer_id && inputPhone.length >= 9 && orderPhone.length >= 9 && inputPhone.slice(-9) === orderPhone.slice(-9));
+    if (!tokenOk && !ownerOk && !guestPhoneOk) {
       throw fail('Mã xác thực RMA (Token) không hợp lệ hoặc bạn không có quyền cập nhật phiếu này.', 403);
     }
     if (['resolved', 'rejected'].includes(row.status)) {
@@ -330,9 +333,11 @@ function createRmaApi(pool, config = {}) {
         return res.status(400).json({ error: parsed.error.issues[0]?.message || 'Thông tin vận đơn chưa hợp lệ.' });
       }
 
+      const phone = String(req.body?.phone || req.query?.phone || '').trim();
       const updated = await updateRmaInboundTracking(pool, {
         rmaNumber,
         token,
+        phone,
         inboundCarrier: parsed.data.inboundCarrier,
         inboundTrackingNumber: parsed.data.inboundTrackingNumber,
         actor: !token && req.session?.customer ? { id: req.session.customer.id, username: req.session.customer.email, source: 'customer' } : null

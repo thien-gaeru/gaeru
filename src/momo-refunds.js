@@ -104,7 +104,7 @@ async function initiateMomoRefund(pool, config, {
 
     const record = await resolveMomoSettings(client, config);
     const order = (await client.query(
-      `SELECT id, order_number, payment_method, payment_status, total_vnd, status
+      `SELECT id, order_number, customer_id, payment_method, payment_status, total_vnd, status, return_completed_at
        FROM orders
        WHERE order_number = $1 OR replace(order_number, '-', '') = replace($1, '-', '')
        FOR UPDATE`,
@@ -156,10 +156,23 @@ async function initiateMomoRefund(pool, config, {
     if (blocking) {
       throw fail('Đơn hàng đang có lệnh hoàn tiền MoMo chưa rõ kết quả. Hãy bấm "Tra cứu trạng thái" trước khi gửi lệnh hoàn mới.', 409);
     }
+    const manualRmaRow = (await client.query(
+      `SELECT COALESCE(SUM(COALESCE(refund_amount_vnd, 0) + COALESCE(loyalty_clawback_vnd, 0)), 0)::bigint AS settled_rma_vnd
+       FROM order_after_sales
+       WHERE order_id = $1 AND kind = 'return' AND status = 'resolved'`,
+      [order.id]
+    )).rows[0];
+    const manualSettledVnd = Number(manualRmaRow?.settled_rma_vnd || 0);
+    let pendingClawbackVnd = 0;
+    if (order.customer_id && !order.return_completed_at) {
+      const { previewEarnClawback } = require('./loyalty-api');
+      const preview = await previewEarnClawback(client, { customerId: order.customer_id, orderId: order.id, lock: true });
+      pendingClawbackVnd = Math.max(0, Number(preview?.shortfallPoints || 0));
+    }
     const reservedTotal = existingRefunds
       .filter(r => ['succeeded', 'pending'].includes(r.status))
       .reduce((sum, r) => sum + Number(r.amount_vnd), 0);
-    const remainingVnd = Number(attempt.amount_vnd) - reservedTotal;
+    const remainingVnd = Number(attempt.amount_vnd) - reservedTotal - manualSettledVnd - pendingClawbackVnd;
     if (remainingVnd < momoProtocol.MIN_AMOUNT || cleanAmount > remainingVnd) {
       throw fail(`Số tiền hoàn vượt quá số dư còn có thể hoàn (${new Intl.NumberFormat('vi-VN').format(Math.max(0, remainingVnd))} ₫).`, 409);
     }
@@ -236,6 +249,9 @@ async function initiateMomoRefund(pool, config, {
         completedAt
       ]
     )).rows[0];
+    if (!updated) {
+      throw fail('Bản ghi hoàn tiền MoMo không còn tồn tại để ghi nhận kết quả.', 409);
+    }
 
     await audit(client, {
       actor: actor || { username: 'owner', source: 'admin' },

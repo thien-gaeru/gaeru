@@ -289,8 +289,8 @@ dialog.gaeru-center-popup:not([open]),
 .customer-profile .security-settings .security-feedback,
 .customer-profile .security-feedback,
 .customer-profile .account-form [role="status"],
-[data-account-feedback],
-[data-address-status] {
+[data-account-feedback]:empty,
+[data-address-status]:empty {
   display: none !important;
 }
 

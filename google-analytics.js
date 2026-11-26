@@ -54,7 +54,8 @@
   const SENSITIVE_QUERY_PARAMS = new Set([
     'token', 'email', 'verify', 'contactverify', 'recovery_token', 'code',
     'state', 'secret', 'password', 'key', 'auth', 'reset_token',
-    'linkrequired', 'phone', 'otp', 'access_token', 'id_token'
+    'linkrequired', 'phone', 'otp', 'access_token', 'id_token',
+    'confirmdeletion', 'securityreset', 'trackingtoken', 'challenge', 'setup'
   ]);
 
   /**
@@ -63,7 +64,7 @@
   function sanitizeUrl(urlString) {
     if (!urlString || typeof urlString !== 'string') return '';
     try {
-      const base = (typeof location !== 'undefined' && location.origin) ? location.origin : 'https://gaeru.vn';
+      const base = (typeof location !== 'undefined' && location.origin) ? location.origin : 'https://gaeru.com';
       const parsed = new URL(urlString, base);
       let changed = false;
       for (const paramKey of Array.from(parsed.searchParams.keys())) {

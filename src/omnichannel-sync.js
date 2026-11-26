@@ -177,15 +177,22 @@ async function ingestMarketplaceOrder(client, { channel, shopId, order, autoDedu
       )).rows[0];
       if (!varLock || Number(varLock.stock_quantity)<requestedQty) throw fail('Tồn nội bộ không đủ cho SKU '+String(item.externalSku||'')+'. Chưa trừ tồn của đơn sàn.',409);
 
-      const whRows = (await client.query(
-        `SELECT ws.warehouse_id, ws.quantity, w.code
+      const allWhRows = (await client.query(
+        `SELECT ws.warehouse_id, ws.quantity, w.active, w.code
          FROM warehouse_stock ws
          JOIN warehouses w ON w.id = ws.warehouse_id
-         WHERE ws.variant_id = $1 AND w.active = true
+         WHERE ws.variant_id = $1
          ORDER BY ws.warehouse_id ASC
          FOR UPDATE OF ws`,
         [variantId]
       )).rows;
+      if (allWhRows.length > 0) {
+        const totalWhQty = allWhRows.reduce((sum, w) => sum + Number(w.quantity || 0), 0);
+        if (totalWhQty !== Number(varLock.stock_quantity)) {
+          throw fail('Tồn kho tổng chưa khớp các kho cho SKU ' + String(item.externalSku || '') + '. Cần đối soát kho trước khi đồng bộ.', 409);
+        }
+      }
+      const whRows = allWhRows.filter(w => w.active === true);
       const allocRows = [...whRows].sort((a, b) =>
         Number(b.code === 'MAIN') - Number(a.code === 'MAIN')
         || (Number(b.quantity) || 0) - (Number(a.quantity) || 0)
@@ -288,6 +295,7 @@ async function ingestMarketplaceOrder(client, { channel, shopId, order, autoDedu
          WHERE v.id = $1 FOR UPDATE OF v`,
         [variantId]
       )).rows[0];
+      let reversedInWarehouses = 0;
       if (Array.isArray(item.warehouseAllocations) && item.warehouseAllocations.length > 0) {
         const sortedAllocs = [...item.warehouseAllocations]
           .filter(alloc => alloc?.warehouseId && Number(alloc.quantity) > 0)
@@ -300,9 +308,13 @@ async function ingestMarketplaceOrder(client, { channel, shopId, order, autoDedu
           const allocQty = Number(alloc.quantity);
           const qtyBefore = Math.max(0, Number(whRow?.quantity) || 0);
           await client.query(
-            'UPDATE warehouse_stock SET quantity = quantity + $3, updated_at = now() WHERE warehouse_id = $1 AND variant_id = $2',
+            `INSERT INTO warehouse_stock (warehouse_id, variant_id, quantity, updated_at)
+             VALUES ($1, $2, $3, now())
+             ON CONFLICT (warehouse_id, variant_id) DO UPDATE
+               SET quantity = warehouse_stock.quantity + EXCLUDED.quantity, updated_at = now()`,
             [alloc.warehouseId, variantId, allocQty]
           );
+          reversedInWarehouses += allocQty;
           if (varLock) {
             await recordMarketplaceMovement(client, {
               eventKey: `marketplace-reverse:${channel}:${shopId}:${order.externalOrderId}:${variantId}:${alloc.warehouseId}${lineSuffix}`,
@@ -312,6 +324,40 @@ async function ingestMarketplaceOrder(client, { channel, shopId, order, autoDedu
               delta: allocQty,
               quantityBefore: qtyBefore,
               quantityAfter: qtyBefore + allocQty,
+              orderId: order.externalOrderId,
+              reason: `Hoàn tồn đơn sàn ${channel.toUpperCase()} (${normStatus}) #${order.externalOrderId}`,
+              actor
+            });
+          }
+        }
+      }
+      const remainderForWh = qty - reversedInWarehouses;
+      if (remainderForWh > 0) {
+        const existingWh = (await client.query(
+          `SELECT ws.warehouse_id, ws.quantity
+           FROM warehouse_stock ws
+           JOIN warehouses w ON w.id = ws.warehouse_id
+           WHERE ws.variant_id = $1
+           ORDER BY (w.code = 'MAIN') DESC, w.active DESC, ws.warehouse_id ASC
+           LIMIT 1
+           FOR UPDATE OF ws`,
+          [variantId]
+        )).rows[0];
+        if (existingWh) {
+          const qtyBefore = Math.max(0, Number(existingWh.quantity) || 0);
+          await client.query(
+            'UPDATE warehouse_stock SET quantity = quantity + $3, updated_at = now() WHERE warehouse_id = $1 AND variant_id = $2',
+            [existingWh.warehouse_id, variantId, remainderForWh]
+          );
+          if (varLock) {
+            await recordMarketplaceMovement(client, {
+              eventKey: `marketplace-reverse:${channel}:${shopId}:${order.externalOrderId}:${variantId}:${existingWh.warehouse_id}:rem${lineSuffix}`,
+              warehouseId: existingWh.warehouse_id,
+              variant: varLock,
+              movementType: 'sale_release',
+              delta: remainderForWh,
+              quantityBefore: qtyBefore,
+              quantityAfter: qtyBefore + remainderForWh,
               orderId: order.externalOrderId,
               reason: `Hoàn tồn đơn sàn ${channel.toUpperCase()} (${normStatus}) #${order.externalOrderId}`,
               actor
@@ -377,37 +423,25 @@ async function withChannelSyncLock(pool, lockKey, fn) {
     throw fail('Kênh này đang có một tiến trình đồng bộ khác đang chạy. Vui lòng chờ hoàn tất.', 409);
   }
   inFlightSyncLocks.add(lockKey);
-  const settingKey = `runtime_lock:${lockKey}`;
-  const lockToken = randomUUID();
-  let dbLockAcquired = false;
+  let lockClient = null;
+  let advisoryAcquired = false;
   try {
-    if (typeof pool?.query === 'function') {
-      try {
-        const res = await pool.query(
-          `INSERT INTO store_settings (setting_key, setting_value, updated_at)
-           VALUES ($1, jsonb_build_object('token', $2::text, 'expiresAt', (extract(epoch from now()) + 300)::bigint), now())
-           ON CONFLICT (setting_key) DO UPDATE
-             SET setting_value = EXCLUDED.setting_value, updated_at = now()
-             WHERE COALESCE((store_settings.setting_value->>'expiresAt')::bigint, 0) < extract(epoch from now())::bigint
-           RETURNING setting_key`,
-          [settingKey, lockToken]
-        );
-        if (res && typeof res.rowCount === 'number' && res.rowCount === 0) {
-          throw fail('Kênh này đang có một tiến trình đồng bộ khác đang chạy. Vui lòng chờ hoàn tất.', 409);
-        }
-        dbLockAcquired = Boolean(res?.rowCount === 1);
-      } catch (lockErr) {
-        if (lockErr?.status === 409) throw lockErr;
+    if (typeof pool?.connect === 'function') {
+      lockClient = await pool.connect();
+      const res = await lockClient.query('SELECT pg_try_advisory_lock(hashtext($1)) AS acquired', [lockKey]);
+      if (res?.rows?.[0]?.acquired === false) {
+        throw fail('Kênh này đang có một tiến trình đồng bộ khác đang chạy. Vui lòng chờ hoàn tất.', 409);
       }
+      advisoryAcquired = Boolean(res?.rows?.[0]?.acquired);
     }
     return await fn();
   } finally {
     inFlightSyncLocks.delete(lockKey);
-    if (dbLockAcquired && typeof pool?.query === 'function') {
-      await pool.query(
-        `DELETE FROM store_settings WHERE setting_key = $1 AND setting_value->>'token' = $2`,
-        [settingKey, lockToken]
-      ).catch(() => {});
+    if (lockClient) {
+      if (advisoryAcquired) {
+        await lockClient.query('SELECT pg_advisory_unlock(hashtext($1))', [lockKey]).catch(() => {});
+      }
+      try { lockClient.release(); } catch (_) {}
     }
   }
 }

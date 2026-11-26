@@ -70,51 +70,49 @@ function calculateBundlePricing(items, bundles = []) {
     const bItems = bundle.items || [];
     const primaryItems = bItems.filter(i => i.is_primary ?? i.isPrimary);
     const secondaryItems = bItems.filter(i => !(i.is_primary ?? i.isPrimary));
+    if (!secondaryItems.length) continue;
 
-    // Check if at least one primary item is in the cart with sufficient remaining unallocated quantity
-    const matchingPrimary = primaryItems.find(pi => {
-      const vId = pi.variant_id ?? pi.variantId;
-      const inCart = itemMap.get(vId);
-      const reqQty = pi.min_quantity ?? pi.minQuantity ?? 1;
-      return inCart && (inCart.quantity - (inCart.usedQuantity || 0)) >= reqQty;
-    });
-
-    if (!matchingPrimary) continue;
-
-    // Check if at least one secondary/cross-sell item is in the cart with sufficient remaining unallocated quantity
-    const matchingSecondaries = secondaryItems.filter(si => {
-      const vId = si.variant_id ?? si.variantId;
-      const inCart = itemMap.get(vId);
-      const reqQty = si.min_quantity ?? si.minQuantity ?? 1;
-      return inCart && (inCart.quantity - (inCart.usedQuantity || 0)) >= reqQty;
-    });
-
-    if (!matchingSecondaries.length) continue;
-
-    // Calculate bundle discount & cap against the matched combo items' value
-    let discount = 0;
     const discountType = bundle.discount_type ?? bundle.discountType;
     const discountValue = Number(bundle.discount_value ?? bundle.discountValue) || 0;
 
-    const primaryVId = matchingPrimary.variant_id ?? matchingPrimary.variantId;
-    const primaryReqQty = matchingPrimary.min_quantity ?? matchingPrimary.minQuantity ?? 1;
-    const primaryValue = (itemMap.get(primaryVId)?.priceVnd || 0) * primaryReqQty;
-    const secondaryTotal = matchingSecondaries.reduce((sum, si) => {
-      const vId = si.variant_id ?? si.variantId;
-      const inCart = itemMap.get(vId);
-      return sum + ((inCart?.priceVnd || 0) * (si.min_quantity ?? si.minQuantity ?? 1));
-    }, 0);
-    const matchedBundleItemsValue = primaryValue + secondaryTotal;
+    for (let comboCount = 0; comboCount < 99; comboCount++) {
+      // Check if at least one primary item is in the cart with sufficient remaining unallocated quantity
+      const matchingPrimary = primaryItems.find(pi => {
+        const vId = pi.variant_id ?? pi.variantId;
+        const inCart = itemMap.get(vId);
+        const reqQty = pi.min_quantity ?? pi.minQuantity ?? 1;
+        return inCart && (inCart.quantity - (inCart.usedQuantity || 0)) >= reqQty;
+      });
+      if (!matchingPrimary) break;
 
-    if (discountType === 'percent') {
-      discount = Math.floor(secondaryTotal * discountValue / 100);
-    } else {
-      discount = Math.min(discountValue, matchedBundleItemsValue);
-    }
+      // Fixed-amount combos cap discount at secondaryTotal when only a subset of secondary items is in the cart,
+      // preventing siphon of a multi-item fixed discount onto the primary item via a single cheap accessory.
+      const matchingSecondaries = secondaryItems.filter(si => {
+        const vId = si.variant_id ?? si.variantId;
+        const inCart = itemMap.get(vId);
+        const reqQty = si.min_quantity ?? si.minQuantity ?? 1;
+        return inCart && (inCart.quantity - (inCart.usedQuantity || 0)) >= reqQty;
+      });
+      if (!matchingSecondaries.length) break;
 
-    if (discount > 0) {
+      const primaryVId = matchingPrimary.variant_id ?? matchingPrimary.variantId;
+      const primaryReqQty = matchingPrimary.min_quantity ?? matchingPrimary.minQuantity ?? 1;
+      const primaryValue = (itemMap.get(primaryVId)?.priceVnd || 0) * primaryReqQty;
+      const secondaryTotal = matchingSecondaries.reduce((sum, si) => {
+        const vId = si.variant_id ?? si.variantId;
+        const inCart = itemMap.get(vId);
+        return sum + ((inCart?.priceVnd || 0) * (si.min_quantity ?? si.minQuantity ?? 1));
+      }, 0);
+      const matchedBundleItemsValue = primaryValue + secondaryTotal;
+      const hasFullSecondarySet = matchingSecondaries.length >= secondaryItems.length;
+
+      let discount = discountType === 'percent'
+        ? Math.floor(secondaryTotal * discountValue / 100)
+        : Math.min(discountValue, hasFullSecondarySet ? matchedBundleItemsValue : secondaryTotal);
+
       discount = Math.min(discount, matchedBundleItemsValue, subtotalVnd - totalDiscountVnd);
-      if (discount <= 0) continue;
+      if (discount <= 0) break;
+
       const pEntry = itemMap.get(primaryVId);
       if (pEntry) pEntry.usedQuantity = (pEntry.usedQuantity || 0) + primaryReqQty;
       for (const si of matchingSecondaries) {
@@ -128,7 +126,7 @@ function calculateBundlePricing(items, bundles = []) {
         discountType,
         discountValue,
         discountVnd: discount,
-        primaryVariantId: matchingPrimary.variant_id ?? matchingPrimary.variantId,
+        primaryVariantId: primaryVId,
         secondaryVariantIds: matchingSecondaries.map(s => s.variant_id ?? s.variantId)
       });
     }

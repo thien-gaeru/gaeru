@@ -311,6 +311,15 @@ async function getOrderTrackingDetails(pool, { orderNumber, challenge }) {
     };
   }
 
+  let loyaltyPointsRedeemed = 0;
+  try {
+    const loyRes = await pool.query(
+      "SELECT COALESCE(SUM(ABS(points)), 0)::int AS pts FROM customer_loyalty_ledger WHERE order_id = $1 AND type = 'redeem'",
+      [order.id]
+    );
+    loyaltyPointsRedeemed = Number(loyRes.rows[0]?.pts || 0);
+  } catch (_) {}
+
   const timeline = buildOrderTimeline(order, shipment);
 
   return {
@@ -333,6 +342,8 @@ async function getOrderTrackingDetails(pool, { orderNumber, challenge }) {
       summary: {
         subtotalVnd: order.subtotal_vnd,
         discountVnd: order.discount_vnd || 0,
+        loyaltyDiscountVnd: loyaltyPointsRedeemed,
+        loyaltyPointsRedeemed,
         voucherCode: order.voucher_code || '',
         shippingFeeVnd: order.shipping_fee_vnd || 0,
         totalVnd: order.total_vnd

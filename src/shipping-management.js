@@ -793,6 +793,7 @@ async function settleSingleCarrierCodInTx(client, {
   // P1-06: Pre-acquire advisory lock before row locks to ensure consistent locking hierarchy and prevent deadlocks
   const carrierPeek = expectedCarrierId || (await client.query("SELECT carrier_id FROM carrier_shipments WHERE order_id = $1 AND status != 'cancelled' LIMIT 1", [orderId])).rows[0]?.carrier_id || 'carrier';
   await client.query('SELECT pg_advisory_xact_lock(hashtext($1))', [`cod_batch:${carrierPeek}:${txRef}`]);
+  await client.query('SELECT id FROM orders WHERE id = $1 FOR UPDATE', [orderId]);
 
   const result = await client.query(
     `SELECT s.*, o.order_number AS "orderNumber", o.total_vnd AS "orderTotalVnd",
@@ -1256,6 +1257,7 @@ async function confirmCarrierPortalStatus(pool, { orderId, targetStatus, evidenc
   }
 
   return withTransaction(pool, async (client) => {
+    await client.query('SELECT id FROM orders WHERE id = $1 FOR UPDATE', [orderId]);
     const result = await client.query(
       `SELECT s.*, o.order_number AS "orderNumber", o.total_vnd AS "orderTotalVnd",
               o.customer_id AS "orderCustomerId", o.return_completed_at AS "orderReturnCompletedAt",
@@ -1377,6 +1379,9 @@ async function syncShipmentTracking(pool, config, { orderId, trackingNumber, act
   const incomingEventTime = parseProviderEventTime(trackingData.eventTime || latestHistoryEntry?.timestamp || null);
 
   return withTransaction(pool, async client => {
+    if (preShipment.order_id) {
+      await client.query('SELECT id FROM orders WHERE id = $1 FOR UPDATE', [preShipment.order_id]);
+    }
     const result = await client.query(
       `SELECT s.*, o.order_number AS "orderNumber", o.total_vnd AS "orderTotalVnd",
               o.customer_id AS "orderCustomerId", o.return_completed_at AS "orderReturnCompletedAt",

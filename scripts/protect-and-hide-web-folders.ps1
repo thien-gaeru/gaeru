@@ -2,8 +2,9 @@
 # Kich ban an va bao ve chong xoa nham cac thu muc Web GAERU
 # ==============================================================================
 
+$RepoRoot = (Resolve-Path (Join-Path $PSScriptRoot "..")).Path
 $TargetDirs = @(
-    "C:\Users\imdot\gaeru",
+    $RepoRoot,
     "E:\GAERU_Media",
     "E:\GAERU_Backups"
 )

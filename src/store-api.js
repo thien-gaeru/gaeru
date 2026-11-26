@@ -69,14 +69,46 @@ async function tryMarkCartRecovered(client, payload) {
 }
 
 async function releaseCheckoutIntentOnClient(client, intentId, nextStatus = "released", auditMeta = null) {
-  const intentRes = await client.query(
-    `SELECT id, status, provider, order_number AS "orderNumber",
-            provider_request_id AS "providerRequestId", amount_vnd AS "amountVnd"
-     FROM checkout_payment_intents WHERE id = $1 FOR UPDATE`,
-    [intentId]
-  );
-  const intent = intentRes.rows[0];
+  let intent = null;
+  await client.query("SAVEPOINT sp_intent_hold_cols");
+  try {
+    intent = (await client.query(
+      `SELECT id, status, provider, order_number AS "orderNumber",
+              provider_request_id AS "providerRequestId", amount_vnd AS "amountVnd",
+              customer_id AS "customerId", held_loyalty_points AS "heldLoyaltyPoints",
+              held_loyalty_expires_at AS "heldLoyaltyExpiresAt"
+       FROM checkout_payment_intents WHERE id = $1 FOR UPDATE`,
+      [intentId]
+    )).rows[0];
+    await client.query("RELEASE SAVEPOINT sp_intent_hold_cols");
+  } catch (colErr) {
+    await client.query("ROLLBACK TO SAVEPOINT sp_intent_hold_cols");
+    if (colErr?.code !== "42703") throw colErr;
+    intent = (await client.query(
+      `SELECT id, status, provider, order_number AS "orderNumber",
+              provider_request_id AS "providerRequestId", amount_vnd AS "amountVnd"
+       FROM checkout_payment_intents WHERE id = $1 FOR UPDATE`,
+      [intentId]
+    )).rows[0];
+  }
   if (!intent || intent.status !== "pending_provider") return;
+
+  if (intent.customerId && Number(intent.heldLoyaltyPoints) > 0) {
+    await client.query("SELECT id FROM customers WHERE id = $1 FOR UPDATE", [intent.customerId]);
+    await client.query("SELECT customer_id FROM customer_loyalty WHERE customer_id = $1 FOR UPDATE", [intent.customerId]);
+    const expMs = intent.heldLoyaltyExpiresAt ? new Date(intent.heldLoyaltyExpiresAt).getTime() : NaN;
+    const isPastOriginalExpiry = Number.isFinite(expMs) && expMs <= Date.now();
+    if (!isPastOriginalExpiry) {
+      await client.query(
+        `UPDATE customer_loyalty
+         SET points_balance = points_balance + $2,
+             expires_at = COALESCE(expires_at, $3::timestamptz),
+             updated_at = now()
+         WHERE customer_id = $1`,
+        [intent.customerId, Number(intent.heldLoyaltyPoints), intent.heldLoyaltyExpiresAt || null]
+      );
+    }
+  }
 
   const holdsRes = await client.query(
     `SELECT id, variant_id AS "variantId", warehouse_id AS "warehouseId", quantity
@@ -189,6 +221,11 @@ async function releaseExpiredCheckoutIntents(poolInstance) {
     if (releasedCount > 0) {
       try { invalidateTags(['product:list', 'catalog', 'search-index', 'stock'], { immediate: true }); } catch (_) {}
     }
+    try {
+      await qClient.query(
+        "DELETE FROM order_idempotency_keys WHERE ctid IN (SELECT ctid FROM order_idempotency_keys WHERE expires_at <= now() LIMIT 200)"
+      );
+    } catch (_) {}
   } catch (_) {
   } finally {
     if (lockAcquired && lockClient) {
@@ -987,7 +1024,8 @@ function createStoreApi(pool, { ordersEnabled = false, getOrdersEnabled = null, 
       const verified=require('./payment-channels').verifyGatewayPayload(provider,req.body||{},channelConfig,{headers:req.headers,rawBody:req.rawBody});
       if(!verified.valid)return res.status(400).json({code:'97',return_code:-1,resultCode:97,message:'Invalid callback',reason:verified.reason});
       if(provider==='bank_transfer'){
-        const txns=verified.matchedTransactions?.length?verified.matchedTransactions:[verified];
+        const rawTxns=verified.matchedTransactions?.length?verified.matchedTransactions:[verified];
+        const txns=[...rawTxns].sort((a,b)=>String(a?.orderNumber||'').localeCompare(String(b?.orderNumber||'')));
         const results=await withTransaction(pool,async client=>{
           const items=[];
           for(const item of txns){
@@ -1117,6 +1155,10 @@ function createStoreApi(pool, { ordersEnabled = false, getOrdersEnabled = null, 
     return new Date(timeMs + 7 * 60 * 60 * 1000).toISOString().slice(2, 10).replaceAll("-", "");
   }
 
+  function vietnamYyyyMmDd(timeMs = Date.now()) {
+    return new Date(timeMs + 7 * 60 * 60 * 1000).toISOString().slice(0, 10).replaceAll("-", "");
+  }
+
   function validateFinalTotalForPayment(paymentMethod, finalTotal, channels) {
     if (!Number.isSafeInteger(finalTotal) || finalTotal < 0 || finalTotal > 2_000_000_000) {
       throw Object.assign(new Error("Tổng giá trị đơn hàng vượt giới hạn cho phép."), { status: 400 });
@@ -1144,7 +1186,7 @@ function createStoreApi(pool, { ordersEnabled = false, getOrdersEnabled = null, 
     let activeCustomerId = null;
     if (sessionCustomerId) {
       const activeCust = (await client.query(
-        "SELECT id FROM customers WHERE id = $1 AND active = true AND deleted_at IS NULL",
+        "SELECT id FROM customers WHERE id = $1 AND active = true AND deleted_at IS NULL FOR UPDATE",
         [sessionCustomerId]
       )).rows[0];
       activeCustomerId = activeCust?.id || null;
@@ -1368,18 +1410,27 @@ function createStoreApi(pool, { ordersEnabled = false, getOrdersEnabled = null, 
         idempotencyClaimToken = randomUUID();
 
         const claimOutcome = await withTransaction(pool, async (client) => {
-          await client.query("DELETE FROM order_idempotency_keys WHERE expires_at <= now()");
           const ins = await client.query(
             `INSERT INTO order_idempotency_keys (scope_key, idempotency_key, request_hash, claim_token, status)
              VALUES ($1, $2, $3, $4, 'in_progress')
-             ON CONFLICT (scope_key, idempotency_key) DO NOTHING
+             ON CONFLICT (scope_key, idempotency_key) DO UPDATE
+               SET request_hash = EXCLUDED.request_hash,
+                   claim_token = EXCLUDED.claim_token,
+                   status = 'in_progress',
+                   order_id = NULL,
+                   response_status = NULL,
+                   response_body = NULL,
+                   created_at = now(),
+                   updated_at = now(),
+                   expires_at = now() + interval '24 hours'
+               WHERE order_idempotency_keys.expires_at <= now()
              RETURNING status`,
             [scopeKey, idempotencyKey, requestHash, idempotencyClaimToken]
           );
           if (ins.rowCount > 0) return { claimed: true };
           const existing = (await client.query(
             `SELECT request_hash AS "requestHash", status, response_status AS "responseStatus", response_body AS "responseBody"
-             FROM order_idempotency_keys WHERE scope_key = $1 AND idempotency_key = $2`,
+             FROM order_idempotency_keys WHERE scope_key = $1 AND idempotency_key = $2 AND expires_at > now()`,
             [scopeKey, idempotencyKey]
           )).rows[0];
           return { claimed: false, existing };
@@ -1479,17 +1530,56 @@ function createStoreApi(pool, { ordersEnabled = false, getOrdersEnabled = null, 
           if (parsed.data.paymentMethod === 'momo' && (calc.finalTotal < 1000 || calc.finalTotal > 50000000)) {
             throw Object.assign(new Error('MoMo hỗ trợ thanh toán từ 1.000 ₫ đến 50.000.000 ₫. Vui lòng chọn phương thức khác.'), { status: 400 });
           }
-          const orderNumber = `GR-${new Date(intentNow).toISOString().slice(0, 10).replaceAll("-", "")}-${require("node:crypto").randomBytes(5).toString("hex").toUpperCase()}`;
+          const orderNumber = `GR-${vietnamYyyyMmDd(intentNow)}-${require("node:crypto").randomBytes(5).toString("hex").toUpperCase()}`;
           const providerRequestId = parsed.data.paymentMethod === "zalopay"
             ? `${vietnamYyMmDd(intentNow)}_${orderNumber}`
             : orderNumber;
 
-          const intentIns = await client.query(
-            `INSERT INTO checkout_payment_intents (order_number, provider, provider_request_id, amount_vnd, status, expires_at)
-             VALUES ($1, $2, $3, $4, 'pending_provider', now() + interval '15 minutes')
-             RETURNING id`,
-            [orderNumber, parsed.data.paymentMethod, providerRequestId, calc.finalTotal]
-          );
+          let heldLoyaltyPoints = 0;
+          let heldLoyaltyExpiresAt = null;
+          if (calc.activeCustomerId && calc.effectivePointsToRedeem > 0) {
+            const curLoy = (await client.query(
+              "SELECT points_balance, expires_at FROM customer_loyalty WHERE customer_id = $1 FOR UPDATE",
+              [calc.activeCustomerId]
+            )).rows[0];
+            if (!curLoy || Number(curLoy.points_balance) < calc.effectivePointsToRedeem) {
+              throw Object.assign(new Error("Số dư GAERU Xu vừa thay đổi. Vui lòng thử lại."), { status: 409 });
+            }
+            heldLoyaltyPoints = calc.effectivePointsToRedeem;
+            heldLoyaltyExpiresAt = curLoy.expires_at || null;
+            await client.query(
+              "UPDATE customer_loyalty SET points_balance = points_balance - $2, updated_at = now() WHERE customer_id = $1",
+              [calc.activeCustomerId, heldLoyaltyPoints]
+            );
+          }
+
+          let intentIns;
+          await client.query("SAVEPOINT sp_ins_intent_holds");
+          try {
+            intentIns = await client.query(
+              `INSERT INTO checkout_payment_intents (order_number, provider, provider_request_id, amount_vnd, status, expires_at, customer_id, held_voucher_id, held_loyalty_points, held_loyalty_expires_at)
+               VALUES ($1, $2, $3, $4, 'pending_provider', now() + interval '15 minutes', $5, $6, $7, $8)
+               RETURNING id`,
+              [orderNumber, parsed.data.paymentMethod, providerRequestId, calc.finalTotal, calc.activeCustomerId || null, calc.promotion?.voucher?.id || null, heldLoyaltyPoints, heldLoyaltyExpiresAt]
+            );
+            await client.query("RELEASE SAVEPOINT sp_ins_intent_holds");
+          } catch (insColErr) {
+            await client.query("ROLLBACK TO SAVEPOINT sp_ins_intent_holds");
+            if (insColErr?.code !== "42703") throw insColErr;
+            if (heldLoyaltyPoints > 0 && calc.activeCustomerId) {
+              await client.query(
+                "UPDATE customer_loyalty SET points_balance = points_balance + $2, updated_at = now() WHERE customer_id = $1",
+                [calc.activeCustomerId, heldLoyaltyPoints]
+              );
+              heldLoyaltyPoints = 0;
+            }
+            intentIns = await client.query(
+              `INSERT INTO checkout_payment_intents (order_number, provider, provider_request_id, amount_vnd, status, expires_at)
+               VALUES ($1, $2, $3, $4, 'pending_provider', now() + interval '15 minutes')
+               RETURNING id`,
+              [orderNumber, parsed.data.paymentMethod, providerRequestId, calc.finalTotal]
+            );
+          }
           const intentId = intentIns.rows[0].id;
           const holds = [];
 
@@ -1572,6 +1662,7 @@ function createStoreApi(pool, { ordersEnabled = false, getOrdersEnabled = null, 
             channelConfig,
             channelVersion: req.paymentChannels.versions?.[parsed.data.paymentMethod],
             holds,
+            heldLoyaltyPoints,
             ...calc
           };
         });
@@ -1643,7 +1734,8 @@ function createStoreApi(pool, { ordersEnabled = false, getOrdersEnabled = null, 
                 parsed.data.voucherCode,
                 phase1.activeCustomerId,
                 phase1.subtotal,
-                true
+                true,
+                phase1.intentId
               );
               const cappedVoucher = Math.min(verifiedPromo.discountVnd, Math.max(0, phase1.subtotal - phase1.bundleDiscountVnd));
               if (cappedVoucher !== phase1.voucherDiscountVnd) {
@@ -1690,6 +1782,7 @@ function createStoreApi(pool, { ordersEnabled = false, getOrdersEnabled = null, 
                   customerId: phase1.activeCustomerId,
                   orderId: createdOrder.id,
                   pointsToRedeem: phase1.effectivePointsToRedeem,
+                  alreadyReservedPoints: phase1.heldLoyaltyPoints || 0,
                   orderTotalVnd: phase1.subtotal,
                   maxPayableVnd: phase1.remainingProductSubtotal,
                   reason: `Tiêu GAERU Xu cho đơn hàng #${createdOrder.orderNumber}`
@@ -1822,7 +1915,7 @@ function createStoreApi(pool, { ordersEnabled = false, getOrdersEnabled = null, 
             lockVoucher: true
           });
 
-          const orderNumber = `GR-${new Date().toISOString().slice(0, 10).replaceAll("-", "")}-${require("node:crypto").randomBytes(5).toString("hex").toUpperCase()}`;
+          const orderNumber = `GR-${vietnamYyyyMmDd()}-${require("node:crypto").randomBytes(5).toString("hex").toUpperCase()}`;
           const inserted = await client.query(
             `INSERT INTO orders (order_number, customer_name, email, phone, address, city, note,
               payment_method, subtotal_vnd, shipping_fee_vnd, total_vnd)
@@ -2349,7 +2442,7 @@ function createStoreApi(pool, { ordersEnabled = false, getOrdersEnabled = null, 
       console.error('PATCH /products/:id/visibility error for %s:', req.params.id, error);
       if (error.status) return res.status(error.status).json({ error: error.message });
       if (error.code && /^23\d{3}$/.test(error.code)) {
-        return res.status(409).json({ error: 'Lỗi ràng buộc cơ sở dữ liệu: ' + (error.detail || error.message) });
+        return res.status(409).json({ error: 'Không thể cập nhật trạng thái hiển thị do ràng buộc dữ liệu sản phẩm.' });
       }
       next(error);
     }

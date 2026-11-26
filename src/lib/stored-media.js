@@ -92,7 +92,10 @@ async function storeUpload(scope,buffer,mime,pool=null,{removeBackground=scope==
    try{const optimized=await require('./image-optimizer').optimizeImage(buffer,mime,{maxUploadBytes,removeBackground,...backgroundOptions});buffer=optimized.buffer;mimeType=optimized.mimeType;backgroundRemoved=Boolean(optimized.backgroundRemoved);}catch(e){if(scope!=='chat'&&scope!=='care')throw e;}
  }
  const content=await storeMedia(scope,buffer,mimeType),meta=metadata(content);
- if(meta&&mime.startsWith('image/')&&scope!=='chat'&&scope!=='care')await require('./image-originals').preserveOriginal(pool,{scope,buffer:originalBuffer,mime,derivativeKey:meta.key});
+ if(meta&&mime.startsWith('image/')&&scope!=='chat'&&scope!=='care'){
+  try{await require('./image-originals').preserveOriginal(pool,{scope,buffer:originalBuffer,mime,derivativeKey:meta.key});}
+  catch(err){await removeUploadedMedia(content).catch(()=>{});throw err;}
+ }
  if(mimeType&&mimeType.startsWith('image/')&&(scope==='products'||scope==='news'||scope==='banners')){
   try{require('./image-renditions').enqueueImageWarm({content,mime_type:mimeType},buffer);}catch(_){}
  }
@@ -102,8 +105,11 @@ async function migrateLegacyBlobsToDisk(pool){
  if(!pool||typeof pool.query!=='function')return {migrated:0,purgedOrphanNewsImages:0};
  let migrated=0,purgedOrphanNewsImages=0;
  try{
-  const orphanDel=await pool.query("DELETE FROM news_images n WHERE NOT EXISTS (SELECT 1 FROM news_posts p WHERE p.cover_id=n.id)");
+  const orphanDel=await pool.query("DELETE FROM news_images n WHERE n.created_at < now() - interval '24 hours' AND NOT EXISTS (SELECT 1 FROM news_posts p WHERE p.cover_id=n.id) RETURNING content");
   purgedOrphanNewsImages=Number(orphanDel.rowCount||0);
+  for(const orphan of orphanDel.rows||[]){
+   await removeUploadedMedia(orphan.content).catch(()=>{});
+  }
  }catch(_){}
  if(!local.configured())return {migrated,purgedOrphanNewsImages};
  const targets=[

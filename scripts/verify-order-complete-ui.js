@@ -14,7 +14,7 @@ const { createApp } = require('../src/app');
 const { migrateDatabase } = require('../src/migrate');
 
 const CHROME_PATH = 'C:\\Program Files\\Google\\Chrome\\Application\\chrome.exe';
-const SCREENSHOT_DIR = process.env.GAERU_SCREENSHOT_DIR || path.join(os.homedir(), '.gemini', 'antigravity', 'brain', '470c3e88-af2f-4c7e-9f97-1ee26cfc045b', 'screenshots');
+const SCREENSHOT_DIR = process.env.GAERU_SCREENSHOT_DIR || path.join(os.tmpdir(), 'gaeru-ui-screenshots');
 
 async function createIsolatedPglitePool() {
   const db = await PGlite.create();

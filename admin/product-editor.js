@@ -1215,7 +1215,7 @@
    for(const evt of ['input','change','keydown','pointerdown'])document.addEventListener(evt,markActivity,{passive:true});
    const keepalive=setInterval(()=>{
      if(document.hidden||!user?.authenticated||busy)return;
-     if(!dirty&&Date.now()-lastActivityAt>180000)return;
+     if(Date.now()-lastActivityAt>180000)return;
      fetch('/api/auth/me',{credentials:'same-origin',cache:'no-store'}).catch(()=>{});
    },120000);
    keepalive.unref?.();

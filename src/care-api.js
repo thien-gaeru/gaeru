@@ -279,6 +279,8 @@ function createCareCustomerApi(pool, config = {}) {
     if (!mime) return res.status(400).json({ error: 'Chỉ nhận tệp ảnh (JPG, PNG, WebP, GIF, HEIC), video (MP4, MOV, WebM), PDF hoặc tài liệu văn bản.' });
     let uploadedContent = null;
     try {
+      const preUploaded = await storeUpload('care', req.file.buffer, mime);
+      uploadedContent = preUploaded.content;
       const result = await withTransaction(pool, async client => {
         const row = (await client.query('SELECT * FROM care_requests WHERE id=$1 AND customer_id=$2 FOR UPDATE', [req.params.id, req.customerId])).rows[0];
         if (!row) return { status: 404, error: 'Không tìm thấy yêu cầu.' };
@@ -289,8 +291,7 @@ function createCareCustomerApi(pool, config = {}) {
         const quotaError = await checkCareUploadQuota(client, row.id, req.file.buffer.length);
         if (quotaError) return quotaError;
         let safeName = String(req.file.originalname || 'attachment').replace(/[\x00-\x1f\x7f/\\]/g, '_').slice(0, 180);
-        const uploaded = await storeUpload('care', req.file.buffer, mime);
-        uploadedContent = uploaded.content;
+        const uploaded = preUploaded;
         if (uploaded.mimeType === 'image/webp' && req.file.originalname?.match(/\.[^.]+$/)) {
           safeName = safeName.replace(/\.[^.]+$/, '') + '.webp';
         }
@@ -317,6 +318,10 @@ function createCareCustomerApi(pool, config = {}) {
         });
         return { status: 201, file: { id: fileRow.id, name: fileRow.name, mime: fileRow.mime, size: fileRow.byte_size, messageId: msg.id } };
       });
+      if (!result.file && uploadedContent) {
+        await require('./lib/stored-media').removeUploadedMedia(uploadedContent).catch(() => {});
+        uploadedContent = null;
+      }
       if (result.file) {
         try { require('./realtime-sse').publishCareEvent(req.params.id, 'care:message', { careId: req.params.id, sender: 'customer', file: result.file }); } catch (_) {}
         try {
@@ -475,6 +480,8 @@ function createCareAdminApi(pool, config = {}) {
     if (!mime) return res.status(400).json({ error: 'Chỉ nhận tệp ảnh (JPG, PNG, WebP, GIF, HEIC), video (MP4, MOV, WebM), PDF hoặc tài liệu văn bản.' });
     let uploadedContent = null;
     try {
+      const preUploaded = await storeUpload('care', req.file.buffer, mime);
+      uploadedContent = preUploaded.content;
       const result = await withTransaction(pool, async client => {
         const before = (await client.query('SELECT * FROM care_requests WHERE id=$1 FOR UPDATE', [req.params.id])).rows[0];
         if (!before) return { status: 404, error: 'Không tìm thấy yêu cầu.' };
@@ -482,8 +489,7 @@ function createCareAdminApi(pool, config = {}) {
         const quotaError = await checkCareUploadQuota(client, before.id, req.file.buffer.length);
         if (quotaError) return quotaError;
         let safeName = String(req.file.originalname || 'attachment').replace(/[\x00-\x1f\x7f/\\]/g, '_').slice(0, 180);
-        const uploaded = await storeUpload('care', req.file.buffer, mime);
-        uploadedContent = uploaded.content;
+        const uploaded = preUploaded;
         if (uploaded.mimeType === 'image/webp' && req.file.originalname?.match(/\.[^.]+$/)) {
           safeName = safeName.replace(/\.[^.]+$/, '') + '.webp';
         }
@@ -499,6 +505,10 @@ function createCareAdminApi(pool, config = {}) {
         await appendAudit(client, { actor: req.admin, action: 'care.file', entityType: 'care', entityId: before.id, metadata: { fileName: safeName, size: uploaded.byteSize } });
         return { status: 201, file: { id: fileRow.id, name: fileRow.name, mime: fileRow.mime, size: fileRow.byte_size, messageId: msg.id } };
       });
+      if (!result.file && uploadedContent) {
+        await require('./lib/stored-media').removeUploadedMedia(uploadedContent).catch(() => {});
+        uploadedContent = null;
+      }
       if (result.file) { try { require('./realtime-sse').publishCareEvent(req.params.id, 'care:message', { careId: req.params.id, sender: 'staff', file: result.file }); } catch (_) {} }
       res.status(result.status).json(result.error ? { error: result.error } : { message: 'Đã gửi tệp đính kèm.', file: result.file });
     } catch (e) {
