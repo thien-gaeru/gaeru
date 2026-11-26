@@ -309,6 +309,7 @@ function createApp({ config, pool, sessionStore, customerMailer, oauthClient = n
     const p = req.path;
     if (
       p === "/health" || p === "/livez" || p === "/readyz" || p === "/healthz" ||
+      /^\/api\/payments\/(?:(?:momo|zalopay|vnpay)\/ipn|bank_transfer\/webhook)$/.test(p) ||
       /^\/(?:assets\/|media\/|gaeru_ceo\/assets\/|favicon\.|apple-touch-icon)|(?:^\/[^/]+\.(?:js|css|webp|avif|woff2?|png|jpe?g|svg|ico)$)|^\/api\/(?:catalog-images|news-images|home-banner\/images)\//i.test(p)
     ) {
       return next();

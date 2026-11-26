@@ -90,7 +90,7 @@ const channelMeta={
  cod:{title:'COD · Tiền mặt khi nhận hàng',sub:'Giao hàng thu tiền mặt tận nơi',icon:'<svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="#059669" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="6" width="20" height="12" rx="2"></rect><circle cx="12" cy="12" r="2"></circle><path d="M6 12h.01M18 12h.01"></path></svg>'},
  bank_transfer:{title:'Chuyển khoản VietQR',sub:'Thông tin nhận chuyển khoản, xác nhận sau đối chiếu',icon:'<svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="#0284c7" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 21h18M3 10h18M5 10v11M9 10v11M15 10v11M19 10v11M12 2L2 7h20L12 2z"></path></svg>'},
  vnpay:{title:'Cổng thanh toán VNPAY',sub:'VNPAY-QR, Thẻ ATM nội địa & Quốc tế Visa/Master',icon:'<svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="#005baa" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="5" width="20" height="14" rx="2"></rect><line x1="2" y1="10" x2="22" y2="10"></line><path d="M7 15h2M12 15h5"></path></svg>'},
- momo:{title:'Ví điện tử MoMo',sub:'Ví MoMo, MoMo QR, Ví trả sau, thẻ liên kết',icon:'<svg width="26" height="26" viewBox="0 0 24 24"><rect width="24" height="24" rx="5" fill="#d82d8b"/><path d="M6 16V8h2.2l1.9 4.2L12 8h2.2v8h-1.8v-5.2l-1.7 3.8h-1.4l-1.7-3.8V16H6z" fill="#fff"/></svg>'},
+ momo:{title:'Ví điện tử MoMo',sub:'Ví MoMo, AIO QR (MoMo / Ngân hàng), Ví Trả Sau',icon:'<picture><source srcset="/assets/brand/momo-logo.webp" type="image/webp"><img src="/assets/brand/momo-logo.png" alt="MoMo" width="28" height="28" style="border-radius:7px;display:block"></picture>'},
  zalopay:{title:'Ví điện tử ZaloPay',sub:'ZaloPay Gateway, ZaloPay QR, ví Zalo',icon:'<svg width="26" height="26" viewBox="0 0 24 24"><rect width="24" height="24" rx="5" fill="#0068ff"/><path d="M7 8h10l-6.5 6.5H17V17H7l6.5-6.5H7V8z" fill="#fff"/></svg>'}
 };
 
@@ -133,7 +133,7 @@ function renderWebhookBox(configId){
    {label:'Return URL',url:callbacks.momoReturn||'https://gaeru.com/api/payments/momo/return'},
    {label:'IPN URL',url:callbacks.momoIpn||'https://gaeru.com/api/payments/momo/ipn'}
   ];
-  note='Điền IPN URL vào Cổng đối tác MoMo Developers để tự động chuyển đơn sang Chờ gửi hàng.';
+  note='GAERU tự động gửi Return URL và IPN URL trong từng yêu cầu tạo giao dịch. Lấy Partner Code, Access Key, Secret Key tại M4B Portal (business.momo.vn) và đảm bảo tường lửa/Cloudflare cho phép MoMo gửi POST tới IPN URL.';
  }else if(configId==='payment_zalopay'){
   rows=[
    {label:'Return URL',url:callbacks.zalopayReturn||'https://gaeru.com/api/payments/zalopay/return'},

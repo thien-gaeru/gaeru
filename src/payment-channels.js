@@ -186,7 +186,7 @@ function verifyGatewayPayload(provider,payload,settings,options={}){
   if(typeof payload.requestId!=='string'||payload.requestId.length<1||payload.requestId.length>100
    ||textFields.some(field=>typeof payload[field]!=='string'||payload[field].length>4000)
    ||!orderPattern.test(payload.orderId)
-   ||payload.orderType.trim().length<1||payload.orderType.length>100||!amount(payload.amount)||Number(payload.amount)<momoProtocol.MIN_AMOUNT||Number(payload.amount)>momoProtocol.MAX_AMOUNT||!unsigned(payload.resultCode)
+   ||payload.orderType!=='momo_wallet'||!amount(payload.amount)||Number(payload.amount)<momoProtocol.MIN_AMOUNT||Number(payload.amount)>momoProtocol.MAX_AMOUNT||!unsigned(payload.resultCode)
    ||!unsigned(payload.transId)||!positiveId(payload.responseTime)
    ||(momoProtocol.paymentState(Number(payload.resultCode))==='paid'&&!positiveId(payload.transId))
    ||typeof payload.signature!=='string'||!/^[a-f0-9]{64}$/i.test(payload.signature)
@@ -197,6 +197,7 @@ function verifyGatewayPayload(provider,payload,settings,options={}){
   const fullRaw=`accessKey=${settings.accessKey}&amount=${payload.amount}&extraData=${payload.extraData}&message=${payload.message}&orderId=${payload.orderId}&orderInfo=${payload.orderInfo}&orderType=${payload.orderType}&partnerCode=${payload.partnerCode}&payType=${payload.payType}&requestId=${payload.requestId}&responseTime=${payload.responseTime}&resultCode=${payload.resultCode}&transId=${payload.transId}`;
   const expectedFull=signMomoMessage(settings.secretKey,fullRaw);
   if(!safeHexEqual(payload.signature,expectedFull))return {valid:false,reason:'Invalid MoMo signature'};
+  const providerMeta=require('./payment-provider-clients').extractMomoReconciliationMeta(payload);
   return {
    valid:true,
    orderNumber:payload.orderId,
@@ -206,7 +207,8 @@ function verifyGatewayPayload(provider,payload,settings,options={}){
    successful:momoProtocol.paymentState(Number(payload.resultCode))==='paid',
    pending:momoProtocol.paymentState(Number(payload.resultCode))==='pending',
    providerTransactionId:String(payload.transId),
-   responseCode:String(payload.resultCode)
+   responseCode:String(payload.resultCode),
+   ...(Object.keys(providerMeta).length?{providerMeta,...providerMeta}:{})
   };
  }
  if(provider==='zalopay'){
@@ -363,7 +365,7 @@ function verifyGatewayPayload(provider,payload,settings,options={}){
  return {valid:false,reason:'Unsupported provider'};
 }
 
-async function reconcilePrepaidOrder(poolOrClient,{provider,orderNumber,amountVnd,successful=true,pending=false,providerTransactionId=null,responseCode=null,finance=null,audit=appendAudit,actor=null,evidence='callback'}){
+async function reconcilePrepaidOrder(poolOrClient,{provider,orderNumber,amountVnd,successful=true,pending=false,providerTransactionId=null,responseCode=null,providerMeta=null,finance=null,audit=appendAudit,actor=null,evidence='callback'}){
  const run=async client=>{
   const attemptQuery=await client.query(
    `SELECT p.id, p.amount_vnd AS "amountVnd", p.status AS "attemptStatus",
@@ -432,9 +434,14 @@ async function reconcilePrepaidOrder(poolOrClient,{provider,orderNumber,amountVn
    );
    return {code:'00',matched:true,successful:false,pending:true,message:'Payment processing',orderId:attempt.orderId,orderNumber:attempt.orderNumber||orderNumber,paymentStatus:attempt.paymentStatus,orderStatus:attempt.orderStatus};
   }
+  const clearMomoSchedule=provider==='momo'&&evidence!=='query'&&(successful||momoProtocol.FINAL_FAILURE_CODES.includes(Number(responseCode)));
   await client.query(
-   `UPDATE payment_attempts SET status=$2, provider_transaction_id=$3, response_code=$4, updated_at=now()
-    WHERE id=$1`,
+   clearMomoSchedule
+    ? `UPDATE payment_attempts SET status=$2, provider_transaction_id=$3, response_code=$4,
+        next_status_check_at=NULL, status_check_token=NULL, status_check_lease_until=NULL, updated_at=now()
+       WHERE id=$1`
+    : `UPDATE payment_attempts SET status=$2, provider_transaction_id=$3, response_code=$4, updated_at=now()
+       WHERE id=$1`,
    [attempt.id,successful?'paid':'failed',providerTransactionId||null,responseCode||null]
   );
   let nextOrderStatus=attempt.orderStatus||'pending';
@@ -487,7 +494,8 @@ async function reconcilePrepaidOrder(poolOrClient,{provider,orderNumber,amountVn
     successful,
     amountVnd:attempt.amountVnd,
     responseCode:responseCode||null,
-    autoApprovedToProcessing:Boolean(successful&&['pending','confirmed'].includes(attempt.orderStatus))
+    autoApprovedToProcessing:Boolean(successful&&['pending','confirmed'].includes(attempt.orderStatus)),
+    ...(providerMeta&&typeof providerMeta==='object'&&Object.keys(providerMeta).length?{providerMeta}:{})
    }
   });
   return {

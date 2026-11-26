@@ -57,25 +57,61 @@
   };
 
   const momoCodeDetails = {
-    '1006': {
-      title: 'Bạn đã hủy giao dịch trên Ví MoMo.',
-      detail: 'Giao dịch thanh toán MoMo đã được hủy theo yêu cầu của bạn. Nếu tài khoản chưa bị trừ tiền, bạn có thể đặt lại đơn hàng mới với phương thức mong muốn; nếu đã bị trừ tiền, vui lòng liên hệ GAERU để đối chiếu.'
+    '98': {
+      title: 'Không thể khởi tạo mã QR MoMo.',
+      detail: 'Hệ thống MoMo chưa tạo được mã QR thanh toán vào lúc này. Vui lòng đặt lại đơn hàng mới hoặc chọn phương thức thanh toán khác.'
     },
-    '1005': {
-      title: 'Đã hết thời gian chờ thanh toán MoMo.',
-      detail: 'Liên kết thanh toán trên ứng dụng MoMo đã hết hạn. Vui lòng thực hiện lại giao dịch.'
-    },
-    '1004': {
-      title: 'Số tiền vượt quá hạn mức MoMo.',
-      detail: 'Số tiền giao dịch vượt quá hạn mức thanh toán quy định của Ví MoMo.'
+    '99': {
+      title: 'Giao dịch MoMo gặp lỗi không xác định.',
+      detail: 'Hệ thống MoMo trả về lỗi không xác định. Nếu tài khoản đã bị trừ tiền, vui lòng liên hệ GAERU để đối chiếu trước khi thanh toán lại.'
     },
     '1001': {
       title: 'Tài khoản MoMo không đủ số dư.',
       detail: 'Tài khoản MoMo không đủ số dư để thực hiện thanh toán.'
     },
+    '1002': {
+      title: 'Giao dịch bị ngân hàng hoặc tổ chức phát hành từ chối.',
+      detail: 'Tổ chức phát hành thẻ hoặc ngân hàng liên kết đã từ chối giao dịch này. Vui lòng kiểm tra lại nguồn tiền hoặc chọn phương thức thanh toán khác.'
+    },
+    '1003': {
+      title: 'Giao dịch MoMo đã bị hủy do quá hạn xử lý.',
+      detail: 'Giao dịch đã bị hệ thống MoMo hủy do vượt quá thời hạn xử lý. Nếu tài khoản chưa bị trừ tiền, bạn có thể đặt lại đơn hàng mới; nếu đã bị trừ tiền, vui lòng liên hệ GAERU để đối chiếu.'
+    },
+    '1004': {
+      title: 'Số tiền vượt quá hạn mức MoMo.',
+      detail: 'Số tiền giao dịch vượt quá hạn mức thanh toán ngày/tháng quy định của Ví MoMo.'
+    },
+    '1005': {
+      title: 'Đã hết thời gian chờ thanh toán MoMo.',
+      detail: 'Liên kết hoặc mã QR thanh toán trên ứng dụng MoMo đã hết hạn. Vui lòng đặt lại đơn hàng mới.'
+    },
+    '1006': {
+      title: 'Bạn đã hủy giao dịch trên Ví MoMo.',
+      detail: 'Giao dịch thanh toán MoMo đã được hủy theo yêu cầu của bạn. Nếu tài khoản chưa bị trừ tiền, bạn có thể đặt lại đơn hàng mới với phương thức mong muốn; nếu đã bị trừ tiền, vui lòng liên hệ GAERU để đối chiếu.'
+    },
+    '1007': {
+      title: 'Tài khoản MoMo chưa kích hoạt hoặc không tồn tại.',
+      detail: 'Tài khoản MoMo chưa ở trạng thái hoạt động hoặc chưa được xác thực. Vui lòng kiểm tra ứng dụng MoMo hoặc chọn phương thức thanh toán khác.'
+    },
+    '1017': {
+      title: 'Giao dịch thanh toán MoMo đã bị hủy.',
+      detail: 'Giao dịch đã bị hủy trước khi hoàn tất. Nếu tài khoản chưa bị trừ tiền, bạn có thể đặt lại đơn hàng mới.'
+    },
+    '1026': {
+      title: 'Giao dịch bị hạn chế theo điều kiện khuyến mãi.',
+      detail: 'Giao dịch không đáp ứng quy định chương trình khuyến mãi của MoMo. Vui lòng thử lại hoặc chọn phương thức thanh toán khác.'
+    },
+    '2019': {
+      title: 'Thông tin nhóm đơn hàng MoMo không hợp lệ.',
+      detail: 'Yêu cầu thanh toán bị MoMo từ chối. Vui lòng liên hệ GAERU để kiểm tra hoặc chọn phương thức thanh toán khác.'
+    },
+    '4001': {
+      title: 'Tài khoản MoMo đang bị hạn chế giao dịch.',
+      detail: 'Tài khoản MoMo của bạn hiện đang bị hạn chế. Vui lòng kiểm tra ứng dụng MoMo hoặc chọn phương thức thanh toán khác.'
+    },
     '4002': {
-      title: 'Tài khoản MoMo chưa xác thực.',
-      detail: 'Vui lòng cập nhật xác thực sinh trắc học bằng NFC trong ứng dụng MoMo trước khi thanh toán.'
+      title: 'Tài khoản MoMo chưa xác thực sinh trắc học.',
+      detail: 'Vui lòng cập nhật xác thực sinh trắc học (C06) bằng NFC trong ứng dụng MoMo trước khi thanh toán.'
     },
     '4100': {
       title: 'Chưa đăng nhập được MoMo.',

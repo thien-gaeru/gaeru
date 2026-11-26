@@ -29,12 +29,42 @@ test('MoMo creates a signed server order and returns only the provider-issued pa
   assert.equal(init.redirect, 'manual');
   assert.equal(init.headers['Content-Type'], 'application/json');
   assert.equal(body.requestType, 'captureWallet');
+  assert.equal(body.orderExpireTime, 15);
   assert.equal(body.ipnUrl, 'https://gaeru.com/api/payments/momo/ipn');
   assert.equal(body.redirectUrl, 'https://gaeru.com/api/payments/momo/return');
   assert.equal(body.signature, sign(momo.secretKey, 'accessKey=MOMO_ACCESS&amount=123000&extraData=&ipnUrl=https://gaeru.com/api/payments/momo/ipn&orderId=GR-20261028-ABC12345&orderInfo=Thanh toan don hang GR-20261028-ABC12345&partnerCode=MOMO_TEST&redirectUrl=https://gaeru.com/api/payments/momo/return&requestId=GR-20261028-ABC12345&requestType=captureWallet'));
   assert.equal(body.secretKey, undefined);
   assert.ok(!url.includes(momo.accessKey));
   assert.equal(calls[0].body.requestId, calls[1].body.requestId);
+});
+
+test('MoMo create forwards sanitized optional order metadata, deduplicates item IDs and allows >30s safety timeout', async () => {
+  const calls = [];
+  await createGatewayPayment('momo', momo, {
+    ...options,
+    timeoutMs: 45000,
+    orderExpireTime: 20,
+    storeName: 'GAERU',
+    items: [
+      { id: 'GAERU-K9', name: 'Micro K9', price: 61500, quantity: 1, manufacturer: 'GAERU' },
+      { id: 'GAERU-K9', name: 'Micro K9 (bản 2)', price: 61500, quantity: 1, manufacturer: 'GAERU' }
+    ],
+    deliveryInfo: { deliveryAddress: '123 Lê Lợi, TP.HCM', deliveryFee: 0, quantity: 2 },
+    userInfo: { name: 'Nguyễn Văn A', phoneNumber: '0909000111', email: 'buyer@example.com' },
+    fetcher: createFetcher('momo', calls)
+  });
+  const { body } = calls[0];
+  assert.equal(body.orderExpireTime, 20);
+  assert.equal(body.storeName, 'GAERU');
+  assert.equal(body.items.length, 2);
+  assert.equal(body.items[0].id, 'GAERU-K9');
+  assert.notEqual(body.items[1].id, 'GAERU-K9', 'duplicate SKU IDs must be deduplicated to avoid MoMo code 45');
+  assert.equal(body.items[0].currency, 'VND');
+  assert.equal(body.items[0].totalPrice, 61500);
+  assert.deepEqual(body.deliveryInfo, { deliveryAddress: '123 Lê Lợi, TP.HCM', deliveryFee: '0', quantity: '2' });
+  assert.deepEqual(body.userInfo, { name: 'Nguyễn Văn A', phoneNumber: '0909000111', email: 'buyer@example.com' });
+  assert.equal(body.signature, sign(momo.secretKey, 'accessKey=MOMO_ACCESS&amount=123000&extraData=&ipnUrl=https://gaeru.com/api/payments/momo/ipn&orderId=GR-20261028-ABC12345&orderInfo=Thanh toan don hang GR-20261028-ABC12345&partnerCode=MOMO_TEST&redirectUrl=https://gaeru.com/api/payments/momo/return&requestId=GR-20261028-ABC12345&requestType=captureWallet'));
+  await assert.rejects(createGatewayPayment('momo', momo, { ...options, timeoutMs: 65000, fetcher: createFetcher('momo') }), e => e.status === 400);
 });
 
 test('ZaloPay creates a signed provider order using the Vietnam date and persists a reusable app_trans_id', async () => {
@@ -136,12 +166,14 @@ test('MoMo status query is signed with the documented canonical fields and check
   let request;
   const response=await queryGatewayPayment('momo',momo,{...options,queryRequestId:'query_fixture_1',fetcher:async(url,init)=>{
     const body=JSON.parse(init.body);request={url,init,body};
-    return json({partnerCode:body.partnerCode,requestId:body.requestId,orderId:body.orderId,amount:options.amountVnd,resultCode:0,transId:1234});
+    return json({partnerCode:body.partnerCode,requestId:body.requestId,orderId:body.orderId,amount:options.amountVnd,resultCode:0,transId:1234,payType:'aio_qr',paymentOption:'pay_later',userFee:0,promotionInfo:[{voucherId:'MOMO10',voucherName:'Giảm 10k',voucherType:'Percent',amount:10000,amountSponsor:5000,merchantRate:'50'}]});
   }});
   assert.equal(request.url,'https://test-payment.momo.vn/v2/gateway/api/query');
   assert.equal(request.init.method,'POST');
   assert.equal(request.body.signature,sign(momo.secretKey,'accessKey=MOMO_ACCESS&orderId=GR-20261028-ABC12345&partnerCode=MOMO_TEST&requestId=query_fixture_1'));
   assert.equal(response.found,true);assert.equal(response.successful,true);assert.equal(response.providerTransactionId,'1234');
+  assert.equal(response.payType,'aio_qr');assert.equal(response.paymentOption,'pay_later');assert.equal(response.userFee,0);
+  assert.equal(response.promotionInfo?.[0]?.amountSponsor,5000);
   await assert.rejects(queryGatewayPayment('momo',momo,{...options,fetcher:async()=>json({resultCode:0,partnerCode:'OTHER',orderId:options.txnRef,requestId:'OTHER',amount:options.amountVnd})}),error=>error.code==='PAYMENT_RESPONSE_MISMATCH');
 });
 

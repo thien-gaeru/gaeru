@@ -191,6 +191,8 @@ async function warmStaticAssets(pool){
  const hotSnapshots=[
   'brand/gaeru-email-logo.png',
   'brand/gaeru-logo.webp',
+  'brand/momo-logo.webp',
+  'brand/momo-logo.png',
   'products/k9.webp',
   'products/k9-display-480-f7433a67675b.webp',
   'products/k9-display-800-19cce68491be.webp',

@@ -356,7 +356,7 @@ test('MoMo Payment Gateway v2 - simulated protocol scenarios (not merchant accep
     const res = await createGatewayPayment('momo', momoSettings, {
       txnRef: 'GR-20261102-MM07',
       amountVnd: 500000,
-      baseUrl: 'https://gaeru.vn',
+      baseUrl: 'https://gaeru.com',
       fetcher: mockFetcher
     });
 
@@ -365,8 +365,9 @@ test('MoMo Payment Gateway v2 - simulated protocol scenarios (not merchant accep
     assert.strictEqual(capturedBody.amount, 500000);
     assert.strictEqual(capturedBody.orderId, 'GR-20261102-MM07');
     assert.strictEqual(capturedBody.requestType, 'captureWallet');
-    assert.strictEqual(capturedBody.redirectUrl, 'https://gaeru.vn/api/payments/momo/return');
-    assert.strictEqual(capturedBody.ipnUrl, 'https://gaeru.vn/api/payments/momo/ipn');
+    assert.strictEqual(capturedBody.orderExpireTime, 15);
+    assert.strictEqual(capturedBody.redirectUrl, 'https://gaeru.com/api/payments/momo/return');
+    assert.strictEqual(capturedBody.ipnUrl, 'https://gaeru.com/api/payments/momo/ipn');
     assert.strictEqual(capturedBody.autoCapture, true);
     assert.ok(capturedBody.signature && capturedBody.signature.length === 64);
   });
@@ -401,6 +402,7 @@ test('MoMo Payment Gateway v2 - simulated protocol scenarios (not merchant accep
     assert.strictEqual(queryRes.successful, true);
     assert.strictEqual(queryRes.resultCode, 0);
     assert.strictEqual(queryRes.amountVnd, 500000);
+    assert.strictEqual(queryRes.payType, 'qr');
     assert.strictEqual(capturedQuery.partnerCode, partnerCode);
     assert.strictEqual(capturedQuery.orderId, 'GR-20261102-MM08');
     assert.ok(capturedQuery.signature && capturedQuery.signature.length === 64);

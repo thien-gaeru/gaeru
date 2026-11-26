@@ -224,13 +224,33 @@ test('MoMo recovery with PostgreSQL, signed HTTP IPN and real accounting', { tim
     await withTransaction(pool, c => assertPaymentConfigurationChange(c, 'momo', settings, { ...settings, secretKey: 'rotated-secret-key' }));
   });
 
-  await suite.test('signed MoMo IPN accepts linked-card orderType while rejecting blank orderType, and audits unmatched IPNs', async () => {
+  await suite.test('signed MoMo IPN enforces momo_wallet orderType, captures M4B metadata, clears schedule on final IPN and audits unmatched IPNs', async () => {
     const order = await seed();
-    const blankRes = await ipn(order, { orderType: '   ' });
-    assert.equal(blankRes.status, 400);
-    const napasRes = await ipn(order, { orderType: 'napas', payType: 'napas' });
-    assert.equal(napasRes.status, 204);
+    for (const invalidType of ['   ', 'momo_disbursement', 'momo_remittance', 'napas']) {
+      const badRes = await ipn(order, { orderType: invalidType });
+      assert.equal(badRes.status, 400, `orderType=${invalidType} must be rejected per official MoMo spec`);
+    }
+    const paidRes = await ipn(order, {
+      orderType: 'momo_wallet',
+      payType: 'aio_qr',
+      paymentOption: 'pay_later',
+      userFee: 0,
+      promotionInfo: [{ voucherId: 'VC-MOMO', voucherName: 'Ưu đãi MoMo', voucherType: 'Percent', amount: 15000, amountSponsor: 7500, merchantRate: '50' }]
+    });
+    assert.equal(paidRes.status, 204);
     assert.equal((await state(order)).payment_status, 'paid');
+    const paidAttempt = (await pool.query('SELECT next_status_check_at FROM payment_attempts WHERE order_id=$1', [order.id])).rows[0];
+    assert.equal(paidAttempt.next_status_check_at, null, 'terminal paid IPN must clear next_status_check_at');
+    const paidAudit = (await pool.query("SELECT metadata FROM audit_events WHERE action='payment.momo.callback' AND entity_id=$1 ORDER BY created_at DESC LIMIT 1", [order.id])).rows[0];
+    assert.equal(paidAudit.metadata.providerMeta?.payType, 'aio_qr');
+    assert.equal(paidAudit.metadata.providerMeta?.paymentOption, 'pay_later');
+    assert.equal(paidAudit.metadata.providerMeta?.promotionInfo?.[0]?.amountSponsor, 7500);
+
+    const cancelledOrder = await seed();
+    assert.equal((await ipn(cancelledOrder, { resultCode: 1006, transId: 0 })).status, 204);
+    const failedAttempt = (await pool.query('SELECT status, next_status_check_at FROM payment_attempts WHERE order_id=$1', [cancelledOrder.id])).rows[0];
+    assert.equal(failedAttempt.status, 'failed');
+    assert.equal(failedAttempt.next_status_check_at, null, 'terminal failed IPN must clear next_status_check_at');
 
     const orphanRef = 'GR-20261126-ORPHAN9999';
     const orphanRes = await ipn({ order_number: orphanRef }, { transId: 777888999 });

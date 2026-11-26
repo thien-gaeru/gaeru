@@ -235,8 +235,11 @@ test('P2 & P3: Admin safe JSON parse, keepalive, soft-delete guards, touchstart 
   assert.match(stylesCss, /\.filter-row::-webkit-scrollbar\s*\{\s*display:\s*none;\s*\}/);
   assert.match(qpCss, /\.quick-cart-premium \.qc-thumbs::-webkit-scrollbar\s*\{\s*display:\s*none;\s*\}/);
 
+  const indexHtml = fs.readFileSync(path.join(ROOT, 'index.html'), 'utf8');
+  const expectedCommerceVer = indexHtml.match(/commerce\.js\?v=([^"']+)/)?.[1];
+  assert.ok(expectedCommerceVer, 'index.html must include versioned commerce.js');
   for (const f of ['complaints.html', 'delivery-returns.html', 'gaeru-xu.html', 'legal.html', 'payment.html', 'pricing.html', 'privacy.html', 'terms.html']) {
     const html = fs.readFileSync(path.join(ROOT, f), 'utf8');
-    assert.match(html, /data-policy-commerce="\/commerce\.js\?v=20261125-qc-compact"/, `${f} must match unified commerce.js version`);
+    assert.ok(html.includes(`data-policy-commerce="/commerce.js?v=${expectedCommerceVer}"`), `${f} must match unified commerce.js version`);
   }
 });

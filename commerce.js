@@ -1020,9 +1020,9 @@ async function renderCheckout() {
     },
     momo: {
       title: "Ví điện tử MoMo",
-      sub: "Chuyển hướng an toàn sang ứng dụng Ví MoMo",
+      sub: "Ví MoMo, quét AIO QR hoặc Ví Trả Sau (1.000 ₫ – 50.000.000 ₫)",
       badge: "",
-      icon: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="5" width="18" height="14" rx="3"/><path d="M16 12h2"/><path d="M3 9h18"/></svg>'
+      icon: '<picture><source srcset="/assets/brand/momo-logo.webp" type="image/webp"><img class="payment-brand-logo" src="/assets/brand/momo-logo.png" alt="" width="28" height="28" loading="lazy" decoding="async"></picture>'
     },
     zalopay: {
       title: "Ví điện tử ZaloPay",
@@ -1145,14 +1145,20 @@ async function renderCheckout() {
       if (loyaltyText) loyaltyText.textContent = "−0 ₫";
     }
   };
+  let currentCheckoutFee = freeNationwide ? 0 : undefined;
+  let currentNetProductTotal = total;
+  let syncPaymentHelp = () => {};
   const updateShippingTotal = () => {
     updateLoyaltyDiscount();
     const fee = freeNationwide ? 0 : window.GAERUCheckout.shippingFee(shippingRates,form.elements.city.value);
     const netProductTotal = Math.max(0, total - bundleDiscount - voucherDiscount - loyaltyDiscount);
+    currentCheckoutFee = fee;
+    currentNetProductTotal = netProductTotal;
     root.querySelector("[data-checkout-shipping]").textContent =
       fee === undefined ? "Chưa tính phí" : formatPrice(fee);
     root.querySelector("[data-checkout-total]").textContent =
       fee === undefined ? formatPrice(netProductTotal)+" + phí giao hàng" : formatPrice(netProductTotal + fee);
+    syncPaymentHelp();
   };
   if (rows.length >= 2) {
     apiRequest("/api/bundles/quote", {
@@ -1215,17 +1221,25 @@ async function renderCheckout() {
   updateShippingTotal();
   const updatePaymentHelp = () => {
     const bank = storeSettings.bankTransfer;
+    const payableEstimate = currentCheckoutFee === undefined ? currentNetProductTotal : currentNetProductTotal + currentCheckoutFee;
+    let momoHelp = "Bạn sẽ được chuyển tới trang thanh toán chính thức của MoMo (Ví MoMo, AIO QR hoặc Ví Trả Sau · phiên có hiệu lực 15 phút). Giao dịch thành công sẽ tự động duyệt đơn sang Chờ gửi hàng.";
+    if (payableEstimate > 50000000) {
+      momoHelp = "Lưu ý: Tổng đơn hiện tại vượt hạn mức tối đa 50.000.000 ₫ mỗi giao dịch của MoMo. Vui lòng chọn Chuyển khoản VietQR, VNPAY hoặc COD.";
+    } else if (currentCheckoutFee !== undefined && payableEstimate < 1000) {
+      momoHelp = "Lưu ý: MoMo yêu cầu tổng thanh toán tối thiểu 1.000 ₫. Vui lòng giảm số GAERU Xu sử dụng hoặc chọn COD.";
+    }
     const map = {
       cod: storeSettings.cod?.instructions || "Thanh toán trực tiếp khi nhận hàng. GAERU sẽ xác nhận đơn trước khi gửi.",
       bank_transfer: bank
         ? `Chuyển khoản tới ${bank.bankName} · STK ${bank.accountNumber} (${bank.accountHolder}) với nội dung theo cú pháp ${bank.transferSyntax}. Giao dịch khớp tự động sẽ duyệt đơn sang Chờ gửi hàng, bỏ qua bước xác nhận.`
         : "Chuyển khoản ngân hàng theo cú pháp mã đơn. Đơn được duyệt tự động sang Chờ gửi hàng ngay khi khớp giao dịch.",
       vnpay: "Bạn sẽ được chuyển tới VNPAY để thanh toán an toàn. Giao dịch thành công sẽ tự động duyệt đơn sang Chờ gửi hàng.",
-      momo: "Bạn sẽ được chuyển tới Ví MoMo để thanh toán. Giao dịch thành công sẽ tự động duyệt đơn sang Chờ gửi hàng.",
+      momo: momoHelp,
       zalopay: "Bạn sẽ được chuyển tới Ví ZaloPay để thanh toán. Giao dịch thành công sẽ tự động duyệt đơn sang Chờ gửi hàng."
     };
     paymentHelp.textContent = map[paymentMethod.value] || map.cod;
   };
+  syncPaymentHelp = updatePaymentHelp;
 
 
 

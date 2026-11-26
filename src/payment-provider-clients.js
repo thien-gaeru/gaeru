@@ -21,7 +21,9 @@ const PROVIDERS = Object.freeze({
   }
 });
 const MAX_RESPONSE_BYTES = 64 * 1024;
-const TIMEOUT_MS = 30000; // MoMo specifies a minimum 30 second client timeout.
+const TIMEOUT_MS = 35000; // MoMo specifies a minimum 30 second client timeout; 35s gives 5s TLS/network margin.
+const MAX_TIMEOUT_MS = 60000;
+const MOMO_DEFAULT_EXPIRE_MINUTES = 15;
 const hmac = (key, value) => createHmac('sha256', key).update(value, 'utf8').digest('hex');
 function fail(provider, code, { status = 502, ambiguous = false, upstreamStatus } = {}) {
   const name = PROVIDERS[provider]?.name || 'thanh toán';
@@ -116,7 +118,7 @@ async function post(provider, settings, operation, body, options) {
   const meta = PROVIDERS[provider];
   const fetcher = options.fetcher || fetch;
   const timeoutMs = options.timeoutMs ?? TIMEOUT_MS;
-  if (typeof fetcher !== 'function' || !Number.isInteger(timeoutMs) || timeoutMs < 1 || timeoutMs > TIMEOUT_MS) throw fail(provider, 'PAYMENT_REQUEST_INVALID', { status: 400 });
+  if (typeof fetcher !== 'function' || !Number.isInteger(timeoutMs) || timeoutMs < 1 || timeoutMs > MAX_TIMEOUT_MS) throw fail(provider, 'PAYMENT_REQUEST_INVALID', { status: 400 });
   const controller = new AbortController();
   let timer;
   const timeout = new Promise((_, reject) => { timer = setTimeout(() => {
@@ -143,6 +145,110 @@ function safeTransactionId(value) {
   if (typeof value === 'number' && !Number.isSafeInteger(value)) return null;
   return /^[A-Za-z0-9_.:-]{1,100}$/.test(String(value ?? '')) ? String(value) : null;
 }
+function cleanOptionalString(value, max) {
+  if (typeof value !== 'string') return null;
+  const trimmed = value.replace(/[\u0000-\u001f\u007f]/g, ' ').trim();
+  return trimmed.length ? trimmed.slice(0, max) : null;
+}
+function sanitizeMomoItems(rawItems) {
+  if (!Array.isArray(rawItems) || rawItems.length === 0) return undefined;
+  const usedIds = new Set();
+  const out = [];
+  for (let i = 0; i < rawItems.length && out.length < 50; i++) {
+    const item = rawItems[i];
+    if (!item || typeof item !== 'object') continue;
+    const price = Number(item.price);
+    const quantity = Number(item.quantity);
+    if (!Number.isSafeInteger(price) || price < 0 || !Number.isSafeInteger(quantity) || quantity < 1) continue;
+    const name = cleanOptionalString(item.name, 200);
+    if (!name) continue;
+    let id = cleanOptionalString(String(item.id ?? ''), 80) || `ITEM-${i + 1}`;
+    if (usedIds.has(id)) {
+      let suffix = i + 1;
+      while (usedIds.has(`${id}-${suffix}`)) suffix++;
+      id = `${id.slice(0, 70)}-${suffix}`;
+    }
+    usedIds.add(id);
+    const totalPrice = Number.isSafeInteger(Number(item.totalPrice)) && Number(item.totalPrice) >= 0
+      ? Number(item.totalPrice)
+      : price * quantity;
+    const entry = { id, name, price, currency: 'VND', quantity, totalPrice };
+    const manufacturer = cleanOptionalString(item.manufacturer, 100);
+    if (manufacturer) entry.manufacturer = manufacturer;
+    const category = cleanOptionalString(item.category, 100);
+    if (category) entry.category = category;
+    const description = cleanOptionalString(item.description, 255);
+    if (description) entry.description = description;
+    const unit = cleanOptionalString(item.unit, 50);
+    if (unit) entry.unit = unit;
+    if (typeof item.imageUrl === 'string') {
+      try {
+        const parsedImg = new URL(item.imageUrl);
+        if (parsedImg.protocol === 'https:') entry.imageUrl = parsedImg.toString().slice(0, 500);
+      } catch {}
+    }
+    out.push(entry);
+  }
+  return out.length ? out : undefined;
+}
+function sanitizeMomoDeliveryInfo(info) {
+  if (!info || typeof info !== 'object' || Array.isArray(info)) return undefined;
+  const out = {};
+  const deliveryAddress = cleanOptionalString(info.deliveryAddress, 300);
+  if (deliveryAddress) out.deliveryAddress = deliveryAddress;
+  if (info.deliveryFee !== undefined && info.deliveryFee !== null && info.deliveryFee !== '') {
+    const fee = cleanOptionalString(String(info.deliveryFee), 30);
+    if (fee && /^\d+$/.test(fee)) out.deliveryFee = fee;
+  }
+  if (info.quantity !== undefined && info.quantity !== null && info.quantity !== '') {
+    const qty = cleanOptionalString(String(info.quantity), 20);
+    if (qty && /^\d+$/.test(qty)) out.quantity = qty;
+  }
+  return Object.keys(out).length ? out : undefined;
+}
+function sanitizeMomoUserInfo(info) {
+  if (!info || typeof info !== 'object' || Array.isArray(info)) return undefined;
+  const out = {};
+  const name = cleanOptionalString(info.name, 120);
+  if (name) out.name = name;
+  const phoneNumber = cleanOptionalString(info.phoneNumber, 30);
+  if (phoneNumber) out.phoneNumber = phoneNumber;
+  const email = cleanOptionalString(info.email, 254);
+  if (email) out.email = email;
+  return Object.keys(out).length ? out : undefined;
+}
+function extractMomoReconciliationMeta(data) {
+  if (!data || typeof data !== 'object') return {};
+  const payType = cleanOptionalString(data.payType, 64);
+  const paymentOption = cleanOptionalString(data.paymentOption, 64);
+  const rawFee = data.userFee;
+  const userFee = (typeof rawFee === 'number' || (typeof rawFee === 'string' && /^\d+$/.test(rawFee)))
+    && Number.isSafeInteger(Number(rawFee)) && Number(rawFee) >= 0
+    ? Number(rawFee)
+    : null;
+  let promotionInfo = null;
+  if (Array.isArray(data.promotionInfo) && data.promotionInfo.length > 0) {
+    const promos = [];
+    for (const p of data.promotionInfo.slice(0, 20)) {
+      if (!p || typeof p !== 'object') continue;
+      promos.push({
+        voucherId: cleanOptionalString(String(p.voucherId ?? ''), 120),
+        voucherName: cleanOptionalString(String(p.voucherName ?? ''), 200),
+        voucherType: cleanOptionalString(String(p.voucherType ?? ''), 60),
+        amount: Number.isSafeInteger(Number(p.amount)) && Number(p.amount) >= 0 ? Number(p.amount) : null,
+        amountSponsor: Number.isSafeInteger(Number(p.amountSponsor)) && Number(p.amountSponsor) >= 0 ? Number(p.amountSponsor) : null,
+        merchantRate: cleanOptionalString(String(p.merchantRate ?? ''), 40)
+      });
+    }
+    if (promos.length) promotionInfo = promos;
+  }
+  return {
+    ...(payType ? { payType } : {}),
+    ...(paymentOption ? { paymentOption } : {}),
+    ...(userFee !== null ? { userFee } : {}),
+    ...(promotionInfo ? { promotionInfo } : {})
+  };
+}
 
 async function createGatewayPayment(provider, settings, options = {}) {
   credentials(provider, settings);
@@ -153,10 +259,22 @@ async function createGatewayPayment(provider, settings, options = {}) {
   const baseUrl = publicOrigin(provider, options.baseUrl);
   let body;
   if (provider === 'momo') {
+    const expireMinutes = options.orderExpireTime === undefined ? MOMO_DEFAULT_EXPIRE_MINUTES : options.orderExpireTime;
+    if (!Number.isInteger(expireMinutes) || expireMinutes < 1 || expireMinutes > 1440) throw fail(provider, 'PAYMENT_REQUEST_INVALID', { status: 400 });
     body = { partnerCode: settings.partnerCode, requestId, orderId: options.txnRef, amount,
       orderInfo: 'Thanh toan don hang ' + options.txnRef,
       redirectUrl: baseUrl + '/api/payments/momo/return', ipnUrl: baseUrl + '/api/payments/momo/ipn',
-      requestType: 'captureWallet', extraData: '', autoCapture: true, lang: 'vi' };
+      requestType: 'captureWallet', extraData: '', autoCapture: true, orderExpireTime: expireMinutes, lang: 'vi' };
+    const storeName = cleanOptionalString(options.storeName, 100);
+    if (storeName) body.storeName = storeName;
+    const storeId = cleanOptionalString(options.storeId, 50);
+    if (storeId) body.storeId = storeId;
+    const items = sanitizeMomoItems(options.items);
+    if (items) body.items = items;
+    const deliveryInfo = sanitizeMomoDeliveryInfo(options.deliveryInfo);
+    if (deliveryInfo) body.deliveryInfo = deliveryInfo;
+    const userInfo = sanitizeMomoUserInfo(options.userInfo);
+    if (userInfo) body.userInfo = userInfo;
     body.signature = hmac(settings.secretKey, `accessKey=${settings.accessKey}&amount=${amount}&extraData=&ipnUrl=${body.ipnUrl}&orderId=${body.orderId}&orderInfo=${body.orderInfo}&partnerCode=${body.partnerCode}&redirectUrl=${body.redirectUrl}&requestId=${requestId}&requestType=captureWallet`);
   } else {
     body = { app_id: Number(settings.appId), app_user: 'gaeru', app_trans_id: requestId, app_time: time,
@@ -210,10 +328,12 @@ async function queryGatewayPayment(provider, settings, options = {}) {
     || (state === 'paid' && !(typeof data.transId === 'number' && Number.isSafeInteger(data.transId) && data.transId > 0)))) {
     throw fail(provider, 'PAYMENT_RESPONSE_MISMATCH');
   }
+  const momoMeta = provider === 'momo' && found ? extractMomoReconciliationMeta(data) : {};
   return { provider, requestId, transactionRef: options.txnRef, reachable: true, found, state,
     amountVnd: found ? data.amount : null, successful: found && state === 'paid',
     hasRefund: provider === 'momo' && Array.isArray(data.refundTrans) && data.refundTrans.some(refund => refund && [0, 7000, 7002].includes(refund.resultCode)),
-    providerTransactionId: safeTransactionId(provider === 'momo' ? data.transId : data.zp_trans_id), resultCode };
+    providerTransactionId: safeTransactionId(provider === 'momo' ? data.transId : data.zp_trans_id), resultCode,
+    ...(Object.keys(momoMeta).length ? { providerMeta: momoMeta, ...momoMeta } : {}) };
 }
 
 async function verifyGatewayAccount(provider, settings, options = {}) {
@@ -233,4 +353,4 @@ async function verifyGatewayAccount(provider, settings, options = {}) {
       message: 'Chưa xác minh được thông tin merchant ' + PROVIDERS[provider].name + '. Kiểm tra cấu hình và thử lại sau.' };
   }
 }
-module.exports = { createGatewayPayment, queryGatewayPayment, verifyGatewayAccount };
+module.exports = { createGatewayPayment, queryGatewayPayment, verifyGatewayAccount, extractMomoReconciliationMeta };

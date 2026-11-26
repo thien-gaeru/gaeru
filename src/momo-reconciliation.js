@@ -55,6 +55,7 @@ async function reconcileNextMomoPayment(pool, config, options = {}) {
           provider: 'momo', orderNumber: attempt.transaction_ref, amountVnd: result.amountVnd,
           successful: result.successful, pending: result.state === 'pending',
           providerTransactionId: result.providerTransactionId, responseCode: String(result.resultCode),
+          providerMeta: result.providerMeta || null,
           finance: options.finance || require('./finance-api'), audit: options.audit,
           evidence: 'query'
         });

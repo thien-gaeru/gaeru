@@ -1061,7 +1061,7 @@ function createStoreApi(pool, { ordersEnabled = false, getOrdersEnabled = null, 
           }
           return {code:'97',matched:false,message:'Provider request mismatch'};
         }
-        const outcome=await require('./payment-channels').reconcilePrepaidOrder(client,{provider,orderNumber:verified.orderNumber,amountVnd:verified.amountVnd,successful:verified.successful,pending:verified.pending,providerTransactionId:verified.providerTransactionId,responseCode:verified.responseCode,finance,audit});
+        const outcome=await require('./payment-channels').reconcilePrepaidOrder(client,{provider,orderNumber:verified.orderNumber,amountVnd:verified.amountVnd,successful:verified.successful,pending:verified.pending,providerTransactionId:verified.providerTransactionId,responseCode:verified.responseCode,providerMeta:verified.providerMeta||null,finance,audit});
         if(outcome.matched&&req.paymentChannels?.versions)await require('./payment-channels').recordGatewayEvidence(client,provider,req.paymentChannels.versions[provider],{enabled:req.paymentChannels.methods.includes(provider)});
         return outcome;
       });
@@ -1578,6 +1578,28 @@ function createStoreApi(pool, { ordersEnabled = false, getOrdersEnabled = null, 
         // Phase 2: External provider HTTP call WITHOUT holding any PostgreSQL connection or row lock!
         let gateway;
         try {
+          const momoOrderExtras = parsed.data.paymentMethod === "momo" ? {
+            orderExpireTime: 15,
+            storeName: "GAERU",
+            items: phase1.prepared.map((item) => ({
+              id: item.sku || String(item.id),
+              name: item.variantName ? `${item.productName} - ${item.variantName}` : item.productName,
+              manufacturer: "GAERU",
+              price: item.priceVnd,
+              quantity: item.quantity,
+              totalPrice: item.priceVnd * item.quantity
+            })),
+            deliveryInfo: {
+              deliveryAddress: [parsed.data.customer.address, parsed.data.customer.city].filter(Boolean).join(", "),
+              deliveryFee: String(phase1.shippingFee),
+              quantity: String(phase1.prepared.reduce((sum, item) => sum + item.quantity, 0))
+            },
+            userInfo: {
+              name: parsed.data.customer.name,
+              phoneNumber: parsed.data.customer.phone,
+              email: parsed.data.customer.email
+            }
+          } : {};
           gateway = await require("./payment-provider-clients").createGatewayPayment(
             parsed.data.paymentMethod,
             phase1.channelConfig,
@@ -1587,7 +1609,8 @@ function createStoreApi(pool, { ordersEnabled = false, getOrdersEnabled = null, 
               requestId: phase1.providerRequestId,
               now: phase1.intentNow,
               baseUrl: publicBaseUrl,
-              fetcher: paymentFetcher
+              fetcher: paymentFetcher,
+              ...momoOrderExtras
             }
           );
         } catch (gatewayErr) {

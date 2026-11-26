@@ -87,6 +87,17 @@ test('failed returns display only failure information for each supported payment
   }
 });
 
+test('all 15 official MoMo final failure codes display tailored Vietnamese user guidance',async()=>{
+  const { FINAL_FAILURE_CODES } = require('../src/momo-protocol');
+  assert.equal(FINAL_FAILURE_CODES.length, 15);
+  for (const code of FINAL_FAILURE_CODES) {
+    const page = await fixture({query:new URLSearchParams({result:'failed',provider:'momo',code:String(code),order:orderNumber}).toString()});
+    const text = page.text();
+    assert.doesNotMatch(text, /Giao dịch chưa hoàn tất\./, `MoMo final code ${code} must have specific guidance`);
+    assert.doesNotMatch(text, /Đã thanh toán thành công/);
+  }
+});
+
 test('pagehide aborts pending work, clears timers and prevents late payment responses from changing the page',async()=>{
   let resolve;
   const f=await fixture({fetcher:()=>new Promise(done=>{resolve=done;})});
