@@ -394,5 +394,81 @@ test('MoMo Package B (payWithMethod AIO) & Package C (Refund + Query Refund) ful
       initiateMomoRefund(pool, { ...config, NODE_ENV: 'production' }, { orderNumber: ambOrder.order_number, amountVnd: 120000, actor: owner }),
       (e) => e.status === 400
     );
+
+    // Refund success without positive numeric transId or invalid amount must fail closed (PAYMENT_RESPONSE_MISMATCH)
+    await assert.rejects(
+      refundGatewayPayment('momo', momoAioSettings, {
+        originalOrderId: 'GR-20261126-ORIG1',
+        refundOrderId: 'RF-20261126-ORIG1-NOID',
+        requestId: 'RF-REQ-NOID',
+        originalTransId: 4088878653,
+        amountVnd: 10000,
+        fetcher: async (_u, init) => {
+          const b = JSON.parse(init.body);
+          return new Response(JSON.stringify({ partnerCode: b.partnerCode, orderId: b.orderId, requestId: b.requestId, amount: b.amount, transId: 0, resultCode: 0 }), { status: 200 });
+        }
+      }),
+      (e) => e.code === 'PAYMENT_RESPONSE_MISMATCH'
+    );
+    await assert.rejects(
+      queryGatewayRefund('momo', momoAioSettings, {
+        refundOrderId: 'RF-20261126-ORIG1-NOID',
+        amountVnd: 10000,
+        fetcher: async (_u, init) => {
+          const b = JSON.parse(init.body);
+          return new Response(JSON.stringify({
+            partnerCode: b.partnerCode, requestId: b.requestId, resultCode: 0,
+            refundTrans: [{ orderId: 'RF-20261126-ORIG1-NOID', amount: 'bad', resultCode: 0, transId: 123456 }]
+          }), { status: 200 });
+        }
+      }),
+      (e) => e.code === 'PAYMENT_RESPONSE_MISMATCH'
+    );
+
+    // Crashed pending_provider refund older than 2 minutes is recovered automatically by reconcileNextMomoRefund
+    const crashOrder = await seedPaidOrder({ amountVnd: 80000, transId: '7022233344' });
+    const crashed = (await pool.query(
+      `INSERT INTO momo_refunds (order_id, order_number, refund_order_id, request_id, original_trans_id, amount_vnd, status, environment, created_by, created_at)
+       VALUES ($1, $2, 'RF-CRASH-001', 'REQ-CRASH-001', 7022233344, 80000, 'pending_provider', 'sandbox', 'owner', now() - interval '5 minutes')
+       RETURNING id`,
+      [crashOrder.id, crashOrder.order_number]
+    )).rows[0];
+    const recovered = await reconcileNextMomoRefund(pool, config, {
+      fetcher: async (_u, init) => {
+        const b = JSON.parse(init.body);
+        return new Response(JSON.stringify({
+          partnerCode: b.partnerCode, orderId: crashOrder.order_number, requestId: b.requestId, resultCode: 0,
+          refundTrans: [{ orderId: 'RF-CRASH-001', amount: 80000, resultCode: 0, transId: 888999000, createdTime: Date.now() }]
+        }), { status: 200 });
+      }
+    });
+    assert.equal(recovered.checked, true);
+    assert.equal(recovered.refund.id, crashed.id);
+    assert.equal(recovered.refund.status, 'succeeded');
+    assert.equal(recovered.refund.refundTransId, '888999000');
+
+    // Merchant rotation mid-refund-query must abort with PAYMENT_CONFIGURATION_CHANGED
+    const rotOrder = await seedPaidOrder({ amountVnd: 90000, transId: '7033344455' });
+    const rotRow = (await pool.query(
+      `INSERT INTO momo_refunds (order_id, order_number, refund_order_id, request_id, original_trans_id, amount_vnd, status, environment, created_by)
+       VALUES ($1, $2, 'RF-ROT-001', 'REQ-ROT-001', 7033344455, 90000, 'ambiguous', 'sandbox', 'owner')
+       RETURNING id`,
+      [rotOrder.id, rotOrder.order_number]
+    )).rows[0];
+    await assert.rejects(
+      queryMomoRefundStatus(pool, config, rotRow.id, {
+        actor: owner,
+        fetcher: async (_u, init) => {
+          const b = JSON.parse(init.body);
+          await writeRecord(pool, config, 'payment_momo', { ...momoAioSettings, partnerCode: 'MOMO_CHANGED_MID_QUERY' }, 1, owner);
+          return new Response(JSON.stringify({
+            partnerCode: b.partnerCode, orderId: rotOrder.order_number, requestId: b.requestId, resultCode: 0,
+            refundTrans: [{ orderId: 'RF-ROT-001', amount: 90000, resultCode: 0, transId: 888999111, createdTime: Date.now() }]
+          }), { status: 200 });
+        }
+      }),
+      (e) => e.code === 'PAYMENT_CONFIGURATION_CHANGED'
+    );
+    await writeRecord(pool, config, 'payment_momo', momoAioSettings, 2, owner);
   });
 });

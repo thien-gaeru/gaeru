@@ -309,7 +309,7 @@ async function mountPayments(){
 
  const reconcileHtml='<details class="configuration-panel" id="config-panel-payment-reconcile"><summary>Xác nhận thanh toán sau đối chiếu</summary><p class="help-text">Chỉ xác nhận tại đây sau khi đã đối chiếu tiền thực nhận và chứng từ của đúng đơn hàng. Thao tác này ghi nhận thanh toán thủ công; không truy vấn số dư ngân hàng và không chuyển tiền.</p><form class="configuration-form" data-payment-reconcile-form><div class="form-grid"><label>Kênh thanh toán trước<select name="provider"><option value="bank_transfer">Chuyển khoản ngân hàng</option><option value="momo">Ví điện tử MoMo</option><option value="zalopay">Ví điện tử ZaloPay</option><option value="vnpay">Cổng VNPAY</option></select></label><label>Mã đơn / Nội dung giao dịch<input name="orderNumber" required maxlength="120" placeholder="VD: GAERU GR-20261027-ABCDE12345"></label><label>Số tiền giao dịch (₫)<input name="amountVnd" type="number" required min="1" max="2000000000" placeholder="Nhập đúng tổng tiền đơn"></label><label>Mã giao dịch tham chiếu<input name="providerTransactionId" maxlength="120" placeholder="Mã GD ngân hàng / ví (tùy chọn)"></label></div><div class="configuration-reauth"><p>Xác nhận bằng mật khẩu hiện tại của chủ doanh nghiệp.</p><div class="form-grid"><label>Mật khẩu hiện tại<input name="password" type="password" autocomplete="current-password" required maxlength="200"></label><label>Mã xác thực / mã dự phòng<input name="factorCode" autocomplete="one-time-code" maxlength="32"></label></div></div><div class="configuration-actions"><button type="submit" class="primary-button">Xác nhận đã đối chiếu và nhận tiền</button><p role="status" data-reconcile-result></p></div></form></details>';
 
- const momoRefundHtml='<details class="configuration-panel" id="config-panel-momo-refund"><summary>Hoàn tiền qua API MoMo (Toàn phần / Một phần)</summary><p class="help-text">Gửi lệnh hoàn tiền trực tiếp tới MoMo (<code>POST /v2/gateway/api/refund</code>) cho đơn MoMo đã thanh toán thành công và có mã giao dịch số (<code>transId</code>). Mỗi lệnh tạo mã hoàn tiền mới tách biệt mã đơn gốc; với thẻ ATM nội địa MoMo yêu cầu hoàn tối thiểu 10.000 ₫.</p><form class="configuration-form" data-momo-refund-form><div class="form-grid"><label>Mã đơn hàng MoMo<input name="orderNumber" required maxlength="80" placeholder="VD: GR-20261126-ABCDE12345"></label><label>Số tiền hoàn (₫)<input name="amountVnd" type="number" required min="1000" max="50000000" placeholder="Từ 1.000 đến 50.000.000"></label><label>Lý do hoàn tiền<input name="description" maxlength="255" placeholder="VD: Khách trả hàng / hủy đơn trước khi giao"></label></div><div class="configuration-reauth"><p>Xác nhận bằng mật khẩu và mã xác thực hiện tại của chủ doanh nghiệp.</p><div class="form-grid"><label>Mật khẩu hiện tại<input name="password" type="password" autocomplete="current-password" required maxlength="200"></label><label>Mã xác thực / mã dự phòng<input name="factorCode" autocomplete="one-time-code" maxlength="32"></label></div><button type="button" data-config-email>Gửi mã qua email</button></div><div class="configuration-actions"><button type="submit" class="primary-button">Gửi lệnh hoàn tiền MoMo</button><button type="button" class="secondary-button" data-momo-refund-refresh>Tải lại lịch sử hoàn tiền</button><p role="status" data-momo-refund-result></p></div></form><div data-momo-refund-list style="margin-top:14px;"></div></details>';
+ const momoRefundHtml='<details class="configuration-panel" id="config-panel-momo-refund"><summary>Hoàn tiền qua API MoMo (Toàn phần / Một phần)</summary><p class="help-text">Gửi lệnh hoàn tiền trực tiếp tới MoMo (<code>POST /v2/gateway/api/refund</code>) cho đơn MoMo đã thanh toán thành công và có mã giao dịch số (<code>transId</code>). Mỗi lệnh tạo mã hoàn tiền mới tách biệt mã đơn gốc; với thẻ ATM nội địa MoMo yêu cầu hoàn tối thiểu 10.000 ₫.</p><form class="configuration-form" data-momo-refund-form><div class="form-grid"><label>Mã đơn hàng MoMo<input name="orderNumber" required maxlength="80" placeholder="VD: GR-20261126-ABCDE12345"></label><label>Số tiền hoàn (₫)<input name="amountVnd" type="number" required min="1000" max="50000000" placeholder="Từ 1.000 đến 50.000.000"></label><label style="grid-column:1/-1">Lý do hoàn tiền<input name="description" maxlength="255" placeholder="VD: Khách trả hàng / hủy đơn trước khi giao"></label></div><div class="configuration-reauth"><p>Xác nhận bằng mật khẩu và mã xác thực hiện tại của chủ doanh nghiệp.</p><div class="form-grid"><label>Mật khẩu hiện tại<input name="password" type="password" autocomplete="current-password" required maxlength="200"></label><label>Mã xác thực / mã dự phòng<input name="factorCode" autocomplete="one-time-code" maxlength="32"></label></div><button type="button" data-config-email>Gửi mã qua email</button></div><div class="configuration-actions"><button type="submit" class="primary-button">Gửi lệnh hoàn tiền MoMo</button><button type="button" class="secondary-button" data-momo-refund-refresh>Tải lại lịch sử hoàn tiền</button><p role="status" data-momo-refund-result></p></div></form><div data-momo-refund-list style="margin-top:14px;"></div></details>';
 
  root.innerHTML=introHtml+'<div class="payment-channel-grid">'+cardsHtml+'</div>'+reconcileHtml+momoRefundHtml;
  void loadMomoRefunds();
@@ -588,13 +588,22 @@ document.addEventListener('submit',async e=>{
   const btn=mrf.querySelector('[type=submit]'),st=mrf.querySelector('[data-momo-refund-result]');
   if(btn?.disabled)return;
   if(btn&&admin.setButtonBusy)admin.setButtonBusy(btn,true,'Đang gửi lệnh hoàn tiền…');else if(btn)btn.disabled=true;
+  const orderNumber=mrf.elements.orderNumber.value.trim();
+  const amountVnd=Number(mrf.elements.amountVnd.value);
+  const description=mrf.elements.description.value.trim();
+  const sig=orderNumber+'|'+amountVnd+'|'+description;
+  if(mrf.dataset.refundSig!==sig||!mrf.dataset.refundRequestKey){
+   mrf.dataset.refundSig=sig;
+   mrf.dataset.refundRequestKey='momo-rf-'+Date.now()+'-'+Math.random().toString(36).slice(2,10);
+  }
   try{
    const res=await admin.request('/api/gaeru_ceo/owner/payments/momo/refunds',{
     method:'POST',
     body:JSON.stringify({
-     orderNumber:mrf.elements.orderNumber.value.trim(),
-     amountVnd:Number(mrf.elements.amountVnd.value),
-     description:mrf.elements.description.value.trim(),
+     orderNumber,
+     amountVnd,
+     description,
+     requestKey:mrf.dataset.refundRequestKey,
      password:mrf.elements.password.value,
      factorCode:mrf.elements.factorCode.value,
      factorChallengeId:mrf.dataset.challenge
@@ -602,9 +611,20 @@ document.addEventListener('submit',async e=>{
    });
    st.textContent=res.message;
    admin.showGlobal(res.message);
+   delete mrf.dataset.refundRequestKey;
+   delete mrf.dataset.refundSig;
+   if(res?.refund?.status==='succeeded'){
+    mrf.elements.orderNumber.value='';
+    mrf.elements.amountVnd.value='';
+    mrf.elements.description.value='';
+   }
    await loadMomoRefunds();
   }catch(err){
    st.textContent=err.message;
+   if(err?.status&&err.status>=400&&err.status<500){
+    delete mrf.dataset.refundRequestKey;
+    delete mrf.dataset.refundSig;
+   }
   }finally{
    mrf.elements.password.value='';
    mrf.elements.factorCode.value='';

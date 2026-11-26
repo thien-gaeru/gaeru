@@ -7,6 +7,7 @@ const momoProtocol = require('./momo-protocol');
 const { refundGatewayPayment, queryGatewayRefund } = require('./payment-provider-clients');
 
 const fail = (message, status = 409, extra = {}) => Object.assign(new Error(message), { status, ...extra });
+const sameMerchant = (a, b) => ['partnerCode', 'accessKey', 'secretKey', 'environment'].every(key => a?.[key] === b?.[key]);
 
 function generateRefundOrderId(orderNumber) {
   const stem = String(orderNumber || 'ORDER').replace(/^GR-/, '').replace(/[^A-Za-z0-9-]/g, '').slice(0, 24) || 'ORDER';
@@ -289,6 +290,11 @@ async function queryMomoRefundStatus(pool, config, refundId, { actor = null, fet
   });
 
   const updatedRefund = await withTransaction(pool, async (client) => {
+    await client.query("SELECT pg_advisory_xact_lock(hashtext('gaeru:payment-config:momo'))");
+    const current = await resolveMomoSettings(client, config);
+    if (!sameMerchant(current.data, record.data)) {
+      throw fail('Cấu hình merchant MoMo vừa thay đổi trong lúc tra cứu hoàn tiền.', 409, { code: 'PAYMENT_CONFIGURATION_CHANGED' });
+    }
     const locked = (await client.query('SELECT * FROM momo_refunds WHERE id = $1 FOR UPDATE', [refundId])).rows[0];
     if (!locked) throw fail('Không tìm thấy lệnh hoàn tiền MoMo.', 404);
     if (locked.status === 'succeeded') return formatRefundRow(locked);
@@ -369,19 +375,26 @@ async function listMomoRefunds(pool, { orderNumber = '' } = {}) {
 }
 
 async function reconcileNextMomoRefund(pool, config, options = {}) {
+  // Atomically claim due pending/ambiguous refunds AND crashed pending_provider rows older than 2 minutes.
   const row = (await pool.query(
-    `SELECT id FROM momo_refunds
-     WHERE status IN ('pending', 'ambiguous')
-       AND created_at > now() - interval '72 hours'
-       AND (last_checked_at IS NULL OR last_checked_at <= now() - interval '2 minutes')
-     ORDER BY COALESCE(last_checked_at, created_at) ASC LIMIT 1`
+    `UPDATE momo_refunds SET last_checked_at = now(), updated_at = now()
+     WHERE id = (
+       SELECT id FROM momo_refunds
+       WHERE created_at > now() - interval '72 hours'
+         AND (
+           (status IN ('pending', 'ambiguous') AND (last_checked_at IS NULL OR last_checked_at <= now() - interval '2 minutes'))
+           OR (status = 'pending_provider' AND created_at <= now() - interval '2 minutes' AND (last_checked_at IS NULL OR last_checked_at <= now() - interval '2 minutes'))
+         )
+       ORDER BY COALESCE(last_checked_at, created_at) ASC
+       FOR UPDATE SKIP LOCKED LIMIT 1
+     )
+     RETURNING id`
   )).rows[0];
   if (!row) return { checked: false };
   try {
     const res = await queryMomoRefundStatus(pool, config, row.id, { fetcher: options.fetcher || config?.paymentFetcher, audit: options.audit });
     return { checked: true, refund: res.refund };
   } catch (error) {
-    await pool.query('UPDATE momo_refunds SET last_checked_at = now(), updated_at = now() WHERE id = $1', [row.id]).catch(() => {});
     return { checked: true, error: error.code || 'REFUND_QUERY_ERROR' };
   }
 }

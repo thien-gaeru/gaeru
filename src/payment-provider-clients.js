@@ -426,12 +426,13 @@ async function refundGatewayPayment(provider, settings, options = {}) {
   const data = await post(provider, settings, 'refund', body, options);
   if (!Number.isInteger(data.resultCode)) throw fail(provider, 'PAYMENT_RESPONSE_INVALID', { ambiguous: true });
   const state = momoProtocol.refundState(data.resultCode);
+  const refundTransId = safeTransactionId(typeof data.transId === 'number' && Number.isSafeInteger(data.transId) && data.transId > 0 ? data.transId : null);
   if (['succeeded', 'pending'].includes(state)) {
-    if (data.partnerCode !== settings.partnerCode || data.orderId !== refundOrderId || data.requestId !== requestId || data.amount !== amount) {
+    if (data.partnerCode !== settings.partnerCode || data.orderId !== refundOrderId || data.requestId !== requestId || data.amount !== amount
+      || (state === 'succeeded' && !refundTransId)) {
       throw fail(provider, 'PAYMENT_RESPONSE_MISMATCH', { ambiguous: true });
     }
   }
-  const refundTransId = safeTransactionId(data.transId && Number(data.transId) > 0 ? data.transId : null);
   return {
     provider,
     refundOrderId,
@@ -485,17 +486,21 @@ async function queryGatewayRefund(provider, settings, options = {}) {
     const entryCode = Number(matchedRefund.resultCode);
     if (!Number.isInteger(entryCode)) throw fail(provider, 'PAYMENT_RESPONSE_INVALID', { ambiguous: true });
     const entryAmount = Number(matchedRefund.amount);
-    if (options.amountVnd !== undefined && Number.isSafeInteger(entryAmount) && entryAmount !== options.amountVnd) {
+    if (!Number.isSafeInteger(entryAmount) || entryAmount < 1 || (options.amountVnd !== undefined && entryAmount !== options.amountVnd)) {
       throw fail(provider, 'PAYMENT_RESPONSE_MISMATCH', { ambiguous: true });
     }
     const state = momoProtocol.refundState(entryCode);
+    const refundTransId = safeTransactionId(typeof matchedRefund.transId === 'number' && Number.isSafeInteger(matchedRefund.transId) && matchedRefund.transId > 0 ? matchedRefund.transId : null);
+    if (state === 'succeeded' && !refundTransId) {
+      throw fail(provider, 'PAYMENT_RESPONSE_MISMATCH', { ambiguous: true });
+    }
     return {
       provider,
       found: true,
       refundOrderId,
       requestId,
-      amountVnd: Number.isSafeInteger(entryAmount) ? entryAmount : null,
-      refundTransId: safeTransactionId(matchedRefund.transId && Number(matchedRefund.transId) > 0 ? matchedRefund.transId : null),
+      amountVnd: entryAmount,
+      refundTransId,
       resultCode: entryCode,
       state,
       successful: state === 'succeeded',
