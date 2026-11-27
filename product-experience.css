@@ -52,7 +52,10 @@ body.product-page {
 
 .product-local-subnav-inner {
   width: min(1240px, calc(100% - 64px));
-  height: 52px;
+  min-height: 52px;
+  padding-top: 4px;
+  padding-bottom: 4px;
+  box-sizing: border-box;
   margin-left:auto;margin-right:auto;margin-inline:auto;
   display: flex;
   align-items: center;
@@ -70,6 +73,7 @@ body.product-page {
   display: flex;
   align-items: center;
   gap: 8px;
+  min-width: 0;
 }
 
 .product-local-subnav-title .product-subnav-badge {
@@ -80,6 +84,7 @@ body.product-page {
   background: rgba(0, 96, 199, 0.09);
   color: #0060c7;
   letter-spacing: 0.02em;
+  flex-shrink: 0;
 }
 
 .product-local-subnav-links {
@@ -89,6 +94,15 @@ body.product-page {
   list-style: none;
   margin: 0;
   padding: 0;
+  min-width: 0;
+  flex-shrink: 1;
+  overflow-x: auto;
+  scrollbar-width: none;
+  -ms-overflow-style: none;
+}
+
+.product-local-subnav-links::-webkit-scrollbar {
+  display: none;
 }
 
 .product-local-subnav-links a {
@@ -98,6 +112,9 @@ body.product-page {
   text-decoration: none;
   padding: 6px 14px;
   border-radius: 999px;
+  white-space: nowrap;
+  display: inline-flex;
+  align-items: center;
   transition: all 0.22s cubic-bezier(0.16, 1, 0.3, 1);
   letter-spacing: -0.01em;
 }
@@ -709,6 +726,34 @@ body.product-page {
 /* ------------------------------------------------------------------------------
    10. MOBILE RESPONSIVENESS & TOUCH OPTIMIZATION
    ------------------------------------------------------------------------------ */
+@media(max-width: 960px) {
+  .product-local-subnav-inner {
+    width: min(1240px, calc(100% - 32px));
+    gap: 12px;
+  }
+
+  .product-local-subnav-title {
+    font-size: 16px;
+  }
+
+  .product-local-subnav-title .product-subnav-badge {
+    display: none;
+  }
+
+  .product-local-subnav-links {
+    gap: 6px;
+  }
+
+  .product-local-subnav-links a {
+    padding: 6px 10px;
+    font-size: 13px;
+  }
+
+  .product-local-subnav-cta {
+    gap: 10px;
+  }
+}
+
 @media(max-width: 800px) {
   html {
     scroll-padding-top: 104px;
@@ -725,7 +770,7 @@ body.product-page {
     width: 100%;
     padding-left:12px;padding-right:12px;padding-inline:12px;
     box-sizing: border-box;
-    height: 48px;
+    min-height: 48px;
     gap: 8px;
   }
 
@@ -763,10 +808,12 @@ body.product-page {
   }
 
   .product-local-subnav-btn {
-    padding: 6px 12px;
-    font-size: 12px;
+    min-height: 40px;
+    padding: 8px 14px;
+    font-size: 12.5px;
     white-space: nowrap;
     flex-shrink: 0;
+    box-sizing: border-box;
   }
 
   .product-feature-highlights,

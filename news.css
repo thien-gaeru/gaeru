@@ -34,11 +34,11 @@
 /* Clean Editorial Recommendation Bar */
 .article-product-recommend{display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:14px;margin:32px 0;padding:14px 22px;background:#f5f5f7;border:1px solid #e5e5ea;border-radius:14px;box-sizing:border-box;transition:border-color .2s ease,box-shadow .2s ease}
 .article-product-recommend:hover{border-color:#0060c760;box-shadow:0 4px 16px rgba(0,0,0,0.04)}
-.article-product-recommend .recommend-info{display:inline-flex;align-items:center;gap:10px;flex-wrap:wrap;font-size:15px;color:#1d1d1f;line-height:1.4}
+.article-product-recommend .recommend-info{display:inline-flex;align-items:center;gap:10px;flex-wrap:wrap;font-size:15px;color:#1d1d1f;line-height:1.4;min-width:0}
 .article-product-recommend .recommend-badge{display:inline-flex;align-items:center;font-size:11px;font-weight:700;letter-spacing:.05em;text-transform:uppercase;color:#0060c7;background:#0060c714;padding:4px 10px;border-radius:999px;white-space:nowrap}
 .article-product-recommend .recommend-price{color:#55555a;font-size:14px;font-weight:500}
 .article-product-recommend .recommend-actions{display:inline-flex;align-items:center;gap:10px;flex-wrap:wrap}
-.article-product-recommend .button{min-height:38px;padding:8px 18px;border-radius:999px;font-size:13px;font-weight:600;text-decoration:none;display:inline-flex;align-items:center;justify-content:center;white-space:nowrap;transition:all .2s ease}
+.article-product-recommend .button{min-height:38px;padding:8px 18px;border-radius:999px;font-size:13px;font-weight:600;text-decoration:none;display:inline-flex;align-items:center;justify-content:center;white-space:nowrap;box-sizing:border-box;transition:all .2s ease}
 .article-product-recommend .button-outline{background:#fff;color:#0060c7;border:1px solid #0060c7}
 .article-product-recommend .button-outline:hover{background:#0060c70d}
 .article-product-recommend .button-blue{background:#0060c7;color:#fff;border:1px solid #0060c7;box-shadow:0 2px 8px rgba(0,96,199,0.2)}
@@ -46,12 +46,12 @@
 
 /* Bottom Conclusion CTA */
 .article-bottom-cta{display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:16px;margin:44px 0 28px;padding:22px 26px;background:linear-gradient(135deg,#f5f5f7 0%,#edf2f7 100%);border:1px solid #e5e5ea;border-radius:18px;box-sizing:border-box}
-.article-bottom-cta .cta-info{display:flex;flex-direction:column;gap:6px}
+.article-bottom-cta .cta-info{display:flex;flex-direction:column;gap:6px;min-width:0}
 .article-bottom-cta .cta-badge{display:inline-flex;align-items:center;width:fit-content;font-size:11px;font-weight:700;letter-spacing:.06em;text-transform:uppercase;color:#0060c7;background:#0060c714;padding:4px 10px;border-radius:999px}
 .article-bottom-cta .cta-title{font-size:17px;font-weight:600;color:#1d1d1f;margin:0!important;letter-spacing:-.01em}
 .article-bottom-cta .cta-price{font-weight:500;color:#55555a;font-size:15px}
 .article-bottom-cta .cta-actions{display:inline-flex;align-items:center;gap:10px;flex-wrap:wrap}
-.article-bottom-cta .button{min-height:42px;padding:10px 20px;border-radius:999px;font-size:14px;font-weight:600;text-decoration:none;display:inline-flex;align-items:center;justify-content:center;white-space:nowrap;transition:all .2s ease}
+.article-bottom-cta .button{min-height:42px;padding:10px 20px;border-radius:999px;font-size:14px;font-weight:600;text-decoration:none;display:inline-flex;align-items:center;justify-content:center;white-space:nowrap;box-sizing:border-box;transition:all .2s ease}
 .article-bottom-cta .button-outline{background:#fff;color:#1d1d1f;border:1px solid #d2d2d7}
 .article-bottom-cta .button-outline:hover{background:#f5f5f7;border-color:#59595e;transform:translateY(-1px)}
 .article-bottom-cta .button-blue{background:#0060c7;color:#fff;border:1px solid #0060c7;box-shadow:0 2px 10px rgba(0,96,199,0.25)}

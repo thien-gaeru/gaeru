@@ -30,6 +30,7 @@ h1,h2,h3{text-wrap:balance}
 h1,h2,h3,h4{font-weight:650;letter-spacing:-.022em;line-height:1.16;text-wrap:balance}
 p,li,dd{text-wrap:pretty}
 .vnd-amount,.promotion-sale-price,.cart-line-total,.mini-line-total,.mini-cart-total strong,.summary-total strong,.checkout-product strong,.item-price,.bundle-final-price,.bundle-original-price,.product-local-subnav-price{white-space:nowrap}
+.summary-total strong[data-checkout-total]{white-space:normal;text-align:right;max-width:100%;overflow-wrap:break-word}
 .price,.shop-page .catalog-price,.detail-price,.cart-line-total,.cart-summary .summary-total,.mini-cart-price,.mini-line-total{font-variant-numeric:tabular-nums}
 .hero h1,.story-page-hero h1,.discover-hero h1{font-size:var(--type-display);line-height:1.12;letter-spacing:-.022em}
 .hero-lead,.discover-hero>p:not(.eyebrow){font-size:var(--type-subhead);line-height:1.38;letter-spacing:-.008em}
@@ -86,3 +87,4 @@ p,li,dd{text-wrap:pretty}
 .shop-page .catalog-actions .price-text-full{display:none}
 .shop-page .catalog-actions .price-text-compact{display:inline}
 @media(max-width:768px){.price-text-full{display:none}.price-text-compact{display:inline}}
+@media(max-width:480px){.cart-summary .summary-total{font-size:1.125rem!important}}

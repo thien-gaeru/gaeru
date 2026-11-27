@@ -1108,7 +1108,7 @@ async function renderCheckout() {
       <p class="checkout-product"><span>Giao hàng</span><strong data-checkout-shipping>${freeNationwide ? "0 ₫" : "Chưa tính phí"}</strong></p>
       <section class="checkout-voucher"><label class="visually-hidden" for="checkout-voucher-code">Mã giảm giá</label><input id="checkout-voucher-code" maxlength="40" placeholder="Nhập mã giảm giá" autocomplete="off"><button class="secondary-button" type="button" data-voucher-apply aria-label="Kiểm tra voucher" title="Kiểm tra voucher">✓</button><button class="secondary-button" type="button" data-voucher-wallet>Ví mã ↗</button><p role="status" data-voucher-feedback></p></section><p class="checkout-product checkout-discount"><span>Giảm giá voucher</span><strong data-checkout-discount>0 ₫</strong></p>
       <section class="checkout-loyalty" data-checkout-loyalty hidden><div style="display:flex;align-items:center;justify-content:space-between;gap:8px;padding:8px 0;border-top:1px dashed #d2d2d7;margin-top:8px;"><label style="display:flex;align-items:center;gap:6px;font-size:13px;cursor:pointer;"><input type="checkbox" id="checkout-use-loyalty"><span>Dùng <strong data-loyalty-available>0</strong> GAERU Xu</span></label><span style="font-size:12px;color:#15803d;font-weight:600;" data-loyalty-discount-text>−0 ₫</span></div></section>
-      <p class="summary-total"><span>Tổng cộng</span><strong data-checkout-total>${formatPrice(total)}${freeNationwide ? "" : " + phí giao hàng"}</strong></p>
+      <p class="summary-total"><span>Tổng cộng</span><strong data-checkout-total><span class="vnd-amount">${formatPrice(total)}</span>${freeNationwide ? "" : " + phí giao hàng"}</strong></p>
       <p class="prototype-note">${escapeHtml(shippingHelp)}</p>
     </aside>
 `;
@@ -1165,8 +1165,12 @@ async function renderCheckout() {
     currentNetProductTotal = netProductTotal;
     root.querySelector("[data-checkout-shipping]").textContent =
       fee === undefined ? "Chưa tính phí" : formatPrice(fee);
-    root.querySelector("[data-checkout-total]").textContent =
-      fee === undefined ? formatPrice(netProductTotal)+" + phí giao hàng" : formatPrice(netProductTotal + fee);
+    const checkoutTotalEl = root.querySelector("[data-checkout-total]");
+    if (checkoutTotalEl) {
+      checkoutTotalEl.innerHTML = fee === undefined
+        ? `<span class="vnd-amount">${escapeHtml(formatPrice(netProductTotal))}</span> + phí giao hàng`
+        : `<span class="vnd-amount">${escapeHtml(formatPrice(netProductTotal + fee))}</span>`;
+    }
     syncPaymentHelp();
   };
   if (rows.length >= 2) {

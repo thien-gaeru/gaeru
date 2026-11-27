@@ -104,7 +104,7 @@
 @media (min-width: 480px) {
   .account-oauth-group {
     display: grid;
-    grid-template-columns: 1fr 1fr;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
     gap: 12px;
   }
 }
@@ -245,7 +245,9 @@
   text-align: left !important;
   width: 100% !important;
 }
-.customer-profile .account-form {
+.customer-profile .account-form,
+.account-address-dialog .account-form,
+.security-modal-card .account-form {
   width: 100% !important;
   max-width: none !important;
   text-align: left !important;
@@ -867,12 +869,6 @@
   color: #9333ea !important;
 }
 
-.security-accordion-item[open] > .security-accordion-header .security-item-icon,
-.security-accordion-header.is-active .security-item-icon {
-  background: rgba(255, 255, 255, 0.22) !important;
-  color: #ffffff !important;
-}
-
 /* Phần chữ tiêu đề & mô tả */
 .security-item-titles {
   display: flex !important;
@@ -926,13 +922,6 @@
   background: #d1fae5 !important;
   color: #065f46 !important;
   border: 1px solid #a7f3d0 !important;
-}
-
-.security-accordion-item[open] > .security-accordion-header .security-badge-pill,
-.security-accordion-header.is-active .security-badge-pill {
-  background: rgba(255, 255, 255, 0.25) !important;
-  color: #ffffff !important;
-  border-color: rgba(255, 255, 255, 0.3) !important;
 }
 
 .security-status-dot {
@@ -1120,7 +1109,7 @@
 /* Fallback for flat structure without .account-loyalty-header */
 .account-loyalty-card:not(:has(.account-loyalty-header)) {
   display: grid !important;
-  grid-template-columns: 1fr auto !important;
+  grid-template-columns: minmax(0, 1fr) auto !important;
   align-items: baseline !important;
   gap: 0 14px !important;
 }
@@ -1184,10 +1173,6 @@
   color: #64748b !important;
 }
 
-.security-accordion-item[open] > .security-accordion-header .security-item-icon {
-  background: inherit !important;
-}
-
 /* Modal Overlay & Backdrop */
 .security-accordion-item:not([open]) > .security-accordion-body, .security-accordion-item:not([open]) .security-modal-backdrop, .security-accordion-item[hidden] > .security-accordion-body { display: none !important; pointer-events: none !important; }
 .security-accordion-item[open] > .security-accordion-body {
@@ -1241,6 +1226,7 @@
   width: 100% !important;
   max-width: 500px !important;
   max-height: calc(100vh - 40px) !important;
+  max-height: calc(100dvh - 40px) !important;
   overflow-y: auto !important;
   box-shadow: 0 25px 60px -15px rgba(0, 0, 0, 0.3), 0 0 0 1px rgba(0, 0, 0, 0.05) !important;
   animation: securityModalZoomIn 0.25s cubic-bezier(0.16, 1, 0.3, 1) !important;
@@ -1445,6 +1431,7 @@
   width: 100% !important;
   max-width: 640px !important;
   max-height: min(92vh, 880px) !important;
+  max-height: min(92dvh, 880px) !important;
   overflow-y: auto !important;
   box-shadow: 0 25px 60px -15px rgba(0, 0, 0, 0.35), 0 0 0 1px rgba(0, 0, 0, 0.06) !important;
   box-sizing: border-box !important;
@@ -1544,7 +1531,7 @@
   /* Form thông tin cá nhân: Email và SĐT nằm 2 cột cân xứng */
   .security-modal-card .account-form {
     display: grid !important;
-    grid-template-columns: 1fr 1fr !important;
+    grid-template-columns: repeat(2, minmax(0, 1fr)) !important;
     gap: 16px !important;
   }
   .security-modal-card .account-form > label:first-child,
@@ -1558,7 +1545,7 @@
   /* Form đổi mật khẩu: Mật khẩu mới & Nhập lại mật khẩu mới nằm 2 cột */
   .security-modal-card .security-field-grid {
     display: grid !important;
-    grid-template-columns: 1fr 1fr !important;
+    grid-template-columns: repeat(2, minmax(0, 1fr)) !important;
     gap: 16px !important;
   }
 
@@ -1570,7 +1557,7 @@
   }
   .security-modal-card .security-qr-setup {
     display: grid !important;
-    grid-template-columns: 210px 1fr !important;
+    grid-template-columns: 210px minmax(0, 1fr) !important;
     gap: 24px !important;
     align-items: start !important;
     text-align: left !important;
@@ -1622,6 +1609,7 @@
     border-radius: 20px !important;
     padding: 18px 16px 16px 16px !important;
     max-height: calc(100vh - 24px) !important;
+    max-height: calc(100dvh - 24px) !important;
   }
   .security-modal-title {
     font-size: 16.5px !important;
@@ -1635,10 +1623,11 @@
     padding-bottom: 12px !important;
   }
   .security-modal-close {
-    width: 32px !important;
-    height: 32px !important;
-    min-width: 32px !important;
-    font-size: 16px !important;
+    width: 40px !important;
+    height: 40px !important;
+    min-width: 40px !important;
+    min-height: 40px !important;
+    font-size: 18px !important;
   }
   .security-modal-card input,
   .security-modal-card select {
@@ -1830,7 +1819,7 @@
   }
   .security-qr-step-view {
     display: grid !important;
-    grid-template-columns: 190px 1fr !important;
+    grid-template-columns: 190px minmax(0, 1fr) !important;
     column-gap: 24px !important;
     row-gap: 12px !important;
     align-items: start !important;

@@ -248,7 +248,7 @@
                 <label style="display:block; font-size:13px; font-weight:600; margin-bottom:6px;">Mã vạch / SKU sản phẩm:</label>
                 <input type="text" id="inbound-sku-input" required placeholder="Quét hoặc gõ SKU..." style="width:100%; box-sizing:border-box; padding:10px 12px; font-size:15px; font-family:monospace; border:1px solid #d1d5db; border-radius:6px;">
               </div>
-              <div style="display:grid; grid-template-columns:1fr 1fr; gap:14px; margin-bottom:14px;">
+              <div class="barcode-form-grid">
                 <div>
                   <label style="display:block; font-size:13px; font-weight:600; margin-bottom:6px;">Kho tiếp nhận:</label>
                   <select id="inbound-warehouse-select" style="width:100%; box-sizing:border-box; padding:10px 12px; font-size:14px; border:1px solid #d1d5db; border-radius:6px;"></select>
@@ -282,7 +282,7 @@
                 <label style="display:block; font-size:13px; font-weight:600; margin-bottom:6px;">Mã vạch / SKU sản phẩm:</label>
                 <input type="text" id="count-sku-input" required placeholder="Quét hoặc gõ SKU..." style="width:100%; box-sizing:border-box; padding:10px 12px; font-size:15px; font-family:monospace; border:1px solid #d1d5db; border-radius:6px;">
               </div>
-              <div style="display:grid; grid-template-columns:1fr 1fr; gap:14px; margin-bottom:14px;">
+              <div class="barcode-form-grid">
                 <div>
                   <label style="display:block; font-size:13px; font-weight:600; margin-bottom:6px;">Kho kiểm kê:</label>
                   <select id="count-warehouse-select" style="width:100%; box-sizing:border-box; padding:10px 12px; font-size:14px; border:1px solid #d1d5db; border-radius:6px;"></select>
@@ -573,11 +573,11 @@
           </div>
         </div>
 
-        <div style="display:grid; grid-template-columns:repeat(auto-fit, minmax(260px, 1fr)); gap:16px; margin-top:16px;">
+        <div style="display:grid; grid-template-columns:repeat(auto-fit, minmax(min(260px, 100%), 1fr)); gap:16px; margin-top:16px;">
           <!-- Warehouse stock breakdown -->
           <div style="background:#f9fafb; border:1px solid #e5e7eb; border-radius:6px; padding:12px;">
             <h4 style="margin:0 0 10px 0; font-size:14px; font-weight:700;">Tồn Kho Theo Chi Nhánh</h4>
-            <table style="width:100%; border-collapse:collapse; font-size:13px;">
+            <div style="overflow-x:auto;-webkit-overflow-scrolling:touch;"><table style="width:100%; border-collapse:collapse; font-size:13px;">
               <thead>
                 <tr style="background:#e5e7eb; text-align:left;">
                   <th style="padding:6px 10px;">Kho hàng</th>
@@ -585,7 +585,7 @@
                 </tr>
               </thead>
               <tbody>${stockRows || '<tr><td colspan="2" style="padding:8px;">Chưa có dữ liệu kho</td></tr>'}</tbody>
-            </table>
+            </table></div>
           </div>
 
           <!-- Fast action shortcuts -->
@@ -986,7 +986,7 @@
       container.textContent = '';
       const area = document.createElement('div');
       area.id = 'barcode-printable-area';
-      area.style.cssText = 'background:#ffffff; padding:16px; border:1px solid #e5e7eb; border-radius:6px; display:inline-block; box-shadow:0 2px 8px rgba(0,0,0,0.06);';
+      area.style.cssText = 'background:#ffffff; padding:16px; border:1px solid #e5e7eb; border-radius:6px; display:inline-block; max-width:100%; box-sizing:border-box; overflow-x:auto; box-shadow:0 2px 8px rgba(0,0,0,0.06);';
       if (safeSvg) {
         area.appendChild(safeSvg);
       } else {

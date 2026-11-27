@@ -30,9 +30,9 @@ nav button{background:none;border:0;padding:11px 14px;color:var(--mut);cursor:po
 nav button.on{color:var(--acc);border-color:var(--acc)}
 main{padding:18px;max-width:1400px;margin:auto}
 .grid{display:grid;gap:14px;grid-template-columns:repeat(auto-fill,minmax(300px,1fr))}
-.card{background:var(--panel);border:1px solid var(--line);border-radius:12px;padding:16px}
+.card{background:var(--panel);border:1px solid var(--line);border-radius:12px;padding:16px;min-width:0}
 .card.hero{grid-column:1/-1;border-color:#1d4ed8;background:linear-gradient(135deg,#131c2e 0%,#0f1a30 100%)}
-.card h3{margin:0 0 10px;font-size:12px;letter-spacing:.06em;text-transform:uppercase;color:var(--mut);display:flex;align-items:center;justify-content:space-between;gap:8px}
+.card h3{margin:0 0 10px;font-size:12px;letter-spacing:.06em;text-transform:uppercase;color:var(--mut);display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:8px}
 .big{font-size:26px;font-weight:700}.mut{color:var(--mut)}.sm{font-size:12px}
 .bar{height:8px;background:#22304a;border-radius:9px;overflow:hidden;margin:8px 0}.bar i{display:block;height:100%;background:var(--acc);border-radius:9px;transition:width .4s}
 .cores{display:grid;grid-template-columns:repeat(4,1fr);gap:6px;margin-top:8px}.core{font-size:11px;color:var(--mut)}
@@ -46,23 +46,28 @@ textarea{width:100%;font-family:ui-monospace,Consolas,monospace;font-size:13px}
 .row{display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin-bottom:12px}
 .dot{display:inline-block;width:9px;height:9px;border-radius:50%;margin-right:6px;background:var(--bad)}.dot.on{background:var(--ok)}
 pre.out{background:#060b16;border:1px solid var(--line);border-radius:8px;padding:12px;max-height:65vh;overflow:auto;white-space:pre-wrap;word-break:break-all;font-size:12.5px;margin:0}
-#term{height:calc(100vh - 190px);background:#000;border-radius:10px;padding:6px}
+#term{height:calc(100vh - 190px);height:calc(100dvh - 190px);min-height:280px;background:#000;border-radius:10px;padding:6px}
 .crumbs span{cursor:pointer;color:var(--acc)}.crumbs span:hover{text-decoration:underline}
 .fi{cursor:pointer}.hide{display:none!important}
-#login{position:fixed;inset:0;background:var(--bg);display:flex;align-items:center;justify-content:center;z-index:50;padding:14px;overflow:auto}
-#login form{background:var(--panel);border:1px solid var(--line);border-radius:14px;padding:28px;width:340px;max-width:95vw}
+#login{position:fixed;inset:0;background:var(--bg);display:flex;align-items:flex-start;justify-content:center;z-index:50;padding:14px;overflow:auto}
+#login form{background:var(--panel);border:1px solid var(--line);border-radius:14px;padding:28px;width:340px;max-width:95vw;margin:auto}
 #login form.wide{width:460px}
 #login h2{margin:0 0 4px;color:var(--acc)}#login input{width:100%;margin:12px 0}
 .totp-qr{display:block;margin:10px auto;background:#fff;padding:8px;border-radius:10px;width:200px;height:200px}
 .bcode{background:#060b16;border:1px solid var(--line);border-radius:8px;padding:10px;font-family:ui-monospace,Consolas,monospace;font-size:12px;line-height:1.55;margin:8px 0;white-space:pre-wrap;word-break:break-all}
 #toast{position:fixed;right:16px;bottom:16px;display:flex;flex-direction:column;gap:8px;z-index:60}
-#toast div{background:var(--panel2);border:1px solid var(--line);border-left:4px solid var(--acc);padding:10px 14px;border-radius:8px;max-width:420px;white-space:pre-wrap}
+#toast div{background:var(--panel2);border:1px solid var(--line);border-left:4px solid var(--acc);padding:10px 14px;border-radius:8px;max-width:min(420px,calc(100vw - 32px));white-space:pre-wrap}
 #toast div.e{border-left-color:var(--bad)}
-dialog{background:var(--panel);color:var(--txt);border:1px solid var(--line);border-radius:12px;padding:18px;width:min(900px,95vw)}
+dialog{background:var(--panel);color:var(--txt);border:1px solid var(--line);border-radius:12px;padding:18px;width:min(900px,95vw);max-height:90vh;max-height:90dvh;overflow:auto}
 dialog::backdrop{background:#000a}
+#edit{max-height:58vh;max-height:58dvh}
+.table-wrap{width:100%;overflow-x:auto;-webkit-overflow-scrolling:touch}
+.pg-grid{grid-template-columns:repeat(2,minmax(0,1fr))}
 canvas{width:100%;height:60px}
 .tag{font-size:11px;padding:2px 8px;border-radius:6px;background:#22304a;color:var(--txt);display:inline-block}
 .wbadges{display:flex;gap:8px;flex-wrap:wrap;margin:10px 0}
+@media (max-width:900px){.pg-grid{grid-template-columns:minmax(0,1fr)}}
+@media (max-width:640px){header{padding:8px 12px;gap:8px}main{padding:12px}.grid{grid-template-columns:minmax(0,1fr)}.kv{grid-template-columns:minmax(0,1fr);gap:3px 0}.kv b{text-align:left;overflow-wrap:anywhere}.card input[type=text],.card input[type=password],.card input[type=number],.card select{max-width:100%;min-width:0}.row>input[type=text],.row>input[type=password],.row>select{flex:1 1 100%;width:100%!important;max-width:100%}}
 </style>
 </head>
 <body>
@@ -212,10 +217,10 @@ canvas{width:100%;height:60px}
     Toàn hệ thống chỉ sử dụng <b>iCloud+ Custom Email Domain</b> (<code>mx01.mail.icloud.com</code>, <code>mx02.mail.icloud.com</code>, gửi SMTP qua <code>smtp.mail.me.com:587</code>). Email nội bộ đã được tắt và gỡ bỏ hoàn toàn.
   </p>
   <div id="im-smtp-banner" class="sm" style="margin-bottom:10px;opacity:.9;">Đang đọc cấu hình iCloud SMTP...</div>
-  <table>
+  <div class="table-wrap"><table>
     <thead><tr><th>Hộp thư</th><th>Vai trò</th><th>Tên gửi</th><th>Nhà cung cấp</th><th>Webmail</th></tr></thead>
     <tbody id="im-acc-rows"><tr><td colspan="5">Đang tải...</td></tr></tbody>
-  </table>
+  </table></div>
   <div class="row" style="margin-top:10px;gap:8px;flex-wrap:wrap;">
     <button class="btn p" type="button" id="im-btn-smtp">Cập nhật App-Specific Password iCloud+</button>
     <a class="btn s" href="https://www.icloud.com/mail" target="_blank" rel="noopener">Mở iCloud Mail ↗</a>
@@ -224,7 +229,7 @@ canvas{width:100%;height:60px}
 </div>
 <!-- END ICLOUD_MAIL_CARD -->
 
-  <div class="card"><h3>Dịch vụ hệ thống (Upstart &amp; Tunnel)</h3><table><thead><tr><th>Dịch vụ</th><th>Trạng thái</th><th>PID</th><th>Tự chạy</th><th></th></tr></thead><tbody id="svc"></tbody></table></div>
+  <div class="card"><h3>Dịch vụ hệ thống (Upstart &amp; Tunnel)</h3><div class="table-wrap"><table><thead><tr><th>Dịch vụ</th><th>Trạng thái</th><th>PID</th><th>Tự chạy</th><th></th></tr></thead><tbody id="svc"></tbody></table></div></div>
 </section>
 
 <!-- PROCESSES -->
@@ -245,21 +250,21 @@ canvas{width:100%;height:60px}
     <div class="row"><div class="crumbs" id="crumbs"></div><span class="sp" style="flex:1"></span>
       <button class="btn s" data-fs-new="newfile">+ File</button><button class="btn s" data-fs-new="mkdir">+ Thư mục</button>
       <label class="btn s">⬆ Tải lên<input id="fsUpInput" type="file" multiple class="hide"></label>
-      <input id="fsPath" type="text" style="width:260px" placeholder="/đường/dẫn"></div>
-    <table><thead><tr><th>Tên</th><th>Kích thước</th><th>Quyền</th><th>Sửa đổi</th><th></th></tr></thead><tbody id="files"></tbody></table>
+      <input id="fsPath" type="text" style="flex:1 1 200px;min-width:0;max-width:100%" placeholder="/đường/dẫn"></div>
+    <div class="table-wrap"><table><thead><tr><th>Tên</th><th>Kích thước</th><th>Quyền</th><th>Sửa đổi</th><th></th></tr></thead><tbody id="files"></tbody></table></div>
   </div>
 </section>
 
 <!-- POSTGRES -->
 <section id="t-pg" class="hide">
-  <div class="grid" style="grid-template-columns:1fr 1fr">
+  <div class="grid pg-grid">
     <div class="card"><h3>Cơ sở dữ liệu</h3><div class="mut sm" id="pgVer"></div>
       <div class="row" style="margin-top:10px"><input id="dbName" type="text" placeholder="tên database"><select id="dbOwner"></select><button class="btn p s" data-pg="createdb">+ Tạo DB</button></div>
-      <table><thead><tr><th>Database</th><th>Chủ sở hữu</th><th>Dung lượng</th><th></th></tr></thead><tbody id="dbs"></tbody></table></div>
+      <div class="table-wrap"><table><thead><tr><th>Database</th><th>Chủ sở hữu</th><th>Dung lượng</th><th></th></tr></thead><tbody id="dbs"></tbody></table></div></div>
     <div class="card"><h3>Người dùng (roles)</h3>
       <div class="row"><input id="roleName" type="text" placeholder="tên user" style="width:130px"><input id="rolePw" type="password" placeholder="mật khẩu" style="width:130px">
       <label class="sm"><input type="checkbox" id="roleCdb"> createdb</label><label class="sm"><input type="checkbox" id="roleSu"> superuser</label><button class="btn p s" data-pg="createrole">+ Tạo</button></div>
-      <table><thead><tr><th>User</th><th>Quyền</th><th></th></tr></thead><tbody id="roles"></tbody></table></div>
+      <div class="table-wrap"><table><thead><tr><th>User</th><th>Quyền</th><th></th></tr></thead><tbody id="roles"></tbody></table></div></div>
   </div>
   <div class="card" style="margin-top:14px"><h3>SQL Console</h3>
     <div class="row"><select id="sqlDb"></select><button class="btn p" data-act="run-sql">▶ Chạy (Ctrl+Enter)</button><span class="mut sm" id="tbls"></span></div>
@@ -308,7 +313,7 @@ canvas{width:100%;height:60px}
     </div>
   </div>
   <div class="card" style="margin-top:14px"><h3>Wi-Fi</h3><div class="row"><button class="btn s" data-act="wifi-scan">⟳ Quét mạng</button><span class="mut sm" id="wifiNow"></span></div>
-    <table><thead><tr><th>SSID</th><th>Sóng</th><th>Bảo mật</th><th>Kênh</th><th></th></tr></thead><tbody id="wifi"></tbody></table></div>
+    <div class="table-wrap"><table><thead><tr><th>SSID</th><th>Sóng</th><th>Bảo mật</th><th>Kênh</th><th></th></tr></thead><tbody id="wifi"></tbody></table></div></div>
 </section>
 </main>
 
@@ -649,19 +654,36 @@ function renderProcs() {
 async function kill(pid, signal) { if (confirm(`Gửi ${signal} tới PID ${pid}?`)) { await act('/api/processes/kill', { pid, signal }, 'Đã gửi ' + signal); setTimeout(loadProcs, 500); } }
 
 // ---------- terminal
-let term, fit, ws;
+let term, fit, ws, termObserver;
+function resizeTerm() {
+  if (cur !== 'term' || !fit) return;
+  const termEl = $('#term');
+  if (!termEl) return;
+  const vh = (window.visualViewport && window.visualViewport.height) || window.innerHeight;
+  const top = termEl.getBoundingClientRect().top;
+  const avail = Math.max(220, Math.floor(vh - top - 18));
+  const nextH = avail + 'px';
+  if (termEl.style.height !== nextH) termEl.style.height = nextH;
+  fit.fit();
+}
 function termConnect() {
   if (!term) {
+    const termEl = $('#term');
     term = new Terminal({ cursorBlink: true, fontSize: 14, fontFamily: 'ui-monospace,Consolas,monospace', theme: { background: '#000000' }, scrollback: 5000 });
-    fit = new FitAddon.FitAddon(); term.loadAddon(fit); term.open($('#term'));
+    fit = new FitAddon.FitAddon(); term.loadAddon(fit); term.open(termEl);
     term.onData((d) => ws && ws.readyState === 1 && ws.send(JSON.stringify({ t: 'd', d })));
     term.onResize(({ cols, rows }) => ws && ws.readyState === 1 && ws.send(JSON.stringify({ t: 'r', c: cols, r: rows })));
-    window.addEventListener('resize', () => cur === 'term' && fit.fit());
+    window.addEventListener('resize', resizeTerm);
+    if (window.visualViewport) window.visualViewport.addEventListener('resize', resizeTerm);
+    if (typeof ResizeObserver === 'function') {
+      termObserver = new ResizeObserver(() => resizeTerm());
+      termObserver.observe(termEl);
+    }
   }
-  setTimeout(() => fit.fit(), 50);
+  setTimeout(() => resizeTerm(), 50);
   if (ws && ws.readyState <= 1) { term.focus(); return; }
   ws = new WebSocket((location.protocol === 'https:' ? 'wss://' : 'ws://') + location.host + '/ws/term'); ws.binaryType = 'arraybuffer';
-  ws.onopen = () => { fit.fit(); ws.send(JSON.stringify({ t: 'r', c: term.cols, r: term.rows })); term.focus(); };
+  ws.onopen = () => { resizeTerm(); ws.send(JSON.stringify({ t: 'r', c: term.cols, r: term.rows })); term.focus(); };
   ws.onmessage = (e) => term.write(new Uint8Array(e.data));
   ws.onclose = () => term.write('\r\n\x1b[33m[Mất kết nối – bấm "Kết nối lại"]\x1b[0m\r\n');
 }
@@ -745,7 +767,7 @@ async function loadSys() {
     api('/api/system/info'),
     api('/api/2fa/status').catch(() => null),
   ]);
-  $('#sinfo').innerHTML = `<span>Hệ điều hành</span><b>${esc(i.os)}</b><span>Múi giờ</span><b>${esc(i.timezone)}</b><span>Node (admin)</span><b>${esc(i.node)}</b><span>Gói có thể cập nhật</span><b>${i.upgradable}</b><span>SSH</span><b style="white-space:pre">${esc(i.ssh)}</b>`;
+  $('#sinfo').innerHTML = `<span>Hệ điều hành</span><b>${esc(i.os)}</b><span>Múi giờ</span><b>${esc(i.timezone)}</b><span>Node (admin)</span><b>${esc(i.node)}</b><span>Gói có thể cập nhật</span><b>${i.upgradable}</b><span>SSH</span><b style="white-space:pre-wrap;word-break:break-word;overflow-wrap:anywhere">${esc(i.ssh)}</b>`;
   $('#ufw').textContent = i.ufw;
   if (t2) {
     $('#totpSysStatus').innerHTML = `<span>2FA TOTP</span><b style="color:${t2.enabled ? 'var(--ok)' : 'var(--bad)'}">${t2.enabled ? 'Đang bật' : 'Chưa bật'}</b><span>Mã dự phòng còn</span><b>${t2.remainingBackup}/8</b><span>Truy cập hiện tại</span><b>${t2.isLan ? 'Mạng LAN tin cậy' : 'WAN / Cloudflare'}</b>`;
