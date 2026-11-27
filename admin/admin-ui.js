@@ -113,7 +113,16 @@
     setGroupCollapsed(group, !isCurrentlyCollapsed, true);
   });
 
+  function syncHubOrphans() {
+    for (const btn of nav.querySelectorAll('.nav-item[data-hub-child], [data-view][data-hub-child]')) {
+      const parentView = btn.dataset.hubChild;
+      const parentBtn = parentView ? nav.querySelector('[data-view="' + parentView + '"]') : null;
+      btn.classList.toggle('is-hub-orphan', Boolean(!parentBtn || parentBtn.hidden));
+    }
+  }
+
   function syncHubTabs() {
+    syncHubOrphans();
     const hubBar = document.querySelector('#admin-hub-tabs');
     const activeItem = nav.querySelector('[data-view].is-active');
     const activeView = activeItem?.dataset.view || '';
@@ -151,6 +160,7 @@
 
   // Sync active group to automatically expand when user navigates to an item in that group
   function syncActiveGroup() {
+    syncHubOrphans();
     const activeItem = nav.querySelector('[data-view].is-active');
     syncHubTabs();
     if (!activeItem) return;
@@ -179,6 +189,7 @@
   search.innerHTML='<span>Tìm mục quản trị</span><input type="search" placeholder="Tìm mục…" autocomplete="off" aria-controls="admin-navigation"><small>⌘ / Ctrl K</small>';
   nav.before(search);const input=search.querySelector('input');
   function filter(){
+    syncHubOrphans();
     const q=input.value.normalize('NFD').replace(/\p{Diacritic}/gu,'').replace(/đ/g,'d').toLowerCase().trim();
     nav.toggleAttribute('data-searching',Boolean(q));
     for(const button of nav.querySelectorAll('[data-view]')){
@@ -186,7 +197,7 @@
       button.toggleAttribute('data-search-hidden',Boolean(q&&!hay.includes(q)));
     }
     for(const group of nav.querySelectorAll('.nav-group')){
-      const hasVisible = [...group.querySelectorAll('[data-view]')].some(b=>!b.hidden&&!b.hasAttribute('data-search-hidden')&&(q||!b.hasAttribute('data-hub-child')));
+      const hasVisible = [...group.querySelectorAll('[data-view]')].some(b=>!b.hidden&&!b.hasAttribute('data-search-hidden')&&(q||!b.hasAttribute('data-hub-child')||b.classList.contains('is-hub-orphan')));
       group.toggleAttribute('data-search-empty',!hasVisible);
       if (q && hasVisible && group.hasAttribute('data-nav-group')) {
         setGroupCollapsed(group, false, false);

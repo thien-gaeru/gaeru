@@ -34,12 +34,12 @@ constexpr int RMBG_SIZE = 320;
 constexpr int RMBG_HW = RMBG_SIZE * RMBG_SIZE;
 
 std::atomic<bool> g_stop{false};
+volatile sig_atomic_t g_shutdown_requested = 0;
 std::mutex g_gpu_mutex;
 std::mutex g_cpu_rmbg_mutex;
 std::mutex g_child_mutex;
 std::mutex g_thermal_mutex;
 pid_t g_llama_pid = -1;
-httplib::Server *g_server_ptr = nullptr;
 
 std::atomic<uint64_t> g_rmbg_calls{0};
 std::atomic<uint64_t> g_rmbg_gpu_calls{0};
@@ -288,14 +288,14 @@ private:
     std::unique_ptr<MNN::Tensor> host_out_;
 };
 
-void apply_cpu_range_affinity(const std::string &range_str) {
+bool parse_cpu_range(const std::string &range_str, cpu_set_t &set) {
     int lo = -1, hi = -1;
     if (std::sscanf(range_str.c_str(), "%d-%d", &lo, &hi) == 2 && lo >= 0 && hi >= lo && hi < CPU_SETSIZE) {
-        cpu_set_t set;
         CPU_ZERO(&set);
         for (int c = lo; c <= hi; ++c) CPU_SET(c, &set);
-        sched_setaffinity(0, sizeof(set), &set);
+        return true;
     }
+    return false;
 }
 
 pid_t spawn_llama_server(const std::string &bin,
@@ -307,40 +307,55 @@ pid_t spawn_llama_server(const std::string &bin,
                          int slots,
                          const std::string &cpu_range,
                          int nice_val) {
+    // Pre-build all strings, argv pointers, CPU affinity set, and FD bound BEFORE fork()
+    // so the post-fork child executes ONLY async-signal-safe POSIX calls.
+    cpu_set_t cpu_set;
+    const bool has_cpu_set = !cpu_range.empty() && parse_cpu_range(cpu_range, cpu_set);
+
+    const std::string port_s = std::to_string(port);
+    const std::string ngl_s = std::to_string(ngl);
+    const std::string thr_s = std::to_string(threads);
+    const std::string ctx_s = std::to_string(ctx_size);
+    const std::string slots_s = std::to_string(slots);
+
+    std::vector<char *> argv = {
+        const_cast<char *>(bin.c_str()),
+        const_cast<char *>("-m"), const_cast<char *>(model.c_str()),
+        const_cast<char *>("--host"), const_cast<char *>("127.0.0.1"),
+        const_cast<char *>("--port"), const_cast<char *>(port_s.c_str()),
+        const_cast<char *>("-c"), const_cast<char *>(ctx_s.c_str()),
+        const_cast<char *>("-b"), const_cast<char *>(ctx_s.c_str()),
+        const_cast<char *>("-ub"), const_cast<char *>(ctx_s.c_str()),
+        const_cast<char *>("-np"), const_cast<char *>(slots_s.c_str()),
+        const_cast<char *>("-ngl"), const_cast<char *>(ngl_s.c_str()),
+        const_cast<char *>("-t"), const_cast<char *>(thr_s.c_str()),
+        const_cast<char *>("-tb"), const_cast<char *>(thr_s.c_str()),
+        const_cast<char *>("--pooling"), const_cast<char *>("mean"),
+        const_cast<char *>("--embedding"),
+        const_cast<char *>("--no-warmup"),
+        const_cast<char *>("--no-webui"),
+        const_cast<char *>("--log-disable"),
+        nullptr
+    };
+
+    long max_fd = sysconf(_SC_OPEN_MAX);
+    if (max_fd < 3 || max_fd > 1024) max_fd = 1024;
+    const char *bin_cstr = bin.c_str();
+    char *const *argv_ptr = argv.data();
+
     pid_t pid = fork();
     if (pid == 0) {
         prctl(PR_SET_PDEATHSIG, SIGTERM);
         if (nice_val != 0) {
             setpriority(PRIO_PROCESS, 0, nice_val);
         }
-        if (!cpu_range.empty()) {
-            apply_cpu_range_affinity(cpu_range);
+        if (has_cpu_set) {
+            sched_setaffinity(0, sizeof(cpu_set), &cpu_set);
         }
-        std::string port_s = std::to_string(port);
-        std::string ngl_s = std::to_string(ngl);
-        std::string thr_s = std::to_string(threads);
-        std::string ctx_s = std::to_string(ctx_size);
-        std::string slots_s = std::to_string(slots);
-        std::vector<const char *> argv = {
-            bin.c_str(),
-            "-m", model.c_str(),
-            "--host", "127.0.0.1",
-            "--port", port_s.c_str(),
-            "-c", ctx_s.c_str(),
-            "-b", ctx_s.c_str(),
-            "-ub", ctx_s.c_str(),
-            "-np", slots_s.c_str(),
-            "-ngl", ngl_s.c_str(),
-            "-t", thr_s.c_str(),
-            "-tb", thr_s.c_str(),
-            "--pooling", "mean",
-            "--embedding",
-            "--no-warmup",
-            "--no-webui",
-            "--log-disable",
-            nullptr
-        };
-        execvp(bin.c_str(), const_cast<char *const *>(argv.data()));
+        for (int fd = 3; fd < static_cast<int>(max_fd); ++fd) {
+            ::close(fd);
+        }
+        execvp(bin_cstr, argv_ptr);
         _exit(127);
     }
     return pid;
@@ -374,8 +389,7 @@ void stop_llama_child() {
 }
 
 void signal_handler(int) {
-    g_stop = true;
-    if (g_server_ptr) g_server_ptr->stop();
+    g_shutdown_requested = 1;
 }
 
 struct ScopedInflight {
@@ -445,7 +459,7 @@ int main() {
     }
 
     std::thread supervisor([&]() {
-        while (!g_stop) {
+        while (!g_stop.load() && !g_shutdown_requested) {
             pid_t pid = -1;
             {
                 std::lock_guard<std::mutex> lock(g_child_mutex);
@@ -459,7 +473,7 @@ int main() {
                 std::this_thread::sleep_for(std::chrono::seconds(3));
                 continue;
             }
-            while (!g_stop) {
+            while (!g_stop.load() && !g_shutdown_requested) {
                 int st = 0;
                 pid_t wp = waitpid(pid, &st, WNOHANG);
                 if (wp == pid || wp < 0) {
@@ -471,7 +485,7 @@ int main() {
                 g_embed_ready = probe_llama_health(llama_port);
                 std::this_thread::sleep_for(std::chrono::seconds(2));
             }
-            if (!g_stop) {
+            if (!g_stop.load() && !g_shutdown_requested) {
                 std::fprintf(stderr, "[gaeru-gpu-ai] llama-server exited, restarting in 2s...\n");
                 std::this_thread::sleep_for(std::chrono::seconds(2));
             }
@@ -484,7 +498,6 @@ int main() {
     svr.set_read_timeout(30, 0);
     svr.set_write_timeout(30, 0);
     svr.set_keep_alive_max_count(200);
-    g_server_ptr = &svr;
 
     svr.Get("/health", [&](const httplib::Request &, httplib::Response &res) {
         pid_t child_pid = -1;
@@ -707,9 +720,28 @@ int main() {
                  "[gaeru-gpu-ai] listening on http://%s:%d (v2: rmbg=OpenCL-%s cpu=%d, embed=ngl=%d t=%d ctx=%d np=%d cpus=%s nice=%d)\n",
                  host.c_str(), port, use_gpu_image ? "IMAGE" : "BUFFER", effective_cpu_threads,
                  embed_ngl, embed_threads, embed_ctx, embed_slots, embed_cpu_range.c_str(), embed_nice);
-    svr.listen(host, port);
+    std::atomic<bool> listen_exited{false};
+    std::thread shutdown_monitor([&]() {
+        bool stop_sent = false;
+        while (!listen_exited.load()) {
+            if (g_shutdown_requested) {
+                g_stop.store(true);
+                if (!stop_sent && svr.is_running()) {
+                    svr.stop();
+                    stop_sent = true;
+                }
+            }
+            std::this_thread::sleep_for(std::chrono::milliseconds(50));
+        }
+    });
 
-    g_stop = true;
+    if (!g_shutdown_requested) {
+        svr.listen(host, port);
+    }
+
+    listen_exited.store(true);
+    g_stop.store(true);
+    if (shutdown_monitor.joinable()) shutdown_monitor.join();
     stop_llama_child();
     if (supervisor.joinable()) supervisor.join();
     return 0;

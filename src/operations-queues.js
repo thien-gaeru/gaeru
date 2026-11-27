@@ -177,6 +177,7 @@ function createOperationsQueues(pool, config = {}) {
           await client.query(
             `UPDATE ${table}
              SET status = $2,
+                 attempts = CASE WHEN $2 = 'pending' THEN 0 ELSE attempts END,
                  next_attempt_at = CASE WHEN $2 = 'pending' THEN now() ELSE next_attempt_at END,
                  finished_at = CASE WHEN $2 = 'failed' THEN now() ELSE NULL END
              WHERE id = $1`,

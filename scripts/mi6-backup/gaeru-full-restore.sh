@@ -16,10 +16,14 @@ CHROOT_STORAGE="/storage/ubuntu"
 DEPLOY_LOCK="/run/gaeru-deploy.lock"
 DEPLOY_LOCK_OWNED=0
 GAERU_TMP_CLEANUP_FILES=()
+GAERU_TMP_CLEANUP_DIRS=()
 cleanup_temp_files() {
-  local f
+  local f d
   for f in "${GAERU_TMP_CLEANUP_FILES[@]:-}"; do
     [ -n "$f" ] && rm -f -- "$f" 2>/dev/null || true
+  done
+  for d in "${GAERU_TMP_CLEANUP_DIRS[@]:-}"; do
+    [ -n "$d" ] && rm -rf -- "$d" 2>/dev/null || true
   done
 }
 cleanup_deploy_lock() {
@@ -29,12 +33,17 @@ cleanup_deploy_lock() {
   fi
 }
 RESTART_ON_EXIT=0
+RESTORE_MODE="restore"
 finish_restore() {
   local result=$?
   trap - EXIT
   if [ "$RESTART_ON_EXIT" -eq 1 ]; then
     if [ "$result" -ne 0 ]; then
-      printf '[%s] Restore did not complete (exit=%s); rolled back database transaction and restoring previous node-app service.\n' "$(date -Is)" "$result" >&2
+      if [ "$RESTORE_MODE" = "db" ]; then
+        printf '[%s] Restore did not complete (exit=%s); rolled back database transaction and restoring previous node-app service.\n' "$(date -Is)" "$result" >&2
+      else
+        printf '[%s] Restore (%s) did not complete (exit=%s); restarting node-app service.\n' "$(date -Is)" "$RESTORE_MODE" "$result" >&2
+      fi
     fi
     initctl status node-app APP=gaeru 2>/dev/null | grep -q 'start/running' ||
       initctl start node-app APP=gaeru >&2 || result=1
@@ -199,7 +208,18 @@ restore_db() {
   fi
   [ -n "$raw_input" ] || die "Specify dump file (.dump or .dump.gpg)"
 
-  local tmp_plain="/run/gaeru-restore-db.$$.dump"
+  RESTORE_MODE="db"
+  local tmp_base="/var/tmp"
+  if [ -d "$PG_DIR" ] && [ -w "$PG_DIR" ]; then
+    tmp_base="$PG_DIR"
+  elif [ -d "/userdata/storage" ] && [ -w "/userdata/storage" ]; then
+    tmp_base="/userdata/storage"
+  fi
+  local tmp_dir
+  tmp_dir=$(mktemp -d "${tmp_base}/.gaeru-restore-db.XXXXXX")
+  chmod 700 "$tmp_dir"
+  GAERU_TMP_CLEANUP_DIRS+=("$tmp_dir")
+  local tmp_plain="${tmp_dir}/restore-db.dump"
   GAERU_TMP_CLEANUP_FILES+=("$tmp_plain")
   local dump_file
   dump_file=$(prepare_restore_input "$raw_input" "$tmp_plain")
@@ -247,7 +267,18 @@ restore_media_code() {
   fi
   [ -n "$raw_input" ] || die "Specify Media/Config archive (.tar.gz or .tar.gz.gpg)"
 
-  local tmp_plain="/run/gaeru-restore-media.$$.tar.gz"
+  RESTORE_MODE="media-code"
+  local tmp_base="/var/tmp"
+  if [ -d "$MEDIA_DIR" ] && [ -w "$MEDIA_DIR" ]; then
+    tmp_base="$MEDIA_DIR"
+  elif [ -d "/userdata/storage" ] && [ -w "/userdata/storage" ]; then
+    tmp_base="/userdata/storage"
+  fi
+  local tmp_dir
+  tmp_dir=$(mktemp -d "${tmp_base}/.gaeru-restore-media.XXXXXX")
+  chmod 700 "$tmp_dir"
+  GAERU_TMP_CLEANUP_DIRS+=("$tmp_dir")
+  local tmp_plain="${tmp_dir}/restore-media.tar.gz"
   GAERU_TMP_CLEANUP_FILES+=("$tmp_plain")
   local archive
   archive=$(prepare_restore_input "$raw_input" "$tmp_plain")
@@ -259,9 +290,13 @@ restore_media_code() {
   if (set +o pipefail; tar -tzf "$archive" | grep -qE '(^|/)\.\.(/|$)|^/'); then
     die "Unsafe path traversal or absolute entry detected in archive: $archive"
   fi
+  if initctl status node-app APP=gaeru 2>/dev/null | grep -q 'start/running'; then
+    RESTART_ON_EXIT=1
+  fi
   stop_gaeru_app
   tar -xzpf "$archive" -C / --numeric-owner
   start_gaeru_app
+  RESTART_ON_EXIT=0
   cleanup_deploy_lock
   say "Media + Codebase + System Configs restored cleanly."
 }

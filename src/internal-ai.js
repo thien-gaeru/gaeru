@@ -1110,8 +1110,16 @@ Quy tắc cốt lõi:
 
       if (!thread) return res.status(404).json({ error: 'Không tìm thấy phiên hội thoại.' });
 
-      const messages = (await pool.query(`
-        SELECT id, role, content, tool_results AS "toolResults", action_card AS "actionCard", created_at AS "createdAt"
+      const rawMessages = (await pool.query(`
+        SELECT recent.id, recent.role, recent.content,
+               recent.tool_results AS "toolResults",
+               CASE
+                 WHEN recent.action_card IS NOT NULL AND l.status IS NOT NULL
+                   THEN jsonb_set(recent.action_card, '{status}', to_jsonb(l.status::text), true)
+                 ELSE recent.action_card
+               END AS "actionCard",
+               l.status AS "actionLogStatus",
+               recent.created_at AS "createdAt"
         FROM (
           SELECT id, role, content, tool_results, action_card, created_at
           FROM internal_ai_messages
@@ -1119,8 +1127,18 @@ Quy tắc cốt lõi:
           ORDER BY created_at DESC, id DESC
           LIMIT 100
         ) recent
-        ORDER BY created_at ASC, id ASC
+        LEFT JOIN internal_ai_action_logs l
+          ON recent.action_card IS NOT NULL
+         AND l.id::text = recent.action_card->>'actionId'
+        ORDER BY recent.created_at ASC, recent.id ASC
       `, [threadId])).rows;
+
+      const messages = rawMessages.map(({ actionLogStatus, ...msg }) => {
+        if (msg.actionCard && typeof msg.actionCard === 'object' && actionLogStatus) {
+          return { ...msg, actionCard: { ...msg.actionCard, status: actionLogStatus } };
+        }
+        return msg;
+      });
 
       res.json({ thread, messages });
     } catch (e) {
@@ -1507,6 +1525,12 @@ Quy tắc cốt lõi:
           WHERE id = $2
         `, [JSON.stringify(result), actionId]);
 
+        await client.query(`
+          UPDATE internal_ai_messages
+          SET action_card = jsonb_set(action_card, '{status}', to_jsonb($1::text), true)
+          WHERE action_card IS NOT NULL AND action_card->>'actionId' = $2
+        `, ['executed', actionId]);
+
         await appendAudit(client, {
           actor,
           action: `internal_ai.execute.${row.actionType}`,
@@ -1576,6 +1600,12 @@ Quy tắc cốt lõi:
           WHERE id = $2
         `, [JSON.stringify(result), actionId]);
 
+        await client.query(`
+          UPDATE internal_ai_messages
+          SET action_card = jsonb_set(action_card, '{status}', to_jsonb($1::text), true)
+          WHERE action_card IS NOT NULL AND action_card->>'actionId' = $2
+        `, ['executed', actionId]);
+
         await appendAudit(client, {
           actor,
           action: `internal_ai.execute.${row.actionType}`,
@@ -1626,6 +1656,12 @@ Quy tắc cốt lõi:
           SET status = 'cancelled', executed_at = NOW()
           WHERE id = $1 AND status = 'pending'
         `, [actionId]);
+
+        await client.query(`
+          UPDATE internal_ai_messages
+          SET action_card = jsonb_set(action_card, '{status}', to_jsonb($1::text), true)
+          WHERE action_card IS NOT NULL AND action_card->>'actionId' = $2
+        `, ['cancelled', actionId]);
 
         await appendAudit(client, {
           actor,

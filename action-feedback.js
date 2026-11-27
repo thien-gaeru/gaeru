@@ -833,8 +833,18 @@
     }
   }
 
+  function isValidationExempt(el) {
+    if (!el) return false;
+    if (typeof location !== 'undefined' && /^\/gaeru_ceo(?:\/|$)/.test(String(location.pathname || ''))) return true;
+    if (el.hasAttribute?.('data-no-action-feedback') || el.closest?.('#admin-app, [data-no-action-feedback]')) return true;
+    const form = el.form || el.closest?.('form');
+    if (form && (form.hasAttribute?.('data-no-action-feedback') || form.closest?.('#admin-app, [data-no-action-feedback]'))) return true;
+    return false;
+  }
+
   function validateField(input) {
     if (!input || input.disabled || input.readOnly) return true;
+    if (isValidationExempt(input)) return true;
     if (isPhoneInput(input)) {
       const res = validatePhoneNumber(input.value, input.required);
       if (!res.valid) {
@@ -858,7 +868,7 @@
 
   function validateForm(form) {
     if (!form || typeof form.querySelectorAll !== 'function') return true;
-    if (form.hasAttribute?.('data-no-action-feedback') || form.closest?.('#admin-app') || (typeof location !== 'undefined' && /^\/gaeru_ceo(?:\/|$)/.test(String(location.pathname || '')))) return true;
+    if (isValidationExempt(form)) return true;
     const inputs = form.querySelectorAll('input');
     if (!inputs || !inputs.length) return true;
     let firstInvalid = null;
@@ -978,6 +988,7 @@
   // Bind capture listeners on document for instant feedback
   add.call(document, 'blur', event => {
     const target = event.target;
+    if (isValidationExempt(target)) return;
     if (target && (isPhoneInput(target) || isEmailInput(target))) {
       validateField(target);
     }
@@ -985,6 +996,7 @@
 
   add.call(document, 'input', event => {
     const target = event.target;
+    if (isValidationExempt(target)) return;
     if (target && (isPhoneInput(target) || isEmailInput(target))) {
       if (target.classList?.contains('is-invalid') || target.getAttribute?.('aria-invalid') === 'true') {
         validateField(target);

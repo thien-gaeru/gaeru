@@ -57,8 +57,6 @@ function fileType(file) {
   if (['mp4', 'mov', 'm4v'].includes(ext) && b.toString('ascii', 4, 8) === 'ftyp') return ext === 'mov' ? 'video/quicktime' : 'video/mp4';
   if (['heic', 'heif'].includes(ext) && b.toString('ascii', 4, 8) === 'ftyp' && ['heic', 'heix', 'hevc', 'hevx', 'mif1', 'msf1'].includes(b.toString('ascii', 8, 12))) return 'image/heic';
   if (ext === 'webm' && b.subarray(0, 4).equals(Buffer.from([26, 69, 223, 163]))) return 'video/webm';
-  if (ext === 'mkv' && b.subarray(0, 4).equals(Buffer.from([26, 69, 223, 163]))) return 'video/x-matroska';
-  if (ext === 'avi' && b.toString('ascii', 0, 4) === 'RIFF' && b.toString('ascii', 8, 11) === 'AVI') return 'video/x-msvideo';
   if (['docx', 'xlsx', 'pptx', 'zip'].includes(ext) && b.subarray(0, 4).equals(Buffer.from([80, 75, 3, 4]))) return 'application/octet-stream';
   if (['doc', 'xls', 'ppt'].includes(ext) && b.subarray(0, 8).equals(Buffer.from([208, 207, 17, 224, 161, 177, 26, 225]))) return 'application/octet-stream';
   if (['txt', 'csv'].includes(ext) && !b.includes(0)) {
@@ -285,7 +283,13 @@ function createCareCustomerApi(pool, config = {}) {
         const row = (await client.query('SELECT * FROM care_requests WHERE id=$1 AND customer_id=$2 FOR UPDATE', [req.params.id, req.customerId])).rows[0];
         if (!row) return { status: 404, error: 'Không tìm thấy yêu cầu.' };
         if (row.status === 'closed') return { status: 409, error: 'Yêu cầu đã đóng. Vui lòng tạo yêu cầu mới.' };
-        if (!row.response) return { status: 409, error: 'Vui lòng chờ phản hồi đầu tiên từ GAERU.' };
+        const isInitialAttachment = !row.response;
+        if (isInitialAttachment) {
+          const existingFileCount = Number((await client.query('SELECT count(*)::int AS total FROM care_message_files WHERE care_id=$1', [row.id])).rows[0]?.total || 0);
+          if (row.status !== 'submitted' || existingFileCount >= 5) {
+            return { status: 409, error: 'Vui lòng chờ phản hồi đầu tiên từ GAERU.' };
+          }
+        }
         const count = Number((await client.query("SELECT count(*) total FROM care_messages WHERE care_id=$1 AND sender='customer' AND created_at>now()-interval '1 hour'", [row.id])).rows[0].total);
         if (count >= 30) return { status: 429, error: 'Bạn đã gửi nhiều tệp. Vui lòng thử lại sau.' };
         const quotaError = await checkCareUploadQuota(client, row.id, req.file.buffer.length);
@@ -301,7 +305,8 @@ function createCareCustomerApi(pool, config = {}) {
           "INSERT INTO care_message_files(care_id,message_id,name,mime,content,byte_size) VALUES($1,$2,$3,$4,$5,$6) RETURNING id,name,mime,byte_size",
           [row.id, msg.id, safeName, uploaded.mimeType, uploaded.content, uploaded.byteSize]
         )).rows[0];
-        await client.query("UPDATE care_requests SET status='reviewing',version=version+1,updated_at=now() WHERE id=$1", [row.id]);
+        const nextStatus = isInitialAttachment ? 'submitted' : 'reviewing';
+        await client.query("UPDATE care_requests SET status=$2,version=version+1,updated_at=now() WHERE id=$1", [row.id, nextStatus]);
         await enqueueAdminDomainNotification(client, {
           eventType: 'care_customer_reply',
           entityId: row.id,

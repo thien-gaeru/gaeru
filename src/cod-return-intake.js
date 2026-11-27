@@ -48,6 +48,7 @@ function createCodReturnIntake(pool) {
          WHERE s.status = 'returned'
            AND cri.id IS NULL
            AND o.status != 'cancelled'
+           AND o.return_completed_at IS NULL
            AND o.payment_method = 'cod'`
       );
       const total = countResult.rows[0]?.total || 0;
@@ -78,6 +79,7 @@ function createCodReturnIntake(pool) {
          WHERE s.status = 'returned'
            AND cri.id IS NULL
            AND o.status != 'cancelled'
+           AND o.return_completed_at IS NULL
            AND o.payment_method = 'cod'
          GROUP BY s.id, o.id
          ORDER BY s.updated_at DESC
@@ -131,7 +133,8 @@ function createCodReturnIntake(pool) {
          LEFT JOIN cod_return_intakes cri ON cri.shipment_id = s.id
          LEFT JOIN order_stock_allocations osa ON osa.order_id = o.id AND osa.released_at IS NULL
          LEFT JOIN warehouses w ON w.id = osa.warehouse_id
-         WHERE upper(s.tracking_number) = upper($1) OR upper(o.order_number) = upper($1)
+         WHERE (upper(s.tracking_number) = upper($1) OR upper(o.order_number) = upper($1))
+           AND o.return_completed_at IS NULL
          GROUP BY s.id, o.id, cri.id, w.id
          LIMIT 1`,
         [q]
@@ -170,7 +173,7 @@ function createCodReturnIntake(pool) {
                   o.customer_id AS "customerId", o.customer_name AS "customerName",
                   o.phone, o.email, o.status AS "orderStatus",
                   o.payment_method AS "paymentMethod", o.payment_status AS "paymentStatus",
-                  o.total_vnd AS "totalVnd"
+                  o.total_vnd AS "totalVnd", o.return_completed_at AS "returnCompletedAt"
            FROM carrier_shipments s
            JOIN orders o ON o.id = s.order_id
            WHERE upper(s.tracking_number) = upper($1)
@@ -196,6 +199,10 @@ function createCodReturnIntake(pool) {
         // 1. Chỉ áp dụng cho đơn hàng COD
         if (shipment.paymentMethod !== 'cod') {
           throw fail(`Đơn hàng (${shipment.orderNumber}) sử dụng phương thức thanh toán ${(shipment.paymentMethod || '').toUpperCase()}, không phải đơn COD. Chỉ đơn COD mới được xử lý hoàn qua luồng này.`, 400);
+        }
+
+        if (shipment.returnCompletedAt) {
+          throw fail('Đơn hàng đã được xử lý hoàn trả RMA; không thể kiểm nhận nhập kho hoàn COD.', 409);
         }
 
         // 2. Không cho phép kiểm nhận hoàn đơn COD đã thu tiền/đối soát (kể cả phiếu thu một phần)

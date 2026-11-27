@@ -408,18 +408,31 @@ function createApp({ config, pool, sessionStore, customerMailer, oauthClient = n
   app.post('/api/auth/link-google', requireCsrf, customerOAuthRouter.handleLinkGoogle);
   app.post('/api/auth/unlink-google', requireCsrf, customerOAuthRouter.handleUnlinkGoogle);
 
-  app.get('/api/me', (req, res) => {
-    res.set('Cache-Control', 'no-store');
-    const customer = req.session?.customer;
-    if (!customer) return res.status(401).json({ error: 'Chưa đăng nhập' });
-    res.json({
-      id: customer.id,
-      displayName: customer.fullName || customer.email,
-      fullName: customer.fullName,
-      email: customer.email,
-      phone: customer.phone,
-      emailVerified: Boolean(customer.emailVerified)
-    });
+  app.get('/api/me', async (req, res, next) => {
+    try {
+      res.set('Cache-Control', 'no-store');
+      const sessionCustomer = req.session?.customer;
+      if (!sessionCustomer?.id) return res.status(401).json({ error: 'Chưa đăng nhập' });
+      const fresh = (await pool.query(
+        'SELECT id, full_name AS "fullName", email, phone, email_verified_at IS NOT NULL AS "emailVerified" FROM customers WHERE id = $1 AND active = true AND deleted_at IS NULL',
+        [sessionCustomer.id]
+      )).rows[0];
+      if (!fresh) {
+        delete req.session.customer;
+        return res.status(401).json({ error: 'Chưa đăng nhập' });
+      }
+      req.session.customer = fresh;
+      res.json({
+        id: fresh.id,
+        displayName: fresh.fullName || fresh.email,
+        fullName: fresh.fullName,
+        email: fresh.email,
+        phone: fresh.phone,
+        emailVerified: Boolean(fresh.emailVerified)
+      });
+    } catch (e) {
+      next(e);
+    }
   });
 
   app.post('/auth/logout', (req, res, next) => {

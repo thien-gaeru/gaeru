@@ -21,7 +21,7 @@ const {
   tokenOverlapScore
 } = require('./lib/ai-nlu');
 const { embedText, embedTexts, cosineSimilarity, isGpuAiEnabled } = require('./lib/gpu-ai-client');
-const { ensureEmbeddings, rankByCosine } = require('./lib/embedding-store');
+const { ensureEmbeddings, rankByCosine, invalidateNamespace } = require('./lib/embedding-store');
 
 // In-memory cache cho tri thức tự học (TTL 60s, tự động làm mới khi có tri thức mới)
 let learnedKnowledgeCache = null;
@@ -35,6 +35,9 @@ function clearLocalCache() {
 
 function invalidateCache() {
   clearLocalCache();
+  try {
+    invalidateNamespace('learned');
+  } catch (_) {}
   if (typeof process.send === 'function') {
     try {
       process.send({ type: 'AI_KNOWLEDGE_INVALIDATE', timestamp: Date.now() });

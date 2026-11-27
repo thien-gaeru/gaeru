@@ -58,6 +58,7 @@ const escapeHtml = (value) => String(value ?? "").replace(/[&<>"']/g, (character
   "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;"
 }[character]));
 const can = (permission) => !state.session?.mfaEnrollmentRequired && Boolean(state.session?.permissions?.includes(permission) || state.session?.permissions?.includes("*"));
+const HAS_INITIAL_SECURITY_RESET = typeof location !== "undefined" && new URLSearchParams(location.search || "").has("securityReset");
 
 function applyPermissions() {
   document.querySelectorAll("[data-permission], [data-require]").forEach((element) => {
@@ -307,12 +308,12 @@ function handleRealtimeEvent(event, data = {}) {
       if (currentView === 'overview') {
         loadSystemHealth().catch(() => {});
       } else if (currentView === 'orders' && (event.startsWith('order:') || event.startsWith('after_sales:') || event === 'cache:invalidated')) {
-        loadOrders(state.orderPage).catch(() => {});
+        loadOrders(state.orderPage, { background: true }).catch(() => {});
         if (event.startsWith('after_sales:') && window.GAERUAfterSales?.load) window.GAERUAfterSales.load().catch(() => {});
       } else if (currentView === 'inventory' && (event.startsWith('inventory:') || event === 'cache:invalidated')) {
         if (window.GAERUEnterprise?.loadView) window.GAERUEnterprise.loadView('inventory').catch(() => {});
       } else if (currentView === 'care' && (event.startsWith('care:') || event === 'cache:invalidated')) {
-        if (window.GAERUCare?.load) window.GAERUCare.load().catch(() => {});
+        (window.GAERUCare?.refreshLive || window.GAERUCare?.load)?.().catch(() => {});
       } else if (currentView === 'shopping-chat' && (event.includes('chat') || event === 'cache:invalidated')) {
         if (window.GAERUShoppingChat?.load) window.GAERUShoppingChat.load().catch(() => {});
       } else if (currentView === 'warranty' && (event === 'notification:refresh' || event === 'cache:invalidated')) {
@@ -422,11 +423,12 @@ function setFeedback(form, message) {
 }
 
 async function initialize() {
+  const hasSecurityReset = HAS_INITIAL_SECURITY_RESET || (typeof location !== "undefined" && new URLSearchParams(location.search || "").has("securityReset"));
   try {
     const csrf = await request("/api/csrf");
     state.csrfToken = csrf.csrfToken;
     const session = await request("/api/auth/me");
-    if (session.authenticated&&!new URLSearchParams(location.search).has("securityReset")) await showAdmin(session);
+    if (session.authenticated && !hasSecurityReset) await showAdmin(session);
     else { document.querySelector("#login-panel").hidden = false; if (new URLSearchParams(location.search).has("expired")) document.querySelector("#login-feedback").textContent = "Phiên làm việc đã hết hạn. Vui lòng đăng nhập lại."; }
   } catch (error) {
     document.querySelector("#login-panel").hidden = false;
@@ -1660,6 +1662,17 @@ function renderOrders() {
       : isLiveVnpayAttempt(order) ? `Phiên ${gatewayName} đang chờ xác nhận hoặc đối soát. Chỉ có thể hủy sau khi phiên thanh toán hết hạn/ngã ngũ.`
         : "";
     const submitDisabled = !allowed.length && !canEditShipping(order) && (!orderPaymentControl(order).includes('name="paymentStatus"'));
+    const voucherDiscount = Math.max(0, Number(order.voucherDiscountVnd) || 0);
+    const bundleDiscount = Math.max(0, Number(order.bundleDiscountVnd) || 0);
+    const loyaltyDiscount = Math.max(0, Number(order.loyaltyDiscountVnd) || 0);
+    const totalDiscount = Math.max(0, Number(order.discountVnd) || 0);
+    const otherDiscount = Math.max(0, totalDiscount - (voucherDiscount + bundleDiscount + loyaltyDiscount));
+    const discountRowsHtml = [
+      voucherDiscount > 0 ? `<div><dt>${order.voucherCode ? `Voucher ${escapeHtml(order.voucherCode)}` : "Voucher"}</dt><dd>−${formatPrice(voucherDiscount)}</dd></div>` : "",
+      bundleDiscount > 0 ? `<div><dt>Ưu đãi Combo</dt><dd>−${formatPrice(bundleDiscount)}</dd></div>` : "",
+      loyaltyDiscount > 0 ? `<div><dt>GAERU Xu</dt><dd>−${formatPrice(loyaltyDiscount)}</dd></div>` : "",
+      otherDiscount > 0 ? `<div><dt>${order.voucherCode && !voucherDiscount ? `Voucher ${escapeHtml(order.voucherCode)}` : "Giảm giá khác"}</dt><dd>−${formatPrice(otherDiscount)}</dd></div>` : ""
+    ].join("");
     return `<article class="order-card" data-order-detail="${escapeHtml(order.id)}">
       <div class="order-card-summary order-table-row"><label class="order-select-cell"><input type="checkbox" data-select-order="${escapeHtml(order.id)}" aria-label="Chọn đơn ${escapeHtml(order.orderNumber)}" ${state.selectedOrders.has(order.id) ? "checked" : ""}></label><span class="order-cell"><strong>${escapeHtml(order.orderNumber)}</strong><small>${escapeHtml(orderDate)}</small></span><span class="order-cell"><strong>${escapeHtml(order.customerName)}</strong><small>${escapeHtml(order.phone)}</small></span><span class="order-cell"><strong>${itemCount} sản phẩm</strong><small>${escapeHtml(order.items.map(i => i.productName + ' · ' + i.variantName).join(', '))}</small></span><span class="order-cell"><span class="status-pill status-${escapeHtml(order.status)}">${returned?"Đã hoàn trả":escapeHtml(labels[order.status] || order.status)}</span>${order.reviewReason ? `<span class="status-pill status-warning" style="background:#fff3cd;color:#856404;border:1px solid #ffeeba;margin-top:4px;display:inline-block;font-size:11px" title="${escapeHtml(reviewReasonLabels[order.reviewReason] || 'Cần gọi xác nhận qua điện thoại')}">⚠️ Chờ xác minh SĐT</span>` : ''}</span><span class="order-cell"><strong title="${escapeHtml(labels[order.paymentMethod] || order.paymentMethod)}">${escapeHtml(order.paymentMethod==="cod"?"COD":labels[order.paymentMethod] || order.paymentMethod)}</strong><small>${paymentStatus}</small>${order.shippingCarrierName ? `<small>Vận chuyển: ${escapeHtml(order.shippingCarrierName)}</small>` : ""}</span><span class="order-cell order-amount"><strong>${order.totalVnd == null ? "Chưa chốt tổng" : formatPrice(order.totalVnd)}</strong></span><span class="order-cell order-action-cell">${returned ? '<span class="status-pill">Đã hoàn trả</span>' : `<button type="button" class="${order.status === "pending" ? "primary-button" : "secondary-button"} order-process-button" data-process-order="${escapeHtml(order.id)}" aria-haspopup="dialog" aria-controls="order-processing-dialog">Xử lý</button>`}${can("orders.write") && order.status==="completed"&&!returned&&order.returnStatus!=="open" ? `<button type="button" class="secondary-button order-return-button" data-return-order="${escapeHtml(order.id)}">Hoàn trả</button>` : ""}${can("orders.write")&&order.status==="cancelled"&&!returned ? `<button type="button" class="secondary-button order-restore-button" style="white-space:nowrap" data-restore-order="${escapeHtml(order.id)}" ${orderRestoreReason(order)?"disabled":""}>Khôi phục xử lý</button>${orderRestoreReason(order)?`<small>${escapeHtml(orderRestoreReason(order))}</small>`:""}`:""}</span></div>
       <div class="order-card-body" id="order-body-${escapeHtml(order.id)}" hidden>
@@ -1679,7 +1692,7 @@ function renderOrders() {
           <div class="order-modal-col-right">
             <div class="order-modal-card order-summary-box">
               <div class="order-card-head"><strong>Thanh toán · ${escapeHtml(order.paymentMethod === "cod" ? "COD" : (labels[order.paymentMethod] || order.paymentMethod))}</strong><span class="status-pill ${order.paymentStatus === "paid" ? "status-completed" : "status-pending"}">${escapeHtml(paymentStatus)}</span></div>
-              <dl class="order-totals">${order.discountVnd?`<div><dt>Voucher ${escapeHtml(order.voucherCode)}</dt><dd>−${formatPrice(order.discountVnd)}</dd></div>`:""}<div><dt>Tạm tính</dt><dd>${formatPrice(order.subtotalVnd)}</dd></div><div><dt>Phí giao hàng</dt><dd>${order.shippingFeeVnd == null ? "Chưa chốt" : formatPrice(order.shippingFeeVnd)}</dd></div>${Number(order.receivedVnd) > 0 ? `<div><dt>Đã thu</dt><dd>${formatPrice(order.receivedVnd)}</dd></div><div><dt>Còn phải thu</dt><dd>${formatPrice(order.outstandingVnd ?? Math.max(0, order.totalVnd - order.receivedVnd))}</dd></div>` : ""}<div class="order-totals-grand"><dt>Tổng cộng</dt><dd>${order.totalVnd == null ? "Chưa chốt tổng" : formatPrice(order.totalVnd)}</dd></div></dl>
+              <dl class="order-totals"><div><dt>Tạm tính</dt><dd>${formatPrice(order.subtotalVnd)}</dd></div>${discountRowsHtml}<div><dt>Phí giao hàng</dt><dd>${order.shippingFeeVnd == null ? "Chưa chốt" : formatPrice(order.shippingFeeVnd)}</dd></div>${Number(order.receivedVnd) > 0 ? `<div><dt>Đã thu</dt><dd>${formatPrice(order.receivedVnd)}</dd></div><div><dt>Còn phải thu</dt><dd>${formatPrice(order.outstandingVnd ?? Math.max(0, order.totalVnd - order.receivedVnd))}</dd></div>` : ""}<div class="order-totals-grand"><dt>Tổng cộng</dt><dd>${order.totalVnd == null ? "Chưa chốt tổng" : formatPrice(order.totalVnd)}</dd></div></dl>
               ${paymentNote ? `<p class="help-text order-inline-note">${escapeHtml(paymentNote)}</p>` : ""}
               ${reconcileErrorWarning ? `<p class="feedback order-inline-note">${escapeHtml(reconcileErrorWarning)}</p>` : ""}
               ${latePaymentWarning ? `<p class="feedback order-inline-note">${escapeHtml(latePaymentWarning)}</p>` : ""}

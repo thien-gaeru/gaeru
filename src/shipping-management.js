@@ -1126,11 +1126,31 @@ async function settleCarrierCodBatch(pool, {
 
   return withTransaction(pool, async (client) => {
     const sorted = [...allocations].sort((a, b) => String(a.orderId).localeCompare(String(b.orderId)));
+    const orderIds = sorted.map((a) => a.orderId);
+    const carrierRows = (await client.query(
+      `SELECT DISTINCT ON (order_id) order_id, carrier_id
+       FROM carrier_shipments
+       WHERE order_id = ANY($1::uuid[]) AND status != 'cancelled'
+       ORDER BY order_id, created_at DESC`,
+      [orderIds]
+    )).rows;
+    const distinctCarriers = [...new Set(carrierRows.map((r) => r.carrier_id).filter(Boolean))];
+    if (!carrierId && distinctCarriers.length > 1) {
+      throw fail('Một bảng kê đối soát COD chỉ được chứa vận đơn của cùng một hãng vận chuyển. Vui lòng lọc theo từng hãng.', 400);
+    }
+    const resolvedCarrierId = carrierId || distinctCarriers[0] || null;
+    if (resolvedCarrierId) {
+      const rawTxRef = String(providerTransactionRef || '').trim();
+      const batchTxRef = (rawTxRef.length >= 4 && rawTxRef.length <= 120)
+        ? rawTxRef
+        : ('COD-' + sorted[0].orderId.slice(0, 8));
+      await client.query('SELECT pg_advisory_xact_lock(hashtext($1))', [`cod_batch:${resolvedCarrierId}:${batchTxRef}`]);
+    }
     const results = [];
     for (const item of sorted) {
       const res = await settleSingleCarrierCodInTx(client, {
         orderId: item.orderId,
-        expectedCarrierId: carrierId || null,
+        expectedCarrierId: resolvedCarrierId,
         providerTransactionRef,
         settledAmountVnd: item.amountVnd,
         declaredPayoutVnd: dp,
@@ -1568,6 +1588,22 @@ async function handleCarrierWebhook(pool, config, carrierId, payload, { headers 
   const sanitizedPayload = sanitizeWebhookPayload(payload);
 
   const txResult = await withTransaction(pool, async client => {
+    const trimTracking = String(trackingNumber || '').trim();
+    const trimCarrierOrderId = String(carrierOrderId || '').trim();
+    const orderPeek = await client.query(
+      `SELECT order_id
+       FROM carrier_shipments
+       WHERE carrier_id = $1
+         AND (($2::text <> '' AND tracking_number = $2) OR ($3::text <> '' AND carrier_order_id = $3))
+       ORDER BY (status = 'cancelled')::int ASC, created_at DESC
+       LIMIT 1`,
+      [carrierId, trimTracking, trimCarrierOrderId]
+    );
+    if (!orderPeek.rows.length) {
+      return { success: true, processed: false, reason: 'Vận đơn chưa tồn tại trong hệ thống GAERU.' };
+    }
+    await client.query('SELECT id FROM orders WHERE id = $1 FOR UPDATE', [orderPeek.rows[0].order_id]);
+
     const result = await client.query(
       `SELECT s.*, o.order_number AS "orderNumber", o.total_vnd AS "orderTotalVnd",
               o.customer_id AS "orderCustomerId", o.return_completed_at AS "orderReturnCompletedAt",
@@ -1579,7 +1615,7 @@ async function handleCarrierWebhook(pool, config, carrierId, payload, { headers 
        ORDER BY (s.status = 'cancelled')::int ASC, s.created_at DESC
        LIMIT 1
        FOR UPDATE OF s, o`,
-      [carrierId, String(trackingNumber || '').trim(), String(carrierOrderId || '').trim()]
+      [carrierId, trimTracking, trimCarrierOrderId]
     );
 
     if (!result.rows.length) {

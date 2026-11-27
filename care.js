@@ -189,21 +189,25 @@
       if (typeof fd.append === 'function') fd.append('file', file);
       return fd;
     };
-    let res = await fetch('/api/customer/care/' + encodeURIComponent(careId) + '/attachments', {
+    let res = await fetch('/api/customer/care/' + encodeURIComponent(careId) + '/files', {
       method: 'POST',
       headers: { 'X-CSRF-Token': csrfToken },
       body: buildFd(),
       credentials: 'same-origin'
     });
-    if (res.status === 404) {
-      res = await fetch('/api/customer/care/' + encodeURIComponent(careId) + '/files', {
+    let data = await res.json().catch(() => ({}));
+    if (res.status === 409) {
+      const fallbackRes = await fetch('/api/customer/care/' + encodeURIComponent(careId) + '/attachments', {
         method: 'POST',
         headers: { 'X-CSRF-Token': csrfToken },
         body: buildFd(),
         credentials: 'same-origin'
       });
+      if (fallbackRes.status !== 404) {
+        res = fallbackRes;
+        data = await res.json().catch(() => ({}));
+      }
     }
-    const data = await res.json().catch(() => ({}));
     if (!res.ok) throw Error(data.error || 'Không thể tải tệp đính kèm lên.');
     return data;
   }
@@ -423,19 +427,20 @@
           if (!csrfRes.ok) throw Error('Không thể khởi tạo phiên tải tệp.');
           const csrfToken = (await csrfRes.json()).csrfToken || '';
           let uploadedCount = 0;
-          const failedNames = [];
+          const failedReasons = [];
           for (let i = 0; i < selectedFiles.length; i++) {
+            const file = selectedFiles[i];
             try {
-              await uploadInitialAttachment(result.request.id, selectedFiles[i], csrfToken);
+              await uploadInitialAttachment(result.request.id, file, csrfToken);
               uploadedCount++;
-            } catch {
-              failedNames.push(selectedFiles[i].name);
+            } catch (err) {
+              failedReasons.push(file.name + ': ' + (err?.message || 'lỗi tải tệp'));
             }
           }
           if (uploadedCount > 0) attachmentNote += ' Đã đính kèm ' + uploadedCount + ' tệp.';
-          if (failedNames.length > 0) attachmentNote += ' Chưa tải được: ' + failedNames.join(', ') + '.';
+          if (failedReasons.length > 0) attachmentNote += ' Chưa tải được: ' + failedReasons.join('; ') + ' (bạn có thể gửi bổ sung trong hội thoại yêu cầu vừa tạo).';
         } catch (uploadErr) {
-          attachmentNote += ' (' + (uploadErr.message || 'Chưa tải được tệp đính kèm') + ')';
+          attachmentNote += ' (' + (uploadErr?.message || 'Chưa tải được tệp đính kèm') + ')';
         }
         selectedFiles = [];
         renderSelectedFiles();

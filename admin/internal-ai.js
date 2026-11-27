@@ -471,20 +471,34 @@
 
   function appendActionCardUI(parentBubble, card) {
     const cardEl = document.createElement('div');
-    cardEl.className = `copilot-action-card ${card.status === 'executed' ? 'is-executed' : ''}`;
+    const statusClass = card.status === 'executed'
+      ? 'is-executed'
+      : card.status === 'cancelled'
+        ? 'is-cancelled'
+        : '';
+    cardEl.className = `copilot-action-card ${statusClass}`.trim();
     cardEl.id = `action-card-${escapeAttr(card.actionId)}`;
 
-    cardEl.innerHTML = `
-      <div class="copilot-action-header">${escapeHtml(card.title)}</div>
-      <p class="copilot-action-desc">${escapeHtml(card.description)}</p>
-      ${card.status === 'pending' ? `
+    let statusBody = '';
+    if (card.status === 'pending') {
+      statusBody = `
         <div class="copilot-action-buttons">
           <button type="button" class="btn-confirm-action" data-action-id="${escapeAttr(card.actionId)}" data-no-action-feedback>✓ Xác nhận thực hiện</button>
           <button type="button" class="btn-cancel-action" data-action-id="${escapeAttr(card.actionId)}" data-no-action-feedback>✕ Hủy bỏ</button>
         </div>
-      ` : `
-        <div style="font-size:12px;color:#16a34a;font-weight:600;">✓ Đã thực thi thành công trên hệ thống</div>
-      `}
+      `;
+    } else if (card.status === 'executed') {
+      statusBody = `<div style="font-size:12px;color:#16a34a;font-weight:600;">✓ Đã thực thi thành công trên hệ thống</div>`;
+    } else if (card.status === 'cancelled') {
+      statusBody = `<div style="font-size:12px;color:#64748b;font-weight:600;">✕ Đã hủy bỏ đề xuất này.</div>`;
+    } else {
+      statusBody = `<div style="font-size:12px;color:#b45309;font-weight:600;">⚠ Đề xuất không thể thực thi (${escapeHtml(card.status)})</div>`;
+    }
+
+    cardEl.innerHTML = `
+      <div class="copilot-action-header">${escapeHtml(card.title)}</div>
+      <p class="copilot-action-desc">${escapeHtml(card.description)}</p>
+      ${statusBody}
     `;
 
     const confirmBtn = cardEl.querySelector('.btn-confirm-action');
@@ -530,6 +544,7 @@
         if (confirmBtn) confirmBtn.disabled = true;
         try {
           await api(`/actions/${card.actionId}/cancel`, { method: 'POST' });
+          cardEl.classList.add('is-cancelled');
           cardEl.querySelector('.copilot-action-buttons').innerHTML = `<div style="font-size:12px;color:#64748b;font-weight:600;padding:4px 0;">✕ Đã hủy bỏ đề xuất này.</div>`;
           if (window.GAERUNotify?.toast) window.GAERUNotify.toast('Đã hủy bỏ đề xuất.', 'info');
         } catch (e) {
@@ -564,7 +579,7 @@
   }
 
   document.addEventListener('click', (e) => {
-    const sidebar = document.querySelector('#internal-ai-view .copilot-sidebar');
+    const sidebar = document.querySelector('.copilot-container .copilot-sidebar');
     const toggleBtn = document.getElementById('btn-mobile-copilot-threads');
     if (!sidebar) return;
     if (e.target.closest('#btn-mobile-copilot-threads')) {

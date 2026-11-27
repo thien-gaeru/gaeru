@@ -51,9 +51,11 @@ function calculateTier(lifetimeEarned, policy = DEFAULT_POLICY) {
 // CORE CONCURRENCY-SAFE LOYALTY LEDGER
 // -----------------------------------------------------------------------------
 async function expireLockedLoyaltyIfDue(client, row, actor = { username: 'loyalty-expiry', source: 'system' }) {
-  if (!row || !(Number(row.pointsBalance) > 0) || !row.expiresAt) return row;
+  if (!row) return row;
+  const originalExpiresAt = row.originalExpiresAt !== undefined ? row.originalExpiresAt : (row.expiresAt ?? null);
+  if (!(Number(row.pointsBalance) > 0) || !row.expiresAt) return { ...row, originalExpiresAt };
   const expMs = new Date(row.expiresAt).getTime();
-  if (!Number.isFinite(expMs) || expMs > Date.now()) return row;
+  if (!Number.isFinite(expMs) || expMs > Date.now()) return { ...row, originalExpiresAt };
   const expiredPoints = Number(row.pointsBalance);
   const eventKey = `expire:${row.customerId}:${Math.floor(expMs / 1000)}`;
   const ledgerIns = await client.query(
@@ -78,7 +80,7 @@ async function expireLockedLoyaltyIfDue(client, row, actor = { username: 'loyalt
       metadata: { expiredPoints, expiredAt: new Date(expMs).toISOString() }
     });
   }
-  return { ...row, pointsBalance: 0, expiresAt: null };
+  return { ...row, pointsBalance: 0, expiresAt: null, originalExpiresAt };
 }
 
 async function expireDueLoyaltyPoints(pool) {
@@ -177,7 +179,8 @@ async function previewEarnClawback(client, { customerId, orderId, lock = false }
     `SELECT
        COALESCE(SUM(CASE WHEN type = 'earn' THEN ABS(points::bigint) ELSE 0 END), 0)::bigint AS "earnedOnOrder",
        COALESCE(SUM(CASE WHEN type = 'redeem' THEN ABS(points::bigint) ELSE 0 END), 0)::bigint AS "totalRedeemed",
-       COALESCE(SUM(CASE WHEN type = 'refund' AND event_key LIKE 'refund-redeem:%' THEN points::bigint ELSE 0 END), 0)::bigint AS "totalRefunded"
+       COALESCE(SUM(CASE WHEN type = 'refund' AND event_key LIKE 'refund-redeem:%' THEN points::bigint ELSE 0 END), 0)::bigint AS "totalRefunded",
+       MAX(created_at) FILTER (WHERE type = 'redeem') AS "lastRedeemedAt"
      FROM customer_loyalty_ledger
      WHERE order_id = $1`,
     [orderId]
@@ -190,18 +193,53 @@ async function previewEarnClawback(client, { customerId, orderId, lock = false }
   }
 
   let currentBalance = 0;
+  let originalExpiresAt = null;
   if (lock) {
     const loyalty = await getOrCreateLoyalty(client, customerId);
     currentBalance = Math.max(0, Number(loyalty.pointsBalance || 0));
+    originalExpiresAt = loyalty.originalExpiresAt ?? loyalty.expiresAt ?? null;
   } else {
-    const row = (await client.query('SELECT CASE WHEN expires_at IS NOT NULL AND expires_at <= now() THEN 0 ELSE points_balance END AS "pointsBalance" FROM customer_loyalty WHERE customer_id = $1', [customerId])).rows[0];
+    const row = (await client.query('SELECT CASE WHEN expires_at IS NOT NULL AND expires_at <= now() THEN 0 ELSE points_balance END AS "pointsBalance", expires_at AS "expiresAt" FROM customer_loyalty WHERE customer_id = $1', [customerId])).rows[0];
     currentBalance = Math.max(0, Number(row?.pointsBalance || 0));
+    originalExpiresAt = row?.expiresAt ?? null;
   }
 
-  const effectiveBalance = currentBalance + pendingRedeemRefund;
+  let redeemRefundPastExpiry = false;
+  if (pendingRedeemRefund > 0) {
+    const origExpMs = originalExpiresAt ? new Date(originalExpiresAt).getTime() : NaN;
+    if (Number.isFinite(origExpMs) && origExpMs <= Date.now()) {
+      redeemRefundPastExpiry = true;
+    } else if (!originalExpiresAt && currentBalance === 0 && orderAgg?.lastRedeemedAt) {
+      const expiredCheck = (await client.query(
+        `SELECT (
+           $2::timestamptz <= now() - interval '12 months'
+           OR EXISTS (
+             SELECT 1 FROM customer_loyalty_ledger l
+             WHERE l.customer_id = $1
+               AND l.type = 'expire'
+               AND (
+                 ((l.event_key LIKE 'expire:%' OR l.order_id IS NULL) AND l.created_at >= $2::timestamptz)
+                 OR (
+                   l.event_key LIKE 'expire-on-refund:%'
+                   AND EXISTS (
+                     SELECT 1 FROM customer_loyalty_ledger r2
+                     WHERE r2.order_id = l.order_id AND r2.type = 'redeem' AND r2.created_at >= $2::timestamptz
+                   )
+                 )
+               )
+           )
+         ) AS expired`,
+        [customerId, orderAgg.lastRedeemedAt]
+      )).rows[0];
+      redeemRefundPastExpiry = Boolean(expiredCheck?.expired);
+    }
+  }
+  const effectivePendingRedeemRefund = redeemRefundPastExpiry ? 0 : pendingRedeemRefund;
+
+  const effectiveBalance = currentBalance + effectivePendingRedeemRefund;
   const recoverableFromBalance = Math.min(effectiveBalance, earnToRevoke);
   const shortfallPoints = Math.max(0, earnToRevoke - recoverableFromBalance);
-  return { earnToRevoke, recoverableFromBalance, shortfallPoints, currentBalance, pendingRedeemRefund, alreadyRevoked: false };
+  return { earnToRevoke, recoverableFromBalance, shortfallPoints, currentBalance, pendingRedeemRefund: effectivePendingRedeemRefund, alreadyRevoked: false };
 }
 
 async function earnPoints(client, { customerId, orderId, orderTotalVnd, pointsRatio, reason, actor }) {
@@ -385,7 +423,8 @@ async function refundPoints(client, { customerId, orderId, reason = 'Hoàn trả
     `SELECT
        COALESCE(SUM(CASE WHEN type = 'redeem' THEN ABS(points::bigint) ELSE 0 END), 0)::bigint AS "totalRedeemed",
        COALESCE(SUM(CASE WHEN type = 'refund' AND event_key LIKE 'refund-redeem:%' THEN points::bigint ELSE 0 END), 0)::bigint AS "totalRefunded",
-       COUNT(*) FILTER (WHERE type = 'refund' AND event_key LIKE 'refund-redeem:%')::int AS "refundCount"
+       COUNT(*) FILTER (WHERE type = 'refund' AND event_key LIKE 'refund-redeem:%')::int AS "refundCount",
+       MAX(created_at) FILTER (WHERE type = 'redeem') AS "lastRedeemedAt"
      FROM customer_loyalty_ledger
      WHERE order_id = $1`,
     [orderId]
@@ -413,8 +452,33 @@ async function refundPoints(client, { customerId, orderId, reason = 'Hoàn trả
       if (newBalance > 2147483647) throw fail('Số dư Xu vượt giới hạn cho phép.', 409);
       const newSpent = Math.max(0, loyalty.lifetimeSpent - pointsToRefund);
 
-      const origExpMs = loyalty.expiresAt ? new Date(loyalty.expiresAt).getTime() : NaN;
-      const alreadyPastOriginalExpiry = Number.isFinite(origExpMs) && origExpMs <= Date.now();
+      const effectiveOrigExpiresAt = loyalty.originalExpiresAt ?? loyalty.expiresAt ?? null;
+      const origExpMs = effectiveOrigExpiresAt ? new Date(effectiveOrigExpiresAt).getTime() : NaN;
+      let alreadyPastOriginalExpiry = Number.isFinite(origExpMs) && origExpMs <= Date.now();
+      if (!alreadyPastOriginalExpiry && !effectiveOrigExpiresAt && Number(loyalty.pointsBalance || 0) === 0 && redeemAgg?.lastRedeemedAt) {
+        const expiredCheck = (await client.query(
+          `SELECT (
+             $2::timestamptz <= now() - interval '12 months'
+             OR EXISTS (
+               SELECT 1 FROM customer_loyalty_ledger l
+               WHERE l.customer_id = $1
+                 AND l.type = 'expire'
+                 AND (
+                   ((l.event_key LIKE 'expire:%' OR l.order_id IS NULL) AND l.created_at >= $2::timestamptz)
+                   OR (
+                     l.event_key LIKE 'expire-on-refund:%'
+                     AND EXISTS (
+                       SELECT 1 FROM customer_loyalty_ledger r2
+                       WHERE r2.order_id = l.order_id AND r2.type = 'redeem' AND r2.created_at >= $2::timestamptz
+                     )
+                   )
+                 )
+             )
+           ) AS expired`,
+          [customerId, redeemAgg.lastRedeemedAt]
+        )).rows[0];
+        alreadyPastOriginalExpiry = Boolean(expiredCheck?.expired);
+      }
       const restoredBalance = alreadyPastOriginalExpiry ? loyalty.pointsBalance : newBalance;
 
       await client.query(
@@ -644,6 +708,10 @@ function createLoyaltyApi(pool) {
       )).rows[0];
       if (loyaltyRow && loyaltyRow.pointsBalance > 0 && loyaltyRow.expiresAt && new Date(loyaltyRow.expiresAt).getTime() <= Date.now()) {
         loyaltyRow = await withTransaction(pool, client => getOrCreateLoyalty(client, customerId));
+      }
+      if (loyaltyRow && Object.prototype.hasOwnProperty.call(loyaltyRow, 'originalExpiresAt')) {
+        const { originalExpiresAt: _orig, ...cleanRow } = loyaltyRow;
+        loyaltyRow = cleanRow;
       }
       const loyalty = loyaltyRow || {
         pointsBalance: 0,

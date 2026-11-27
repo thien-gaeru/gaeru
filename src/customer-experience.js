@@ -345,12 +345,13 @@ function createCustomerExperience(pool, { inventory = null, audit = null, config
         let updatedSecurityVersion = null;
         if (customer && (phoneUpdated || emailUpdated)) {
           const secRow = (await client.query(
-            `UPDATE account_security
-             SET email = CASE WHEN $2::boolean THEN $3 ELSE email END,
-                 phone = CASE WHEN $4::boolean THEN $5 ELSE phone END,
-                 version = version + 1,
+            `INSERT INTO account_security (account_key, email, phone, version, updated_at)
+             VALUES ($1, CASE WHEN $2::boolean THEN $3 ELSE NULL END, CASE WHEN $4::boolean THEN $5 ELSE NULL END, 2, now())
+             ON CONFLICT (account_key) DO UPDATE
+             SET email = CASE WHEN $2::boolean THEN $3 ELSE account_security.email END,
+                 phone = CASE WHEN $4::boolean THEN $5 ELSE account_security.phone END,
+                 version = account_security.version + 1,
                  updated_at = now()
-             WHERE account_key = $1
              RETURNING version`,
             ['customer:' + req.customerId, emailUpdated, newEmail, phoneUpdated, newPhone]
           )).rows[0];
@@ -359,7 +360,10 @@ function createCustomerExperience(pool, { inventory = null, audit = null, config
         return { status: 200, customer, updatedSecurityVersion };
       });
       if (result.customer) req.session.customer = result.customer;
-      if (Number.isInteger(result.updatedSecurityVersion)) req.session.securityVersion = result.updatedSecurityVersion;
+      if (Number.isInteger(result.updatedSecurityVersion)) {
+        req.session.securityVersion = result.updatedSecurityVersion;
+        try { require('./cache').invalidateTags(['account-security'], { immediate: true }); } catch (_) {}
+      }
       res.status(result.status).json(result.error ? { error: result.error } : { customer: result.customer });
     } catch (e) {
       next(e);
@@ -390,7 +394,7 @@ function createCustomerExperience(pool, { inventory = null, audit = null, config
     if (!z.string().uuid().safeParse(req.params.id).success) return res.status(404).json({ error: 'Không tìm thấy đơn hàng.' });
     try {
       const order = (await pool.query(
-        'SELECT id,order_number AS "orderNumber",customer_name AS "customerName",phone,address,city,status,payment_method AS "paymentMethod",payment_status AS "paymentStatus",discount_vnd AS "discountVnd",voucher_code AS "voucherCode",subtotal_vnd AS "subtotalVnd",shipping_fee_vnd AS "shippingFeeVnd",total_vnd AS "totalVnd",cancellation_reason AS "cancellationReason",created_at AS "createdAt",updated_at AS "updatedAt",(SELECT json_build_object(\'id\', a.id, \'status\', a.status, \'kind\', a.kind, \'returnType\', a.return_type, \'reason\', a.reason, \'resolution\', a.resolution, \'rmaNumber\', a.rma_number, \'inboundStatus\', a.inbound_status, \'outboundStatus\', a.outbound_status, \'createdAt\', a.created_at, \'updatedAt\', a.updated_at) FROM order_after_sales a WHERE a.order_id = orders.id ORDER BY a.created_at DESC LIMIT 1) AS "afterSales" FROM orders WHERE id=$1 AND customer_id=$2',
+        'SELECT o.id,o.order_number AS "orderNumber",o.customer_name AS "customerName",o.phone,o.address,o.city,o.status,o.payment_method AS "paymentMethod",o.payment_status AS "paymentStatus",o.discount_vnd AS "discountVnd",o.voucher_code AS "voucherCode",o.subtotal_vnd AS "subtotalVnd",o.shipping_fee_vnd AS "shippingFeeVnd",o.total_vnd AS "totalVnd",o.cancellation_reason AS "cancellationReason",o.created_at AS "createdAt",o.updated_at AS "updatedAt",s.carrier_name AS "carrierName",(SELECT json_build_object(\'id\', a.id, \'status\', a.status, \'kind\', a.kind, \'returnType\', a.return_type, \'reason\', a.reason, \'resolution\', a.resolution, \'rmaNumber\', a.rma_number, \'inboundStatus\', a.inbound_status, \'outboundStatus\', a.outbound_status, \'createdAt\', a.created_at, \'updatedAt\', a.updated_at) FROM order_after_sales a WHERE a.order_id = o.id ORDER BY a.created_at DESC LIMIT 1) AS "afterSales" FROM orders o LEFT JOIN order_shipping_selection s ON s.order_id = o.id WHERE o.id=$1 AND o.customer_id=$2',
         [req.params.id, req.customerId]
       )).rows[0];
       if (!order) return res.status(404).json({ error: 'Không tìm thấy đơn hàng.' });
@@ -398,6 +402,30 @@ function createCustomerExperience(pool, { inventory = null, audit = null, config
         'SELECT id,product_name AS "productName",variant_name AS "variantName",sku,quantity,unit_price_vnd AS "unitPriceVnd",line_total_vnd AS "lineTotalVnd" FROM order_items WHERE order_id=$1 ORDER BY id',
         [order.id]
       )).rows;
+      let loyaltyDiscountVnd = 0;
+      let voucherDiscountVnd = 0;
+      try {
+        const [loyRes, voucherRes] = await Promise.all([
+          pool.query(
+            "SELECT COALESCE(MAX(ABS(points)), 0)::int AS pts FROM customer_loyalty_ledger WHERE order_id = $1 AND type = 'redeem'",
+            [order.id]
+          ),
+          pool.query(
+            'SELECT COALESCE(MAX(discount_vnd), 0)::int AS discount_vnd FROM voucher_redemptions WHERE order_id = $1',
+            [order.id]
+          )
+        ]);
+        loyaltyDiscountVnd = Math.max(0, Number(loyRes.rows[0]?.pts || 0));
+        voucherDiscountVnd = Math.max(0, Number(voucherRes.rows[0]?.discount_vnd || 0));
+      } catch (_) {}
+      const totalDiscountVnd = Math.max(0, Number(order.discountVnd || 0));
+      const residualDiscountVnd = Math.max(0, totalDiscountVnd - voucherDiscountVnd - loyaltyDiscountVnd);
+      if (voucherDiscountVnd === 0 && order.voucherCode && residualDiscountVnd > 0) {
+        voucherDiscountVnd = residualDiscountVnd;
+      }
+      order.loyaltyDiscountVnd = loyaltyDiscountVnd;
+      order.voucherDiscountVnd = voucherDiscountVnd;
+      order.bundleDiscountVnd = Math.max(0, totalDiscountVnd - voucherDiscountVnd - loyaltyDiscountVnd);
       res.json({ order });
     } catch (e) {
       next(e);

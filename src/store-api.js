@@ -1727,6 +1727,10 @@ function createStoreApi(pool, { ordersEnabled = false, getOrdersEnabled = null, 
               throw Object.assign(new Error("Phiên giữ hàng thanh toán đã hết hạn. Vui lòng đặt lại đơn hàng."), { status: 409 });
             }
 
+            if (phase1.activeCustomerId) {
+              await client.query("SELECT id FROM customers WHERE id = $1 FOR UPDATE", [phase1.activeCustomerId]);
+            }
+
             let promotion = null;
             if (parsed.data.voucherCode) {
               const verifiedPromo = await require("./marketing").eligible(
@@ -2643,39 +2647,65 @@ function createStoreApi(pool, { ordersEnabled = false, getOrdersEnabled = null, 
     );
     if (result.rows.length) {
       const orderIds = result.rows.map((o) => o.id);
-      const [selectedRes, shipmentsRes, receiptsRes, einvoicesRes] = await Promise.all([
+      const discountedOrderIds = result.rows.filter((o) => Number(o.discountVnd) > 0).map((o) => o.id);
+      const [selectedRes, shipmentsRes, receiptsRes, einvoicesRes, loyaltyRedeemRes, voucherRedeemRes] = await Promise.all([
         shippingChoices
-          ? pool.query('SELECT order_id,carrier_name FROM order_shipping_selection WHERE order_id=ANY($1::uuid[])', [orderIds])
+          ? pool.query('SELECT order_id, carrier_name FROM order_shipping_selection WHERE order_id=ANY($1::uuid[])', [orderIds]).catch(() => null)
           : Promise.resolve(null),
-        shippingChoices
-          ? pool.query("SELECT order_id,carrier_id,tracking_number,status,label_url,cod_amount_vnd,cod_settlement_status,cod_settlement_ref,cod_attestation_level,cod_evidence_ref,cod_payout_period FROM carrier_shipments WHERE order_id=ANY($1::uuid[]) AND status!='cancelled' ORDER BY created_at DESC", [orderIds])
+        (shippingChoices || finance)
+          ? pool.query("SELECT order_id,carrier_id,tracking_number,status,label_url,cod_amount_vnd,cod_settlement_status,cod_settlement_ref,cod_attestation_level,cod_evidence_ref,cod_payout_period FROM carrier_shipments WHERE order_id=ANY($1::uuid[]) AND status!='cancelled' ORDER BY created_at DESC", [orderIds]).catch(() => null)
           : Promise.resolve(null),
         finance
           ? pool.query('SELECT order_id, SUM(amount_vnd) AS received FROM sales_receipts WHERE order_id=ANY($1::uuid[]) GROUP BY order_id', [orderIds])
           : Promise.resolve(null),
         config
           ? pool.query('SELECT order_id, invoice_number AS "invoiceNumber", invoice_series AS "invoiceSeries", template_code AS "templateCode", view_url AS "viewUrl", issued_at AS "issuedAt" FROM misa_einvoices WHERE order_id=ANY($1::uuid[])', [orderIds]).catch(() => null)
+          : Promise.resolve(null),
+        discountedOrderIds.length
+          ? pool.query("SELECT order_id, COALESCE(MAX(ABS(points)), 0)::int AS loyalty_discount_vnd FROM customer_loyalty_ledger WHERE order_id=ANY($1::uuid[]) AND type='redeem' GROUP BY order_id", [discountedOrderIds]).catch(() => null)
+          : Promise.resolve(null),
+        discountedOrderIds.length
+          ? pool.query('SELECT order_id, COALESCE(MAX(discount_vnd), 0)::int AS voucher_discount_vnd FROM voucher_redemptions WHERE order_id=ANY($1::uuid[]) GROUP BY order_id', [discountedOrderIds]).catch(() => null)
           : Promise.resolve(null)
       ]);
-      if (shippingChoices) {
-        const selectedMap = new Map((selectedRes?.rows || []).map((r) => [r.order_id, r.carrier_name]));
-        const shipmentMap = new Map();
-        for (const s of (shipmentsRes?.rows || [])) {
-          if (!shipmentMap.has(s.order_id)) shipmentMap.set(s.order_id, s);
-        }
-        for (const order of result.rows) {
-          order.shippingCarrierName = selectedMap.get(order.id) || null;
+      const selectedMap = new Map((selectedRes?.rows || []).map((r) => [r.order_id, r.carrier_name]));
+      const shipmentMap = new Map();
+      for (const s of (shipmentsRes?.rows || [])) {
+        if (!shipmentMap.has(s.order_id)) shipmentMap.set(s.order_id, s);
+      }
+      const loyaltyDiscountByOrder = new Map((loyaltyRedeemRes?.rows || []).map((r) => [r.order_id, Number(r.loyalty_discount_vnd || 0)]));
+      const voucherDiscountByOrder = new Map((voucherRedeemRes?.rows || []).map((r) => [r.order_id, Number(r.voucher_discount_vnd || 0)]));
+      for (const order of result.rows) {
+        const carrierName = selectedMap.get(order.id) || null;
+        order.carrierName = carrierName;
+        if (shippingChoices) {
+          order.shippingCarrierName = carrierName;
           const s = shipmentMap.get(order.id);
           if (s) {
             order.carrierShipment = { carrierId: s.carrier_id, trackingNumber: s.tracking_number, status: s.status, labelUrl: s.label_url, codAmountVnd: Number(s.cod_amount_vnd || 0), codSettlementStatus: s.cod_settlement_status, codSettlementRef: s.cod_settlement_ref || null, codAttestationLevel: s.cod_attestation_level || 'none', codEvidenceRef: s.cod_evidence_ref || null, codPayoutPeriod: s.cod_payout_period || null };
             order.trackingNumber = s.tracking_number;
           }
         }
+        const totalDiscountVnd = Math.max(0, Number(order.discountVnd) || 0);
+        let voucherDiscountVnd = Math.max(0, voucherDiscountByOrder.get(order.id) || 0);
+        const loyaltyDiscountVnd = Math.max(0, loyaltyDiscountByOrder.get(order.id) || 0);
+        const residualDiscountVnd = Math.max(0, totalDiscountVnd - voucherDiscountVnd - loyaltyDiscountVnd);
+        if (voucherDiscountVnd === 0 && order.voucherCode && residualDiscountVnd > 0) {
+          voucherDiscountVnd = residualDiscountVnd;
+        }
+        order.voucherDiscountVnd = voucherDiscountVnd;
+        order.loyaltyDiscountVnd = loyaltyDiscountVnd;
+        order.bundleDiscountVnd = Math.max(0, totalDiscountVnd - voucherDiscountVnd - loyaltyDiscountVnd);
       }
       if (finance) {
         const receivedByOrder = new Map((receiptsRes?.rows || []).map((row) => [row.order_id, Number(row.received)]));
         for (const order of result.rows) {
-          order.receivedVnd = order.paymentStatus === "paid" ? order.totalVnd : (receivedByOrder.get(order.id) || 0);
+          const s = shipmentMap.get(order.id);
+          const isUnsettledCarrierCod = order.paymentMethod === "cod"
+            && Boolean(s && Number(s.cod_amount_vnd || 0) > 0 && s.cod_settlement_status !== "settled");
+          order.receivedVnd = (order.paymentStatus === "paid" && !isUnsettledCarrierCod)
+            ? order.totalVnd
+            : (receivedByOrder.get(order.id) || 0);
           order.outstandingVnd = order.totalVnd === null ? null : Math.max(0, order.totalVnd - order.receivedVnd);
         }
       }
@@ -2712,6 +2742,22 @@ function createStoreApi(pool, { ordersEnabled = false, getOrdersEnabled = null, 
       if(!parsed.success)return res.status(400).json({error:'Chọn từ 1 đến 100 đơn khác nhau và bước xử lý hợp lệ.'});
       const data=parsed.data,target={confirm:'confirmed',prepare:'processing',ship:'shipped',complete:'completed',cancel:'cancelled'}[data.action];
       const result=await withTransaction(pool,async client=>{
+        const preLockedCodBatchKeys=new Set();
+        if(target==='completed'){
+          const codBatchPeeks=(await client.query(
+            `SELECT DISTINCT ON (o.id) o.id, o.order_number, s.carrier_id
+             FROM orders o
+             JOIN carrier_shipments s ON s.order_id = o.id AND s.status <> 'cancelled'
+             WHERE o.id = ANY($1::uuid[]) AND o.payment_method = 'cod' AND s.cod_amount_vnd > 0
+             ORDER BY o.id, s.created_at DESC`,
+            [data.orders.map(o=>o.id)]
+          )).rows;
+          const sortedLockKeys=[...new Set(codBatchPeeks.map(r=>`cod_batch:${r.carrier_id}:COD-${r.order_number||r.id.slice(0,8)}`))].sort();
+          for(const lockKey of sortedLockKeys){
+            await client.query('SELECT pg_advisory_xact_lock(hashtext($1))',[lockKey]);
+            preLockedCodBatchKeys.add(lockKey);
+          }
+        }
         const changed=[];
         for(const expected of [...data.orders].sort((a,b)=>a.id.localeCompare(b.id))){
           const current=(await client.query('SELECT * FROM orders WHERE id=$1 FOR UPDATE',[expected.id])).rows[0];
@@ -2731,7 +2777,7 @@ function createStoreApi(pool, { ordersEnabled = false, getOrdersEnabled = null, 
             if(!data.confirmReceived)throw Object.assign(Error('Xác nhận đã thu đủ tiền trước khi hoàn tất các đơn chưa thanh toán.'),{status:409});
             update.paymentStatus='paid';
           }
-          changed.push(await applyOrderUpdate(client,expected.id,update,req.admin));
+          changed.push(await applyOrderUpdate(client,expected.id,update,req.admin,{preLockedCodBatchKeys}));
         }
         return changed;
       });

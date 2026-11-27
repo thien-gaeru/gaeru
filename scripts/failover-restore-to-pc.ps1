@@ -12,8 +12,15 @@ $repoRoot = Split-Path -Parent $scriptRoot
 . (Join-Path $scriptRoot 'database-backup.ps1')
 
 function Assert-SafeTarArchive([string]$ArchivePath) {
-    $entries = @(& tar.exe -tzf $ArchivePath)
-    if ($LASTEXITCODE -ne 0) { throw "tar -tzf failed on $ArchivePath" }
+    $prevEap = $ErrorActionPreference
+    $ErrorActionPreference = "Continue"
+    try {
+        $entries = @(& tar.exe -tzf $ArchivePath)
+        $tarExit = $LASTEXITCODE
+    } finally {
+        $ErrorActionPreference = $prevEap
+    }
+    if ($tarExit -ne 0) { throw "tar -tzf failed on $ArchivePath" }
     foreach ($entry in $entries) {
         $norm = [string]$entry
         if ($norm -match '(^|[\\/])\.\.([\\/]|$)|^[\\/]|^[A-Za-z]:') {
@@ -69,8 +76,15 @@ if ($Mode -eq "PullFromGoogleDrive") {
     if (-not $rclone) { throw "rclone.exe not found" }
     Write-Output "=== Pulling Latest Backups from Google Drive (gdrive:GAERU_Backups) -> $BackupRoot ==="
     foreach ($sub in @("pg", "media")) {
-        & $rclone copy "gdrive:GAERU_Backups/$sub" (Join-Path $BackupRoot $sub) --transfers 2
-        if ($LASTEXITCODE -ne 0) { throw "rclone copy failed for $sub" }
+        $prevEap = $ErrorActionPreference
+        $ErrorActionPreference = "Continue"
+        try {
+            & $rclone copy "gdrive:GAERU_Backups/$sub" (Join-Path $BackupRoot $sub) --transfers 2
+            $rcloneExit = $LASTEXITCODE
+        } finally {
+            $ErrorActionPreference = $prevEap
+        }
+        if ($rcloneExit -ne 0) { throw "rclone copy failed for $sub" }
     }
     $Mode = "Verify"
 }
@@ -81,8 +95,15 @@ if ($Mode -eq "VerifyPortable" -or ($Mode -eq "TestDatabaseRestore" -and $Portab
     Assert-Sha256Companion -FilePath $newestPgSql | Out-Null
     if ($Mode -eq "VerifyPortable") {
         $gpg = (Get-Command gpg.exe -CommandType Application -ErrorAction Stop | Select-Object -First 1).Source
-        & node.exe (Join-Path $scriptRoot 'portable-database-backup.cjs') verify $gpg $newestPgSql
-        if ($LASTEXITCODE -ne 0) { throw "Could not verify the portable encrypted database backup." }
+        $prevEap = $ErrorActionPreference
+        $ErrorActionPreference = "Continue"
+        try {
+            & node.exe (Join-Path $scriptRoot 'portable-database-backup.cjs') verify $gpg $newestPgSql
+            $verifyExit = $LASTEXITCODE
+        } finally {
+            $ErrorActionPreference = $prevEap
+        }
+        if ($verifyExit -ne 0) { throw "Could not verify the portable encrypted database backup." }
         Write-Output "Verified the ciphertext checksum, decryption, gzip stream and PostgreSQL completion footer."
         return
     }
@@ -95,7 +116,13 @@ if ($Mode -eq "VerifyPortable" -or ($Mode -eq "TestDatabaseRestore" -and $Portab
 function Protect-TempPath([string]$Path) {
     if (-not $Path -or -not (Test-Path -LiteralPath $Path)) { return }
     $perm = if (Test-Path -LiteralPath $Path -PathType Container) { "(OI)(CI)(F)" } else { "(F)" }
-    & icacls.exe $Path /inheritance:r /grant:r "$($env:USERNAME):$perm" "SYSTEM:$perm" "Administrators:$perm" | Out-Null
+    $prevEap = $ErrorActionPreference
+    $ErrorActionPreference = "Continue"
+    try {
+        & icacls.exe $Path /inheritance:r /grant:r "$($env:USERNAME):$perm" "SYSTEM:$perm" "Administrators:$perm" 2>$null | Out-Null
+    } finally {
+        $ErrorActionPreference = $prevEap
+    }
 }
 
 function Invoke-GpgDecryptToTemp([string]$SourcePath, [string]$Suffix = ".tmp") {
@@ -104,8 +131,15 @@ function Invoke-GpgDecryptToTemp([string]$SourcePath, [string]$Suffix = ".tmp") 
     $tmpPlain = Join-Path $env:TEMP ("gaeru_dec_" + [guid]::NewGuid().ToString("N") + $Suffix)
     New-Item -ItemType File -Path $tmpPlain -Force | Out-Null
     Protect-TempPath $tmpPlain
-    & $gpgExe --batch --yes --decrypt --output $tmpPlain $SourcePath
-    if ($LASTEXITCODE -ne 0 -or -not (Test-Path -LiteralPath $tmpPlain)) {
+    $prevEap = $ErrorActionPreference
+    $ErrorActionPreference = "Continue"
+    try {
+        & $gpgExe --batch --yes --decrypt --output $tmpPlain $SourcePath
+        $gpgExit = $LASTEXITCODE
+    } finally {
+        $ErrorActionPreference = $prevEap
+    }
+    if ($gpgExit -ne 0 -or -not (Test-Path -LiteralPath $tmpPlain)) {
         Remove-Item -LiteralPath $tmpPlain -Force -ErrorAction SilentlyContinue
         throw "GPG decryption failed for $SourcePath"
     }
@@ -167,8 +201,15 @@ if ($Mode -eq "Verify") {
     }
     Write-Output "OK: $([IO.Path]::GetFileName($newestMedia)) | sha256=$mediaHash | Archive entries=$($tarEntries.Count)"
     $gpgExe = "C:\Program Files\GnuPG\bin\gpg.exe"
-    $secKeys = & $gpgExe --batch --with-colons --list-secret-keys 46927A8544DF70FBEE48928F69240E0EB1FF3925 2>$null
-    $hasSecretKey = ($secKeys -match '^sec:')
+    $prevEap = $ErrorActionPreference
+    $ErrorActionPreference = "Continue"
+    try {
+        $secKeys = & $gpgExe --batch --with-colons --list-secret-keys 46927A8544DF70FBEE48928F69240E0EB1FF3925 2>$null
+        $gpgListExit = $LASTEXITCODE
+    } finally {
+        $ErrorActionPreference = $prevEap
+    }
+    $hasSecretKey = ($gpgListExit -eq 0 -and [bool]($secKeys -match '^sec:'))
     Write-Output "OK: Windows Secret Key Present=$([bool]$hasSecretKey) (Mail hosted on iCloud+ Custom Domain)"
     Write-Output "=== ALL PC OFFSITE BACKUPS VERIFIED 100% READY FOR RESTORE ==="
 }
@@ -242,8 +283,15 @@ elseif ($Mode -eq "FailoverToPC") {
         Assert-SafeTarArchive -ArchivePath $tmpMediaTar | Out-Null
         New-Item -ItemType Directory -Path $tempExtract -ErrorAction Stop | Out-Null
         Protect-TempPath $tempExtract
-        & tar.exe -xzf $tmpMediaTar -C $tempExtract "userdata/storage/apps/gaeru/media"
-        if ($LASTEXITCODE -ne 0) { throw "Could not stage media from $newestMedia" }
+        $prevEap = $ErrorActionPreference
+        $ErrorActionPreference = "Continue"
+        try {
+            & tar.exe -xzf $tmpMediaTar -C $tempExtract "userdata/storage/apps/gaeru/media"
+            $tarExtractExit = $LASTEXITCODE
+        } finally {
+            $ErrorActionPreference = $prevEap
+        }
+        if ($tarExtractExit -ne 0) { throw "Could not stage media from $newestMedia" }
         $extractedMedia = Join-Path $tempExtract "userdata\storage\apps\gaeru\media"
         if (-not (Test-Path -LiteralPath $extractedMedia -PathType Container)) { throw "Missing media directory in archive" }
         Write-Output "[0/3] Stopping any active GAERU Node/Supervisor processes on PC before DB restore..."
@@ -261,8 +309,15 @@ elseif ($Mode -eq "FailoverToPC") {
         New-Item -ItemType File -Path $psqlErrFile -Force | Out-Null
         Protect-TempPath $psqlErrFile
         try {
-            & $psql -q -1 -v ON_ERROR_STOP=1 -d $conn.PGDATABASE -f $tmpSql 2>$psqlErrFile | Out-Null
-            if ($LASTEXITCODE -ne 0) {
+            $prevEap = $ErrorActionPreference
+            $ErrorActionPreference = "Continue"
+            try {
+                & $psql -q -1 -v ON_ERROR_STOP=1 -d $conn.PGDATABASE -f $tmpSql 2>$psqlErrFile | Out-Null
+                $psqlExit = $LASTEXITCODE
+            } finally {
+                $ErrorActionPreference = $prevEap
+            }
+            if ($psqlExit -ne 0) {
                 $errDetail = if (Test-Path -LiteralPath $psqlErrFile) { Get-Content -LiteralPath $psqlErrFile -Raw -ErrorAction SilentlyContinue } else { "" }
                 throw "psql failover restore failed: $($errDetail.Trim())"
             }
@@ -270,8 +325,15 @@ elseif ($Mode -eq "FailoverToPC") {
             Remove-Item -LiteralPath $psqlErrFile -Force -ErrorAction SilentlyContinue
         }
         Write-Output "[2/3] Restoring staged media library..."
-        & robocopy $extractedMedia (Join-Path $repoRoot "media") /E /NFL /NDL /NJH /NJS /NC /NS | Out-Null
-        if ($LASTEXITCODE -ge 8) { throw "robocopy failed with exit code $LASTEXITCODE" }
+        $prevEap = $ErrorActionPreference
+        $ErrorActionPreference = "Continue"
+        try {
+            & robocopy $extractedMedia (Join-Path $repoRoot "media") /E /NFL /NDL /NJH /NJS /NC /NS | Out-Null
+            $robocopyExit = $LASTEXITCODE
+        } finally {
+            $ErrorActionPreference = $prevEap
+        }
+        if ($robocopyExit -ge 8) { throw "robocopy failed with exit code $robocopyExit" }
     } finally {
         if ($tmpSql) { Remove-Item -LiteralPath $tmpSql -Force -ErrorAction SilentlyContinue }
         if ($tmpMediaTar) { Remove-Item -LiteralPath $tmpMediaTar -Force -ErrorAction SilentlyContinue }

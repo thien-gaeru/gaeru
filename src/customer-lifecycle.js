@@ -257,7 +257,7 @@ async function sendRegistrationNotificationEmail({ mailer, smtpConfig, to, fullN
 }
 
 async function autoLockAccount(pool, customerId, reason, actor = { username: 'system', source: 'auto_lock' }) {
-  return withTransaction(pool, async (client) => {
+  const locked = await withTransaction(pool, async (client) => {
     const res = await client.query(
       `UPDATE customers
        SET active = false, lock_reason = $2, locked_at = now(), updated_at = now()
@@ -267,7 +267,11 @@ async function autoLockAccount(pool, customerId, reason, actor = { username: 'sy
     );
     if (!res.rows.length) return null;
     await client.query(
-      `UPDATE account_security SET version = version + 1, updated_at = now() WHERE account_key = $1`,
+      `INSERT INTO account_security (account_key, version, updated_at)
+       VALUES ($1, 2, now())
+       ON CONFLICT (account_key) DO UPDATE
+       SET version = account_security.version + 1, updated_at = now()
+       RETURNING version`,
       ['customer:' + customerId]
     );
     await client.query(
@@ -283,10 +287,14 @@ async function autoLockAccount(pool, customerId, reason, actor = { username: 'sy
     });
     return res.rows[0];
   });
+  if (locked) {
+    try { require('./cache').invalidateTags(['account-security'], { immediate: true }); } catch (_) {}
+  }
+  return locked;
 }
 
 async function softDeleteCustomer(pool, customerId, actor, reason = 'Quản trị viên xóa tạm thời') {
-  return withTransaction(pool, async (client) => {
+  const deleted = await withTransaction(pool, async (client) => {
     const res = await client.query(
       `UPDATE customers
        SET active = false, deleted_at = now(), deletion_recoverable = true,
@@ -297,7 +305,11 @@ async function softDeleteCustomer(pool, customerId, actor, reason = 'Quản tr�
     );
     if (!res.rows.length) return null;
     await client.query(
-      `UPDATE account_security SET version = version + 1, updated_at = now() WHERE account_key = $1`,
+      `INSERT INTO account_security (account_key, version, updated_at)
+       VALUES ($1, 2, now())
+       ON CONFLICT (account_key) DO UPDATE
+       SET version = account_security.version + 1, updated_at = now()
+       RETURNING version`,
       ['customer:' + customerId]
     );
     await appendAudit(client, {
@@ -309,10 +321,14 @@ async function softDeleteCustomer(pool, customerId, actor, reason = 'Quản tr�
     });
     return res.rows[0];
   });
+  if (deleted) {
+    try { require('./cache').invalidateTags(['account-security'], { immediate: true }); } catch (_) {}
+  }
+  return deleted;
 }
 
 async function restoreCustomerFromTrash(pool, customerId, actor, reason = 'Quản trị viên khôi phục tài khoản') {
-  return withTransaction(pool, async (client) => {
+  const restored = await withTransaction(pool, async (client) => {
     const res = await client.query(
       `UPDATE customers
        SET active = true, deleted_at = NULL, lock_reason = NULL, locked_at = NULL, updated_at = now()
@@ -326,7 +342,11 @@ async function restoreCustomerFromTrash(pool, customerId, actor, reason = 'Quả
       [customerId]
     );
     await client.query(
-      `UPDATE account_security SET version = version + 1, updated_at = now() WHERE account_key = $1`,
+      `INSERT INTO account_security (account_key, version, updated_at)
+       VALUES ($1, 2, now())
+       ON CONFLICT (account_key) DO UPDATE
+       SET version = account_security.version + 1, updated_at = now()
+       RETURNING version`,
       ['customer:' + customerId]
     );
     await appendAudit(client, {
@@ -338,6 +358,10 @@ async function restoreCustomerFromTrash(pool, customerId, actor, reason = 'Quả
     });
     return res.rows[0];
   });
+  if (restored) {
+    try { require('./cache').invalidateTags(['account-security'], { immediate: true }); } catch (_) {}
+  }
+  return restored;
 }
 
 async function permanentDeleteCustomer(pool, customerId, actor, reason = 'Quản trị viên xóa vĩnh viễn') {

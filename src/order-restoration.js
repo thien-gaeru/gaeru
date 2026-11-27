@@ -23,21 +23,28 @@ async function restoreOrder(client,{id,data,actor,inventory=require('./inventory
  const raw=(await client.query('SELECT variant_id AS "variantId",sum(quantity)::int AS quantity FROM order_items WHERE order_id=$1 GROUP BY variant_id ORDER BY variant_id',[id])).rows;
  if(!raw.length||raw.some(i=>!i.variantId))throw fail('Sản phẩm của đơn không còn đầy đủ; không thể khôi phục.');
  for(const item of raw){const valid=(await client.query('SELECT v.id FROM product_variants v JOIN products p ON p.id=v.product_id WHERE v.id=$1 AND v.active=true AND p.active=true AND p.deleted_at IS NULL FOR UPDATE OF v',[item.variantId])).rows[0];if(!valid)throw fail('Một sản phẩm/phiên bản đã ngừng bán. Tạo đơn mới với sản phẩm hiện tại.');}
- if(order.voucher_code){
-  const redemption=(await client.query('SELECT * FROM voucher_redemptions WHERE order_id=$1 FOR UPDATE',[id])).rows[0];
-  if(!redemption||!redemption.released)throw fail('Voucher của đơn chưa được giải phóng đúng trạng thái. Cần đối soát trước.');
-  const selection=await require('./marketing').eligible(client,order.voucher_code,order.customer_id,order.subtotal_vnd,true);
-  if(selection.voucher.id!==redemption.voucher_id||Number(selection.discountVnd)!==Number(redemption.discount_vnd))throw fail('Điều kiện hoặc mức giảm voucher đã thay đổi. Tạo đơn mới để xác nhận giá.');
-  await client.query('UPDATE voucher_redemptions SET released=false WHERE order_id=$1',[id]);
- }
- if(order.customer_id){
-  const netLoyalty=(await client.query(
+ const netLoyalty = order.customer_id
+  ? (await client.query(
    `SELECT COALESCE(SUM(CASE WHEN type='redeem' THEN ABS(points) WHEN type='refund' AND points > 0 THEN -points ELSE 0 END),0)::int AS active_redeemed,
            COALESCE(MAX(CASE WHEN type='redeem' THEN ABS(points) ELSE 0 END),0)::int AS last_redeemed
     FROM customer_loyalty_ledger
     WHERE customer_id=$1 AND order_id=$2`,
    [order.customer_id,id]
-  )).rows[0];
+  )).rows[0]
+  : null;
+ if(order.voucher_code){
+  const redemption=(await client.query('SELECT * FROM voucher_redemptions WHERE order_id=$1 FOR UPDATE',[id])).rows[0];
+  if(!redemption||!redemption.released)throw fail('Voucher của đơn chưa được giải phóng đúng trạng thái. Cần đối soát trước.');
+  const selection=await require('./marketing').eligible(client,order.voucher_code,order.customer_id,order.subtotal_vnd,true);
+  const recordedVoucherVnd=Math.max(0,Number(redemption.discount_vnd)||0);
+  const recordedLoyaltyVnd=Math.max(0,Number(netLoyalty?.last_redeemed)||0);
+  const recordedBundleVnd=Math.max(0,(Number(order.discount_vnd)||0)-recordedVoucherVnd-recordedLoyaltyVnd);
+  const remainingSubtotalAfterBundle=Math.max(0,(Number(order.subtotal_vnd)||0)-recordedBundleVnd);
+  const expectedVoucherDiscount=Math.min(Number(selection.discountVnd),remainingSubtotalAfterBundle);
+  if(selection.voucher.id!==redemption.voucher_id||expectedVoucherDiscount!==recordedVoucherVnd)throw fail('Điều kiện hoặc mức giảm voucher đã thay đổi. Tạo đơn mới để xác nhận giá.');
+  await client.query('UPDATE voucher_redemptions SET released=false WHERE order_id=$1',[id]);
+ }
+ if(order.customer_id){
   if(Number(netLoyalty?.last_redeemed)>0 && Number(netLoyalty?.active_redeemed)===0){
    const {redeemPoints}=require('./loyalty-api');
    await redeemPoints(client,{

@@ -15,9 +15,12 @@ function base64UrlDecode(str) {
  */
 function createVapidJwt(audienceOrigin, subject, publicKeyB64, privateKeyB64, expSeconds) {
   const pubBuf = base64UrlDecode(publicKeyB64);
-  const privBuf = base64UrlDecode(privateKeyB64);
+  let privBuf = base64UrlDecode(privateKeyB64);
   if (pubBuf.length !== 65 || pubBuf[0] !== 0x04) {
     throw new Error('VAPID_PUBLIC_KEY phải là khóa công khai P-256 không nén (65 bytes).');
+  }
+  if (privBuf.length >= 1 && privBuf.length < 32) {
+    privBuf = Buffer.concat([Buffer.alloc(32 - privBuf.length), privBuf]);
   }
   if (privBuf.length !== 32) {
     throw new Error('VAPID_PRIVATE_KEY phải là khóa bí mật P-256 (32 bytes).');

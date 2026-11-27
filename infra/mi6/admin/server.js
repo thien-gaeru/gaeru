@@ -200,6 +200,7 @@ function parseCookies(req) {
 
 // ----------------------------------------------------------------- auth & 2FA TOTP
 const sessions = new Map();
+const termSessions = new Map(); // sid -> Set<{ ws, kill }>
 const failures = new Map();
 const loginChallenges = new Map();
 const setupChallenges = new Map();
@@ -210,11 +211,36 @@ const FAILURE_WINDOW_MS = 900000;
 let activeAuthChecks = 0;
 const MAX_CONCURRENT_AUTH = 3;
 
+function closeTermSessionsForSid(sid) {
+  if (!sid) return;
+  const set = termSessions.get(sid);
+  if (!set) return;
+  termSessions.delete(sid);
+  for (const entry of [...set]) {
+    try { entry.kill(); } catch {}
+  }
+}
+
+function revokeSession(sid) {
+  if (!sid) return false;
+  const existed = sessions.delete(sid);
+  closeTermSessionsForSid(sid);
+  return existed;
+}
+
+function revokeAllSessions() {
+  sessions.clear();
+  for (const sid of [...termSessions.keys()]) {
+    closeTermSessionsForSid(sid);
+  }
+}
+
 function capMapSize(map, limit) {
   while (map.size >= limit) {
     const oldestKey = map.keys().next().value;
     if (oldestKey === undefined) break;
-    map.delete(oldestKey);
+    if (map === sessions) revokeSession(oldestKey);
+    else map.delete(oldestKey);
   }
 }
 
@@ -431,7 +457,7 @@ function authedSession(req, touchIdle = false) {
   const s = sid && sessions.get(sid);
   if (!s) return null;
   const now = Date.now();
-  if (s.exp < now || s.idleExp < now) { sessions.delete(sid); return null; }
+  if (s.exp < now || s.idleExp < now) { revokeSession(sid); return null; }
   if (touchIdle) s.idleExp = now + SESSION_IDLE_TTL;
   return s;
 }
@@ -442,7 +468,7 @@ function revokeOtherSessions(keepSid) {
   let removed = 0;
   for (const k of [...sessions.keys()]) {
     if (k !== keepSid) {
-      sessions.delete(k);
+      revokeSession(k);
       removed++;
     }
   }
@@ -880,7 +906,7 @@ function setManual(name, manual) {
     });
     if (!found) out.push('AUTOSTART=' + nextVal);
     const clean = out.filter((l, i, a) => i < a.length - 1 || l !== '').join('\n') + '\n';
-    writeFileAtomic(appEnv, clean, { mode: 0o640, uid: 33, gid: 33 });
+    writeFileAtomic(appEnv, clean, { mode: 0o640, uid: 0, gid: 33 });
     return;
   }
   const base = name.split(' ')[0];
@@ -913,7 +939,7 @@ function writeAppEnv(name, cfg) {
     'AUTOSTART=' + (cfg.autostart ? 'yes' : 'no'), 'RUNUSER=33:33'];
   (cfg.env || []).forEach((kv) => { const m = String(kv).match(/^([A-Za-z_][A-Za-z0-9_]*)=(.*)$/); if (m) lines.push('ENV_' + m[1] + '=' + m[2].replace(/[\r\n]/g, '')); });
   const f = path.join(APPS, name, 'app.env');
-  writeFileAtomic(f, lines.join('\n') + '\n', { mode: 0o640, uid: 33, gid: 33 });
+  writeFileAtomic(f, lines.join('\n') + '\n', { mode: 0o640, uid: 0, gid: 33 });
 }
 const APP_TEMPLATE = `const http = require('http');
 const port = process.env.PORT || 3000;
@@ -993,7 +1019,7 @@ function wsFrame(opcode, payload) {
   h[0] = 0x80 | opcode;
   return Buffer.concat([h, payload]);
 }
-function handleTerminal(req, socket, sess) {
+function handleTerminal(req, socket, sid, sess) {
   if (activeTermSessions >= MAX_TERM_SESSIONS) {
     socket.write('HTTP/1.1 429 Too Many Requests\r\nConnection: close\r\n\r\n');
     return socket.destroy();
@@ -1004,6 +1030,18 @@ function handleTerminal(req, socket, sess) {
   if (typeof socket.setNoDelay === 'function') socket.setNoDelay(true);
   const pty = cp.spawn('python3', [path.join(ROOT, 'pty_helper.py')], { env: ENV });
   let closed = false;
+  let termEntry = null;
+  let sessionCheckTimer = null;
+  const isSessionStillValid = () => {
+    if (!sid || !sess) return false;
+    if (sessions.get(sid) !== sess) return false;
+    const now = Date.now();
+    if (sess.exp < now || sess.idleExp < now) {
+      revokeSession(sid);
+      return false;
+    }
+    return true;
+  };
   const wsPing = setInterval(() => {
     if (!closed && !socket.destroyed && socket.writable) socket.write(wsFrame(9, Buffer.alloc(0)));
   }, 25000);
@@ -1013,9 +1051,36 @@ function handleTerminal(req, socket, sess) {
     closed = true;
     activeTermSessions = Math.max(0, activeTermSessions - 1);
     clearInterval(wsPing);
+    if (sessionCheckTimer) clearInterval(sessionCheckTimer);
+    if (termEntry && sid) {
+      const set = termSessions.get(sid);
+      if (set) {
+        set.delete(termEntry);
+        if (set.size === 0) termSessions.delete(sid);
+      }
+    }
     try { pty.kill('SIGTERM'); } catch {}
     setTimeout(() => { try { if (!pty.killed) pty.kill('SIGKILL'); } catch {} }, 1000).unref();
   };
+  const killSession = () => {
+    cleanup();
+    if (!socket.destroyed) {
+      try { socket.write(wsFrame(8, Buffer.alloc(0))); } catch {}
+      try { socket.destroy(); } catch {}
+    }
+  };
+  termEntry = { ws: socket, kill: killSession };
+  if (sid) {
+    let set = termSessions.get(sid);
+    if (!set) { set = new Set(); termSessions.set(sid, set); }
+    set.add(termEntry);
+  }
+  sessionCheckTimer = setInterval(() => {
+    if (!closed && !isSessionStillValid()) {
+      killSession();
+    }
+  }, 10000);
+  if (sessionCheckTimer.unref) sessionCheckTimer.unref();
   const toPty = (type, payload) => {
     const h = Buffer.alloc(5); h.write(type, 0); h.writeUInt32BE(payload.length, 1);
     if (!closed && pty.stdin.writable) pty.stdin.write(Buffer.concat([h, payload]));
@@ -1026,8 +1091,8 @@ function handleTerminal(req, socket, sess) {
   let buf = Buffer.alloc(0);
   socket.on('data', (chunk) => {
     if (closed) return;
-    if (sess && (sess.exp < Date.now() || sess.idleExp < Date.now())) {
-      cleanup(); socket.destroy(); return;
+    if (!isSessionStillValid()) {
+      killSession(); return;
     }
     if (buf.length + chunk.length > MAX_WS_BUF) { cleanup(); socket.destroy(); return; }
     buf = Buffer.concat([buf, chunk]);
@@ -1042,6 +1107,7 @@ function handleTerminal(req, socket, sess) {
       if (masked) { const m = buf.slice(off, off + 4); data = Buffer.from(data.map((b, i) => b ^ m[i % 4])); }
       buf = buf.slice(need);
       if (op === 8) { cleanup(); socket.end(); return; }
+      if (!isSessionStillValid()) { killSession(); return; }
       if (op === 9) { if (socket.writable) socket.write(wsFrame(10, data)); continue; }
       if (op === 1 || op === 2) {
         try {
@@ -1066,6 +1132,41 @@ function handleTerminal(req, socket, sess) {
 // ----------------------------------------------------------------- API routes
 const routes = {};
 const on = (m, p, fn) => (routes[m + ' ' + p] = fn);
+
+function getAppUserUid() {
+  try {
+    const passwd = fs.readFileSync('/etc/passwd', 'utf8');
+    const m = passwd.match(/^www-data:[^:]*:(\d+):/m);
+    if (m) return parseInt(m[1], 10);
+  } catch {}
+  return 33;
+}
+
+function isValidClusterMasterPid(pid) {
+  if (!Number.isInteger(pid) || pid <= 1 || pid === process.pid) return false;
+  try {
+    const cmdline = fs.readFileSync(`/proc/${pid}/cmdline`, 'utf8').replace(/\0+/g, ' ').trim();
+    if (!/(?:^|\s|\/)node(?:\s|$)/.test(cmdline) || !/(?:^|\s|\/)src\/cluster(?:-master)?\.js(?:\s|$)/.test(cmdline)) return false;
+    let isGaeruApp = cmdline.includes('gaeru');
+    if (!isGaeruApp) {
+      try {
+        const cwd = fs.readlinkSync(`/proc/${pid}/cwd`);
+        isGaeruApp = /(?:^|\/)gaeru$/.test(cwd);
+      } catch {}
+    }
+    if (!isGaeruApp) return false;
+
+    const status = fs.readFileSync(`/proc/${pid}/status`, 'utf8');
+    const uidMatch = status.match(/^Uid:\s+(\d+)\s+(\d+)\s+(\d+)\s+(\d+)/m);
+    if (!uidMatch) return false;
+    const uids = uidMatch.slice(1, 5).map((v) => parseInt(v, 10));
+    const appUid = getAppUserUid();
+    if (uids.some((u) => !Number.isInteger(u) || u === 0 || u !== appUid)) return false;
+    return true;
+  } catch {
+    return false;
+  }
+}
 
 on('GET', '/api/stats', async () => stats());
 
@@ -1097,9 +1198,15 @@ on('POST', '/api/services', async (b) => {
 
 on('POST', '/api/web/reload', async () => {
   const masterPid = parseInt(rd('/storage/apps/gaeru/logs/cluster.pid', '0'), 10);
-  if (masterPid > 1 && fs.existsSync('/proc/' + masterPid)) {
-    process.kill(masterPid, 'SIGHUP');
-    return { ok: true, masterPid, out: `Đã gửi SIGHUP tới Cluster Master PID ${masterPid} (Rolling Reload 0s downtime).` };
+  if (isValidClusterMasterPid(masterPid)) {
+    try {
+      process.kill(masterPid, 'SIGHUP');
+      return { ok: true, masterPid, out: `Đã gửi SIGHUP tới Cluster Master PID ${masterPid} (Rolling Reload 0s downtime).` };
+    } catch (err) {
+      if (err?.code !== 'ESRCH') throw err;
+    }
+  } else if (masterPid > 0) {
+    console.warn(new Date().toISOString(), 'Refused SIGHUP to unverified cluster.pid PID:', masterPid);
   }
   const r = await sh('restart node-app APP=gaeru 2>&1 || start node-app APP=gaeru 2>&1', { timeout: 60000 });
   return { ok: r.code === 0, out: r.out.trim() || 'Đã khởi động lại GAERU Web Cluster.' };
@@ -1117,8 +1224,8 @@ on('POST', '/api/apps', async (b) => {
       fs.mkdirSync(dir, { recursive: true });
       fs.writeFileSync(path.join(dir, 'server.js'), APP_TEMPLATE);
       fs.writeFileSync(path.join(dir, 'package.json'), JSON.stringify({ name, version: '1.0.0', main: 'server.js', scripts: { start: 'node server.js' } }, null, 2) + '\n');
-      writeAppEnv(name, { port: +b.port || 3001, entry: 'server.js', autostart: true, env: [] });
       await sh(`chown -R 33:33 ${shq(dir)}`);
+      writeAppEnv(name, { port: +b.port || 3001, entry: 'server.js', autostart: true, env: [] });
       return { ok: true };
     }
     case 'config': {
@@ -1131,7 +1238,8 @@ on('POST', '/api/apps', async (b) => {
       return { ok: r.code === 0, out: r.out.trim() };
     }
     case 'npm-install': {
-      const r = await sh(`cd ${shq(dir)} && npm install --no-fund --no-audit 2>&1; chown -R 33:33 ${shq(dir)}`, { timeout: 600000 });
+      const appEnvPath = path.join(dir, 'app.env');
+      const r = await sh(`cd ${shq(dir)} && npm install --no-fund --no-audit 2>&1; rc=$?; chown -R 33:33 ${shq(dir)}; if [ -f ${shq(appEnvPath)} ] && [ ! -L ${shq(appEnvPath)} ]; then chown 0:33 ${shq(appEnvPath)} && chmod 0640 ${shq(appEnvPath)}; fi; exit $rc`, { timeout: 600000 });
       return { ok: r.code === 0, out: r.out.trim().split('\n').slice(-30).join('\n') };
     }
     case 'delete': {
@@ -1395,9 +1503,12 @@ on('POST', '/api/icloud-mail/smtp', async (b) => {
   });
   try {
     const masterPid = parseInt(rd('/storage/apps/gaeru/logs/cluster.pid', '0'), 10);
-    if (masterPid > 1 && fs.existsSync('/proc/' + masterPid)) {
+    if (isValidClusterMasterPid(masterPid)) {
       process.kill(masterPid, 'SIGHUP');
     } else {
+      if (masterPid > 0) {
+        console.warn(new Date().toISOString(), 'Refused SIGHUP to unverified cluster.pid PID during SMTP reload:', masterPid);
+      }
       const { execFile } = require('child_process');
       execFile('/bin/sh', ['-c', '/sbin/initctl restart node-app APP=gaeru >/dev/null 2>&1 || /sbin/initctl start node-app APP=gaeru >/dev/null 2>&1 || true'], () => {});
     }
@@ -1410,15 +1521,18 @@ on('POST', '/api/icloud-mail/smtp', async (b) => {
 });
 
 on('GET', '/api/backups/status', async () => {
-  const listDirNewest = (dir, prefix) => {
+  const listDirNewest = (dir, prefix, limit = 6) => {
     try {
-      const files = fs.readdirSync(dir)
+      const entries = fs.readdirSync(dir)
         .filter((f) => f.startsWith(prefix) && !f.endsWith('.sha256') && !f.includes('-latest.'))
-        .sort()
-        .reverse();
-      return files.slice(0, 5).map((name) => {
-        const full = path.join(dir, name);
-        const st = fs.statSync(full);
+        .map((name) => {
+          const full = path.join(dir, name);
+          const st = fs.statSync(full);
+          return { name, full, st, isGlobals: name.includes('-globals-') };
+        })
+        .filter(({ st }) => st.isFile())
+        .sort((a, b) => (Number(a.isGlobals) - Number(b.isGlobals)) || (b.st.mtimeMs - a.st.mtimeMs) || b.name.localeCompare(a.name));
+      return entries.slice(0, limit).map(({ name, full, st }) => {
         const sha = rd(full + '.sha256', '').split(/\s+/)[0] || null;
         return { name, sizeBytes: st.size, mtime: st.mtime.toISOString(), sha256: sha };
       });
@@ -1658,7 +1772,7 @@ const server = http.createServer(async (req, res) => {
       if (req.method !== 'POST' || req.headers['x-mi6'] !== '1' || !checkSameOrigin(req)) {
         return json(res, 403, { error: 'CSRF' }, req);
       }
-      sessions.delete(parseCookies(req).mi6sid);
+      revokeSession(parseCookies(req).mi6sid);
       const sec = isHttpsReq(req) ? '; Secure' : '';
       res.setHeader('Set-Cookie', `mi6sid=; HttpOnly; SameSite=Strict; Path=/; Max-Age=0${sec}`);
       return json(res, 200, { ok: true }, req);
@@ -1762,19 +1876,20 @@ const server = http.createServer(async (req, res) => {
 
 server.on('upgrade', (req, socket) => {
   if (requiresSecureProxy(req)) return socket.destroy();
+  const sid = parseCookies(req).mi6sid;
   const sess = authedSession(req, true);
-  if (!String(req.url || '').startsWith('/ws/term') || !sess) {
+  if (!String(req.url || '').startsWith('/ws/term') || !sess || !sid) {
     return socket.destroy();
   }
   const wsKey = String(req.headers['sec-websocket-key'] || '').trim();
   if (!/^[A-Za-z0-9+/=]{16,64}$/.test(wsKey)) return socket.destroy();
   if (!req.headers.origin || !checkSameOrigin(req)) return socket.destroy();
-  return handleTerminal(req, socket, sess);
+  return handleTerminal(req, socket, sid, sess);
 });
 
 setInterval(() => {
   const now = Date.now();
-  for (const [k, s] of sessions) if (s.exp < now || s.idleExp < now) sessions.delete(k);
+  for (const [k, s] of [...sessions.entries()]) if (s.exp < now || s.idleExp < now) revokeSession(k);
   for (const [k, c] of loginChallenges) if (c.exp < now) loginChallenges.delete(k);
   for (const [k, s] of setupChallenges) if (s.exp < now) setupChallenges.delete(k);
   let failuresPruned = false;
@@ -1813,6 +1928,10 @@ if (require.main === module) {
       requiresSecureProxy,
       checkSameOrigin,
       sessions,
+      termSessions,
+      revokeSession,
+      revokeAllSessions,
+      isValidClusterMasterPid,
       failures,
       loginChallenges,
       setupChallenges,

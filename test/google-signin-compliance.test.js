@@ -75,6 +75,17 @@ test('TC001: POST /auth/google creates new customer and redirects to account on 
           }]
         };
       }
+      if (sql.includes('FROM customers WHERE id = $1')) {
+        return {
+          rows: createdCustomer ? [{
+            id: '11111111-1111-4111-8111-111111111111',
+            fullName: 'New User TC001',
+            email: 'newuser.tc001@gmail.com',
+            phone: '',
+            emailVerified: true
+          }] : []
+        };
+      }
       if (sql.includes('INSERT INTO auth_identities')) {
         createdIdentity = true;
         return { rowCount: 1 };

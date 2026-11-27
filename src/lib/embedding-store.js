@@ -75,6 +75,22 @@ function upsertMemoryEntries(namespace, entries) {
   }
 }
 
+function invalidateNamespace(namespace) {
+  if (!namespace || typeof namespace !== 'string') return;
+  memoryStore.delete(namespace);
+  const prefix = `${namespace}:`;
+  for (const key of Array.from(hydratedNamespaces)) {
+    if (key === namespace || key.startsWith(prefix)) {
+      hydratedNamespaces.delete(key);
+    }
+  }
+  for (const key of Array.from(hydrateInFlight.keys())) {
+    if (key === namespace || key.startsWith(prefix)) {
+      hydrateInFlight.delete(key);
+    }
+  }
+}
+
 function resetEmbeddingStore() {
   memoryStore.clear();
   hydratedNamespaces.clear();
@@ -90,8 +106,7 @@ if (typeof process.on === 'function' && !process[IPC_KEY]) {
       if (msg.modelId && msg.modelId !== getModelId()) return;
       upsertMemoryEntries(msg.namespace, msg.entries);
     } else if (msg.type === 'AI_KNOWLEDGE_INVALIDATE') {
-      memoryStore.delete('learned');
-      hydratedNamespaces.delete('learned');
+      invalidateNamespace('learned');
     }
   });
 }
@@ -121,12 +136,13 @@ async function hydrateNamespace(pool, namespace) {
   if (hydrateInFlight.has(hydrateKey)) return hydrateInFlight.get(hydrateKey);
 
   const p = (async () => {
-    const nsMap = getNamespaceMap(namespace);
     try {
       const res = await pool.query(
         'SELECT item_key, content_hash, dim, vector_b64 FROM ai_embedding_vectors WHERE namespace=$1 AND model_id=$2 LIMIT $3',
         [namespace, modelId, MAX_NAMESPACE_ENTRIES]
       );
+      if (hydrateInFlight.get(hydrateKey) !== p) return getNamespaceMap(namespace);
+      const nsMap = getNamespaceMap(namespace);
       for (const row of res?.rows || []) {
         const vec = base64ToVec(row.vector_b64, Number(row.dim) || 0);
         if (vec && row.item_key && row.content_hash) {
@@ -134,12 +150,15 @@ async function hydrateNamespace(pool, namespace) {
         }
       }
       hydratedNamespaces.add(hydrateKey);
+      return nsMap;
     } catch (_) {
       // Graceful fallback when running against mock pools or pre-migration DB
+      return getNamespaceMap(namespace);
     } finally {
-      hydrateInFlight.delete(hydrateKey);
+      if (hydrateInFlight.get(hydrateKey) === p) {
+        hydrateInFlight.delete(hydrateKey);
+      }
     }
-    return nsMap;
   })();
 
   hydrateInFlight.set(hydrateKey, p);
@@ -411,5 +430,6 @@ module.exports = {
   rankByCosine,
   getEmbeddingStoreStats,
   warmEmbeddingIndexInBackground,
+  invalidateNamespace,
   resetEmbeddingStore
 };

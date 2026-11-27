@@ -117,11 +117,23 @@ async function ingestMarketplaceOrder(client, { channel, shopId, order, autoDedu
     const nextItemsJson = (!prev.stock_deducted && Array.isArray(order.items) && order.items.length > 0)
       ? JSON.stringify(order.items)
       : null;
+    const isReversalMerge = Boolean(order.reversalMeta);
+    const payloadJson = isReversalMerge
+      ? JSON.stringify(order.reversalMeta)
+      : JSON.stringify(order.rawPayload || order);
     const updated = await client.query(
       `UPDATE marketplace_orders
        SET status = $4, customer_name = COALESCE(NULLIF($5, ''), customer_name),
            total_amount_vnd = CASE WHEN $6 > 0 THEN $6 ELSE total_amount_vnd END,
-           raw_payload = $7,
+           raw_payload = CASE
+             WHEN $9::boolean THEN
+               CASE
+                 WHEN raw_payload IS NULL THEN jsonb_build_object('_reversal', $7::jsonb)
+                 WHEN jsonb_typeof(raw_payload) = 'object' THEN raw_payload || jsonb_build_object('_reversal', $7::jsonb)
+                 ELSE jsonb_build_object('_original', raw_payload, '_reversal', $7::jsonb)
+               END
+             ELSE $7::jsonb
+           END,
            items = COALESCE($8::jsonb, items),
            updated_at = now()
        WHERE channel = $1 AND shop_id = $2 AND external_order_id = $3
@@ -133,8 +145,9 @@ async function ingestMarketplaceOrder(client, { channel, shopId, order, autoDedu
         normStatus,
         order.customerName || '',
         order.totalAmountVnd || 0,
-        JSON.stringify(order.rawPayload || order),
-        nextItemsJson
+        payloadJson,
+        nextItemsJson,
+        isReversalMerge
       ]
     );
     marketplaceOrder = updated.rows[0];
@@ -586,19 +599,34 @@ function createOmnichannelSync(pool, config, { fetcher = fetch } = {}) {
       try {
         const orderId = z.string().uuid().parse(req.params.id);
         const result = await withTransaction(pool, async client => {
+          const peekRes = await client.query(
+            'SELECT id, channel, shop_id, external_order_id FROM marketplace_orders WHERE id = $1',
+            [orderId]
+          );
+          if (!peekRes.rows.length) throw fail('Không tìm thấy đơn hàng sàn.', 404);
+          const peek = peekRes.rows[0];
+          await client.query(
+            'SELECT pg_advisory_xact_lock(hashtext($1))',
+            [`marketplace-order:${peek.channel}:${peek.shop_id}:${peek.external_order_id}`]
+          );
           const orderRes = await client.query('SELECT * FROM marketplace_orders WHERE id = $1 FOR UPDATE', [orderId]);
           if (!orderRes.rows.length) throw fail('Không tìm thấy đơn hàng sàn.', 404);
           const order = orderRes.rows[0];
           if (!order.stock_deducted) throw fail('Đơn hàng sàn chưa từng trừ tồn kho nội bộ.', 409);
           if (order.stock_reversed) throw fail('Đơn hàng sàn đã được hoàn tồn kho trước đó.', 409);
-          order.rawStatus = 'cancelled';
           return await ingestMarketplaceOrder(client, {
             channel: order.channel,
             shopId: order.shop_id,
             order: {
               externalOrderId: order.external_order_id,
               rawStatus: 'cancelled',
-              items: order.items
+              items: order.items,
+              reversalMeta: {
+                reversedAt: new Date().toISOString(),
+                reversedBy: req.admin?.username || 'admin',
+                previousStatus: order.status,
+                reason: 'manual_reverse_stock'
+              }
             },
             autoDeductStock: false,
             actor: req.admin

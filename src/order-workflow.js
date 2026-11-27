@@ -17,7 +17,75 @@ function createOrderWorkflow({
   checkoutAccounts = true,
   config = null
 } = {}) {
-  async function applyOrderUpdate(client,id,update,actor,{validateOnly=false,expectedStatuses=null}={}){
+  async function recordManualCodSettlementBatch(client, {
+    shipment, orderId, amountVnd, txRef, explicitRef = '', receiptId = null, note = '',
+    wasLegacyVerified = false, actor, preLockedKey = null, preLockedKeys = null
+  }) {
+    if (!shipment || !(amountVnd > 0)) return;
+    const batchLockKey = `cod_batch:${shipment.carrier_id}:${txRef}`;
+    if (batchLockKey !== preLockedKey && !(preLockedKeys && preLockedKeys.has(batchLockKey))) {
+      await client.query('SELECT pg_advisory_xact_lock(hashtext($1))', [batchLockKey]);
+    }
+    let batch = (await client.query(
+      'SELECT * FROM cod_settlement_batches WHERE carrier_id = $1 AND provider_transaction_ref = $2 FOR UPDATE',
+      [shipment.carrier_id, txRef]
+    )).rows[0];
+    if (!batch) {
+      batch = (await client.query(
+        `INSERT INTO cod_settlement_batches (
+           carrier_id, provider_transaction_ref, declared_payout_vnd, allocated_total_vnd,
+           method, payout_period, evidence_ref, note, attestation_level, created_by, settled_at
+         ) VALUES ($1, $2, NULL, 0, 'bank_transfer', NULL, NULLIF($3, ''), NULLIF($4, ''), 'manually_attested', $5, now())
+         RETURNING *`,
+        [shipment.carrier_id, txRef, explicitRef.length >= 4 ? explicitRef : '', String(note || '').trim(), actor?.username || 'admin']
+      )).rows[0];
+    }
+    if (batch.declared_payout_vnd !== null && Number(batch.allocated_total_vnd) + amountVnd > Number(batch.declared_payout_vnd)) {
+      throw Object.assign(
+        new Error(`Tổng tiền phân bổ (${Number(batch.allocated_total_vnd) + amountVnd} ₫) vượt quá tổng tiền sao kê của lô ${txRef} (${batch.declared_payout_vnd} ₫).`),
+        { status: 409 }
+      );
+    }
+    const allocKey = `cod-alloc:${shipment.carrier_id}:${txRef}:${orderId}`;
+    const allocIns = await client.query(
+      `INSERT INTO cod_settlement_allocations (
+         batch_id, order_id, shipment_id, allocated_amount_vnd, receipt_id,
+         was_legacy_verified, request_key, created_by
+       ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+       ON CONFLICT (order_id) DO NOTHING RETURNING id`,
+      [batch.id, orderId, shipment.id, amountVnd, receiptId || null, Boolean(wasLegacyVerified), allocKey, actor?.username || 'admin']
+    );
+    if (allocIns.rows.length > 0) {
+      await client.query(
+        'UPDATE cod_settlement_batches SET allocated_total_vnd = allocated_total_vnd + $2, updated_at = now() WHERE id = $1',
+        [batch.id, amountVnd]
+      );
+    }
+  }
+
+  async function applyOrderUpdate(client,id,update,actor,{validateOnly=false,expectedStatuses=null,preLockedCodBatchKeys=null}={}){
+        let preLockedCodBatchKey = null;
+        if (!validateOnly && (update.paymentStatus === 'paid' || update.status === 'completed' || update.confirmReceived)) {
+          const codPeek = (await client.query(
+            `SELECT o.order_number, s.carrier_id
+             FROM orders o
+             JOIN carrier_shipments s ON s.order_id = o.id AND s.status <> 'cancelled'
+             WHERE o.id = $1 AND o.payment_method = 'cod' AND s.cod_amount_vnd > 0
+             ORDER BY s.created_at DESC LIMIT 1`,
+            [id]
+          )).rows[0];
+          if (codPeek?.carrier_id) {
+            const explicitRefPeek = String(update.reconciliationRef || '').trim();
+            const refPeek = explicitRefPeek.length >= 4
+              ? explicitRefPeek
+              : ('COD-' + (codPeek.order_number || String(id).slice(0, 8)));
+            const key = `cod_batch:${codPeek.carrier_id}:${refPeek}`;
+            if (!preLockedCodBatchKeys || !preLockedCodBatchKeys.has(key)) {
+              await client.query('SELECT pg_advisory_xact_lock(hashtext($1))', [key]);
+            }
+            preLockedCodBatchKey = key;
+          }
+        }
         const currentResult = await client.query("SELECT * FROM orders WHERE id=$1 FOR UPDATE", [id]);
         const current = currentResult.rows[0];
         if (!current) return null;
@@ -269,6 +337,36 @@ function createOrderWorkflow({
           const effectiveRef = (explicitRef && explicitRef.length >= 4) ? explicitRef : defaultCodRef;
           const ledger = finance || require('./finance-api');
           if (carrierCodShipment) {
+            const codNote = update.paymentNote || (explicitRef ? `Thu đủ tiền COD (${explicitRef})` : 'Xác nhận thu đủ tiền COD');
+            let receiptRow = null;
+            if (ledger?.recordFullOrderPayment) {
+              receiptRow = await ledger.recordFullOrderPayment(client, {
+                order: { ...current, total_vnd: total },
+                actor: safeActor,
+                options: {
+                  reference: effectiveRef,
+                  method: 'bank_transfer',
+                  note: codNote
+                }
+              });
+            }
+            const receiptId = receiptRow?.id || (await client.query(
+              'SELECT id FROM sales_receipts WHERE order_id = $1 ORDER BY created_at DESC LIMIT 1',
+              [current.id]
+            )).rows[0]?.id || null;
+            await recordManualCodSettlementBatch(client, {
+              shipment: carrierCodShipment,
+              orderId: current.id,
+              amountVnd: Number(total || carrierCodShipment.cod_amount_vnd || 0),
+              txRef: effectiveRef,
+              explicitRef,
+              receiptId,
+              note: codNote,
+              wasLegacyVerified: carrierCodShipment.cod_settlement_status === 'verification_required' && !receiptRow,
+              actor: safeActor,
+              preLockedKey: preLockedCodBatchKey,
+              preLockedKeys: preLockedCodBatchKeys
+            });
             await client.query(
               `UPDATE carrier_shipments
                SET cod_settlement_status = 'settled',
@@ -280,17 +378,6 @@ function createOrderWorkflow({
                WHERE id = $1`,
               [carrierCodShipment.id, effectiveRef, safeActor.username || 'admin']
             );
-            if (ledger?.recordFullOrderPayment) {
-              await ledger.recordFullOrderPayment(client, {
-                order: { ...current, total_vnd: total },
-                actor: safeActor,
-                options: {
-                  reference: effectiveRef,
-                  method: 'bank_transfer',
-                  note: update.paymentNote || (explicitRef ? `Thu đủ tiền COD (${explicitRef})` : 'Xác nhận thu đủ tiền COD')
-                }
-              });
-            }
           } else {
             await client.query("UPDATE payment_attempts SET status = 'paid', updated_at = now() WHERE order_id = $1 AND status = 'pending'", [current.id]);
             if (ledger?.recordFullOrderPayment) {
@@ -315,6 +402,23 @@ function createOrderWorkflow({
           const explicitRef = String(update.reconciliationRef || '').trim();
           const defaultCodRef = 'COD-' + (current.order_number || current.id.slice(0, 8));
           const effectiveRef = (explicitRef && explicitRef.length >= 4) ? explicitRef : defaultCodRef;
+          const latestReceiptId = (await client.query(
+            'SELECT id FROM sales_receipts WHERE order_id = $1 ORDER BY created_at DESC LIMIT 1',
+            [current.id]
+          )).rows[0]?.id || null;
+          await recordManualCodSettlementBatch(client, {
+            shipment: activeCarrierShipment,
+            orderId: current.id,
+            amountVnd: Number(total || activeCarrierShipment.cod_amount_vnd || 0),
+            txRef: effectiveRef,
+            explicitRef,
+            receiptId: latestReceiptId,
+            note: update.paymentNote || 'Xác nhận đối soát COD khi hoàn tất đơn',
+            wasLegacyVerified: activeCarrierShipment.cod_settlement_status === 'verification_required',
+            actor: safeActor,
+            preLockedKey: preLockedCodBatchKey,
+            preLockedKeys: preLockedCodBatchKeys
+          });
           await client.query(
             `UPDATE carrier_shipments
              SET cod_settlement_status = 'settled',
@@ -334,6 +438,19 @@ function createOrderWorkflow({
              shipping_fee_vnd AS "shippingFeeVnd", total_vnd AS "totalVnd"`,
           [current.id, (autoApproveToProcessing ? "processing" : (update.status ?? targetStatus)) || null, update.paymentStatus || null, shippingFee, total]
         );
+        if (shippingFeeChanged && current.payment_method === 'bank_transfer' && total !== null) {
+          if (total > 0) {
+            await client.query(
+              "UPDATE payment_attempts SET amount_vnd = $2, updated_at = now() WHERE order_id = $1 AND provider = 'bank_transfer' AND status = 'pending'",
+              [current.id, total]
+            );
+          } else {
+            await client.query(
+              "UPDATE payment_attempts SET status = 'failed', updated_at = now() WHERE order_id = $1 AND provider = 'bank_transfer' AND status = 'pending'",
+              [current.id]
+            );
+          }
+        }
         await audit(client, { actor: safeActor, action: "order.update", entityType: "order", entityId: current.id, before: { status: current.status, paymentStatus: current.payment_status, shippingFeeVnd: current.shipping_fee_vnd }, after: updated.rows[0] });
         if ((targetStatus === 'completed' || updated.rows[0].status === 'completed') && (targetPaymentStatus === 'paid' || updated.rows[0].paymentStatus === 'paid')) {
           if (current.customer_id && updated.rows[0].totalVnd > 0) {

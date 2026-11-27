@@ -428,7 +428,7 @@ async function sendRecoveryEmail(pool, config, cart, mailer, stageOverride = nul
       : Boolean(result?.messageId);
     if (!accepted) throw new Error('Dịch vụ email chưa chấp nhận địa chỉ nhận. Chưa ghi nhận gửi nhắc thành công.');
 
-    await withTransaction(pool, async c => {
+    const didRecord = await withTransaction(pool, async c => {
       // Calculate next reminder cadence
       let nextReminderAt = null;
       let newStatus = cart.status;
@@ -449,19 +449,24 @@ async function sendRecoveryEmail(pool, config, cart, mailer, stageOverride = nul
              last_reminded_at = now(),
              next_reminder_at = $3,
              status = $4,
+             version = version + 1,
              updated_at = now()
          WHERE id = $1 AND version = $5 AND recovery_consent AND status IN ('abandoned', 'recovering')
          RETURNING id`,
         [cart.id, newReminderCount, nextReminderAt, newStatus, cart.version]
       );
-      if (!recorded.rows.length) return;
+      if (!recorded.rows.length) return false;
       await c.query(
         `INSERT INTO abandoned_cart_reminders (cart_id, stage, email, subject, status, sent_at)
          VALUES ($1, $2, $3, $4, $5, now())`,
         [cart.id, stage, normEmail, subject, accepted ? 'sent' : 'failed']
       );
+      return true;
     });
 
+    if (!didRecord) {
+      return { success: false, reason: 'Giỏ hàng đã thay đổi hoặc đã được xử lý đồng thời.' };
+    }
     return { success: true, messageId: result?.messageId };
   } catch (err) {
     await pool.query(
@@ -480,6 +485,8 @@ async function sendRecoveryEmail(pool, config, cart, mailer, stageOverride = nul
 /**
  * Worker process for abandoned cart cadence
  */
+const activeManualReminds = new Set();
+
 async function processAbandonedCartReminders(pool, config, mailer) {
   if (!mailer || !config?.smtp?.from) return false;
 
@@ -496,17 +503,28 @@ async function processAbandonedCartReminders(pool, config, mailer) {
        LIMIT 1
        FOR UPDATE SKIP LOCKED`
     )).rows[0];
-    if (!row) return null;
-    await client.query(
-      `UPDATE abandoned_carts SET next_reminder_at = now() + interval '15 minutes', updated_at = now() WHERE id = $1`,
+    if (!row || activeManualReminds.has(row.id)) return null;
+    const claimed = (await client.query(
+      `UPDATE abandoned_carts
+       SET next_reminder_at = now() + interval '15 minutes',
+           version = version + 1,
+           updated_at = now()
+       WHERE id = $1
+       RETURNING *`,
       [row.id]
-    );
-    return row;
+    )).rows[0];
+    return claimed || null;
   });
 
   if (!candidate) return false;
+  if (activeManualReminds.has(candidate.id)) return false;
 
-  await sendRecoveryEmail(pool, config, candidate, mailer);
+  activeManualReminds.add(candidate.id);
+  try {
+    await sendRecoveryEmail(pool, config, candidate, mailer);
+  } finally {
+    activeManualReminds.delete(candidate.id);
+  }
   return true;
 }
 
@@ -564,37 +582,63 @@ function createAbandonedCartApi(pool, config, { mailer = null } = {}) {
   admin.post('/marketing/abandoned-carts/:id/remind', requirePermission('marketing.write'), requireCsrf, async (req, res, next) => {
     try {
       const id = z.string().uuid().parse(req.params.id);
-      const cart = (await pool.query('SELECT * FROM abandoned_carts WHERE id = $1', [id])).rows[0];
-      if (!cart) throw fail('Giỏ hàng không tồn tại.', 404);
-      if (!['abandoned', 'recovering'].includes(cart.status)) {
-        throw fail('Giỏ hàng này đã hoàn tất hoặc ngừng nhắc lịch.', 409);
+      if (activeManualReminds.has(id)) {
+        throw fail('Email nhắc giỏ hàng đang được gửi. Vui lòng chờ hoàn tất.', 409);
       }
-      if (!cart.recovery_consent || !cart.consent_confirmed_at) {
-        throw fail('Khách hàng chưa đồng ý nhận email nhắc giỏ hàng.', 409);
+      activeManualReminds.add(id);
+      try {
+        const mailTransport = mailer || makeMailer(config);
+        const cart = await withTransaction(pool, async (client) => {
+          const existing = (await client.query(
+            'SELECT * FROM abandoned_carts WHERE id = $1 FOR UPDATE',
+            [id]
+          )).rows[0];
+          if (!existing) throw fail('Giỏ hàng không tồn tại.', 404);
+          if (!['abandoned', 'recovering'].includes(existing.status)) {
+            throw fail('Giỏ hàng này đã hoàn tất hoặc ngừng nhắc lịch.', 409);
+          }
+          if (!existing.recovery_consent || !existing.consent_confirmed_at) {
+            throw fail('Khách hàng chưa đồng ý nhận email nhắc giỏ hàng.', 409);
+          }
+          const suppressed = (await client.query(
+            'SELECT 1 FROM marketing_email_suppressions WHERE lower(trim(email)) = $1 LIMIT 1',
+            [String(existing.email || '').trim().toLowerCase()]
+          )).rows.length > 0;
+          if (suppressed) {
+            throw fail('Email này đã từ chối nhận thư tiếp thị.', 409);
+          }
+          if (!mailTransport) throw fail('Chưa cấu hình dịch vụ gửi email SMTP.', 503);
+          const claimed = (await client.query(
+            `UPDATE abandoned_carts
+             SET next_reminder_at = now() + interval '15 minutes',
+                 version = version + 1,
+                 updated_at = now()
+             WHERE id = $1
+               AND status IN ('abandoned', 'recovering')
+               AND recovery_consent = true
+               AND consent_confirmed_at IS NOT NULL
+             RETURNING *`,
+            [id]
+          )).rows[0];
+          if (!claimed) throw fail('Giỏ hàng này đã hoàn tất hoặc ngừng nhắc lịch.', 409);
+          return claimed;
+        });
+
+        const result = await sendRecoveryEmail(pool, config, cart, mailTransport);
+        if (!result.success) throw fail(result.reason || result.error || 'Không thể gửi email nhắc nhở.', 400);
+
+        await appendAudit(pool, {
+          actor: req.admin,
+          action: 'marketing.abandoned_cart.remind',
+          entityType: 'marketing',
+          entityId: id,
+          metadata: { email: cart.email }
+        });
+
+        res.json({ success: true, message: 'Đã gửi email nhắc nhở giỏ hàng thành công.' });
+      } finally {
+        activeManualReminds.delete(id);
       }
-      const suppressed = (await pool.query(
-        'SELECT 1 FROM marketing_email_suppressions WHERE lower(trim(email)) = $1 LIMIT 1',
-        [String(cart.email || '').trim().toLowerCase()]
-      )).rows.length > 0;
-      if (suppressed) {
-        throw fail('Email này đã từ chối nhận thư tiếp thị.', 409);
-      }
-
-      const mailTransport = mailer || makeMailer(config);
-      if (!mailTransport) throw fail('Chưa cấu hình dịch vụ gửi email SMTP.', 503);
-
-      const result = await sendRecoveryEmail(pool, config, cart, mailTransport);
-      if (!result.success) throw fail(result.reason || result.error || 'Không thể gửi email nhắc nhở.', 400);
-
-      await appendAudit(pool, {
-        actor: req.admin,
-        action: 'marketing.abandoned_cart.remind',
-        entityType: 'marketing',
-        entityId: id,
-        metadata: { email: cart.email }
-      });
-
-      res.json({ success: true, message: 'Đã gửi email nhắc nhở giỏ hàng thành công.' });
     } catch (e) {
       next(e);
     }
@@ -604,10 +648,16 @@ function createAbandonedCartApi(pool, config, { mailer = null } = {}) {
   admin.post('/marketing/abandoned-carts/:id/cancel', requirePermission('marketing.write'), requireCsrf, async (req, res, next) => {
     try {
       const id = z.string().uuid().parse(req.params.id);
-      await pool.query(
-        `UPDATE abandoned_carts SET status = 'expired', next_reminder_at = NULL, updated_at = now() WHERE id = $1`,
+      const updated = await pool.query(
+        `UPDATE abandoned_carts
+         SET status = 'expired', next_reminder_at = NULL, version = version + 1, updated_at = now()
+         WHERE id = $1 AND status IN ('abandoned', 'recovering')
+         RETURNING id`,
         [id]
       );
+      if (!updated.rows.length) {
+        throw fail('Giỏ hàng này đã hoàn tất khôi phục hoặc đã dừng nhắc nhở.', 409);
+      }
       await appendAudit(pool, {
         actor: req.admin,
         action: 'marketing.abandoned_cart.cancel',

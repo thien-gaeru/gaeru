@@ -998,7 +998,7 @@ test("attachTransactionalCacheInvalidation on priority proxy never recurses or l
             if (s.includes("UPDATE customers")) {
               return { rows: [{ id: "c1", fullName: "Test", email: "old@example.com", phone: "0912345678", emailVerified: true }] };
             }
-            if (s.includes("UPDATE account_security")) {
+            if (s.includes("UPDATE account_security") || s.includes("INSERT INTO account_security")) {
               return { rows: [{ version: 4 }] };
             }
             return { rows: [], rowCount: 0 };

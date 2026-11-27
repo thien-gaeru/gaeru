@@ -101,12 +101,15 @@ async function checkAdminSessionDbValid(pool, req) {
         req.session.adminLastSeenAt = Math.max(Number(req.session.adminLastSeenAt || 0), sess.adminLastSeenAt);
       }
     }
-    const admin = req.admin || req.session?.admin;
+    const sessionAdmin = req.session?.admin;
+    const admin = req.admin || sessionAdmin;
     if (admin?.source === 'staff' && admin?.id && SSE_UUID_RE.test(String(admin.id))) {
       const staffRow = (await pool.query('SELECT active, auth_version AS "authVersion" FROM staff_accounts WHERE id = $1 LIMIT 1', [admin.id])).rows[0];
-      if (staffRow && (staffRow.active !== true || (Number.isInteger(admin.authVersion) && Number(staffRow.authVersion) !== admin.authVersion))) return false;
+      if (!staffRow || staffRow.active !== true) return false;
+      const expectedAuthVer = Number.isInteger(sessionAdmin?.authVersion) ? sessionAdmin.authVersion : admin.authVersion;
+      if (Number.isInteger(expectedAuthVer) && Number(staffRow.authVersion) !== expectedAuthVer) return false;
     }
-    const secVer = admin?.securityVersion ?? req.session?.securityVersion;
+    const secVer = sessionAdmin?.securityVersion ?? admin?.securityVersion ?? req.session?.securityVersion;
     if (Number.isInteger(secVer) && admin) {
       const accountKey = admin.source === 'bootstrap' ? 'owner' : (admin.id ? `staff:${admin.id}` : '');
       if (accountKey) {
@@ -116,6 +119,33 @@ async function checkAdminSessionDbValid(pool, req) {
     }
   }
   return checkAdminSessionValid(req);
+}
+
+async function checkCustomerSessionDbValid(pool, req) {
+  const customerId = req.session?.customer?.id;
+  if (!customerId) return false;
+  if (pool && typeof pool.query === 'function') {
+    const isMemorySessionStore = req?.sessionStore?.constructor?.name === 'MemoryStore';
+    if (req.sessionID && !isMemorySessionStore) {
+      const sRow = (await pool.query('SELECT sess, expire FROM user_sessions WHERE sid = $1 LIMIT 1', [req.sessionID])).rows[0];
+      if (!sRow || (sRow.expire && new Date(sRow.expire).getTime() <= Date.now())) {
+        return false;
+      }
+      const sess = typeof sRow.sess === 'string' ? JSON.parse(sRow.sess) : sRow.sess;
+      if (!sess?.customer?.id || String(sess.customer.id) !== String(customerId)) return false;
+      if (Number.isInteger(sess.securityVersion) && req.session) {
+        req.session.securityVersion = sess.securityVersion;
+      }
+    }
+    if (!SSE_UUID_RE.test(String(customerId))) return false;
+    const custRow = (await pool.query('SELECT id FROM customers WHERE id = $1 AND active = true AND deleted_at IS NULL LIMIT 1', [customerId])).rows[0];
+    if (!custRow) return false;
+    const expectedSecVer = Number.isInteger(req.session?.securityVersion) ? req.session.securityVersion : 1;
+    const secRow = (await pool.query('SELECT version FROM account_security WHERE account_key = $1 LIMIT 1', [`customer:${customerId}`])).rows[0];
+    const dbSecVer = secRow ? Number(secRow.version) : 1;
+    if (dbSecVer !== expectedSecVer) return false;
+  }
+  return true;
 }
 
 
@@ -224,7 +254,7 @@ function openSseStream(req, res, channel, { hub = defaultHub, isAdmin = false, c
         }
         if (!valid) {
           if (!res.writableEnded) {
-            res.write(`event: session-expired\ndata: ${JSON.stringify({ error: 'Phiên quản trị đã hết hạn hoặc đã bị thu hồi.' })}\n\n`);
+            res.write(`event: session-expired\ndata: ${JSON.stringify({ error: isAdmin ? 'Phiên quản trị đã hết hạn hoặc đã bị thu hồi.' : 'Phiên đăng nhập đã hết hạn hoặc đã bị thu hồi.' })}\n\n`);
             res.end();
           }
           clearInterval(heartbeatTimer);
@@ -288,9 +318,14 @@ function createRealtimeRouter({ pool, config, hub = defaultHub } = {}) {
     try {
       const id = req.session?.customer?.id;
       if (!id || !z.string().uuid().safeParse(req.params.id).success) return res.status(401).end();
+      if (!(await checkCustomerSessionDbValid(pool, req))) return res.status(401).end();
       const owned = (await pool.query('SELECT id FROM care_requests WHERE id=$1 AND customer_id=$2', [req.params.id, id])).rows[0];
       if (!owned) return res.status(404).end();
-      openSseStream(req, res, 'care:' + req.params.id, { hub, isAdmin: false });
+      openSseStream(req, res, 'care:' + req.params.id, {
+        hub,
+        isAdmin: false,
+        checkSession: (r) => checkCustomerSessionDbValid(pool, r)
+      });
     } catch (e) { next(e); }
   });
 
@@ -299,12 +334,17 @@ function createRealtimeRouter({ pool, config, hub = defaultHub } = {}) {
       if (!z.string().uuid().safeParse(req.params.id).success) return res.status(400).end();
       const ownerKey = req.session?.shoppingChatOwner ? require('node:crypto').createHash('sha256').update(req.session.shoppingChatOwner).digest('hex') : '';
       const customerId = req.session?.customer?.id || null;
+      if (customerId && !(await checkCustomerSessionDbValid(pool, req))) return res.status(401).end();
       const thread = (await pool.query(
         'SELECT id FROM shopping_chat_threads WHERE id=$1 AND ((customer_id IS NULL AND owner_key=$2) OR customer_id=$3)',
         [req.params.id, ownerKey, customerId]
       )).rows[0];
       if (!thread) return res.status(404).end();
-      openSseStream(req, res, 'shopping_chat:' + req.params.id, { hub, isAdmin: false });
+      openSseStream(req, res, 'shopping_chat:' + req.params.id, {
+        hub,
+        isAdmin: false,
+        checkSession: customerId ? (r) => (r.session?.customer?.id ? checkCustomerSessionDbValid(pool, r) : false) : null
+      });
     } catch (e) { next(e); }
   });
 
@@ -427,6 +467,7 @@ module.exports = {
   openSseStream,
   checkAdminSessionValid,
   checkAdminSessionDbValid,
+  checkCustomerSessionDbValid,
   createRealtimeRouter,
   publishAdminEvent,
   publishCareEvent,

@@ -1916,7 +1916,7 @@ body:has(dialog.gaeru-center-popup[open]) .gaeru-action-notices {
    ========================================================================== */
 
 /* 1. Sidebar Hub Collapse & In-Page Hub Sub-Tabs */
-.sidebar nav:not([data-searching]) .nav-item[data-hub-child] {
+.sidebar nav:not([data-searching]) .nav-item[data-hub-child]:not(.is-hub-orphan) {
   display: none !important;
 }
 .sidebar .nav-item.is-hub-parent-active {

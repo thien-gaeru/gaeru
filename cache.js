@@ -89,15 +89,18 @@ function canonicalizeHtmlCacheUrl(originalUrl) {
 
 // Singleflight Map: Gộp các request đồng thời thành 1 truy vấn duy nhất
 const inflight = new Map();
+let cacheGeneration = 0;
 
 // GAERU P2-03: Mốc thời gian bắt đầu/kết thúc khuyến mại gần nhất để tự động hết hạn HTML/API cache đúng giây
 let nextPromotionBoundaryMs = null;
 function setNextPromotionBoundary(ms) {
   const now = Date.now();
   if (nextPromotionBoundaryMs && now >= nextPromotionBoundaryMs) {
+    cacheGeneration++;
     for (const [k, v] of ramCache.entries()) {
       if ((v?.time || v?.updatedAt || 0) < nextPromotionBoundaryMs) {
         ramCache.delete(k);
+        inflight.delete(k);
       }
     }
   }
@@ -119,6 +122,7 @@ function generateETag(data) {
 }
 
 function clearHtmlCacheOnly() {
+  cacheGeneration++;
   for (const key of ramCache.keys()) {
     if (typeof key === 'string' && key.startsWith('html:')) {
       ramCache.delete(key);
@@ -128,6 +132,7 @@ function clearHtmlCacheOnly() {
 
 // Xóa toàn bộ Cache Key thuộc các Tag bị thay đổi
 function purgeTagsLocal(tags = []) {
+  cacheGeneration++;
   const purgedKeys = [];
   const tagList = Array.isArray(tags) ? tags : [tags];
   const stockAffectingTags = new Set(['stock', 'orders', 'catalog', 'product:list', 'gaeru-catalog', 'products']);
@@ -138,6 +143,7 @@ function purgeTagsLocal(tags = []) {
         purgedKeys.push(key);
       }
       ramCache.clear();
+      inflight.clear();
       stockMap.clear();
       tagIndex.clear();
       clearHtmlCacheOnly();
@@ -150,6 +156,7 @@ function purgeTagsLocal(tags = []) {
       if (keys) {
         for (const key of keys) {
           ramCache.delete(key);
+          inflight.delete(key);
           purgedKeys.push(key);
         }
         tagIndex.delete(t);
@@ -228,7 +235,9 @@ if (typeof process.on === 'function') {
 }
 
 function flushAllCache() {
+  cacheGeneration++;
   ramCache.clear();
+  inflight.clear();
   stockMap.clear();
   tagIndex.clear();
   nextPromotionBoundaryMs = null;
@@ -247,6 +256,7 @@ async function getOrSetCache(key, tags = [], fetchFn, ttl) {
     return inflight.get(key);
   }
 
+  const startGen = cacheGeneration;
   const promise = (async () => {
     try {
       const freshData = await fetchFn();
@@ -260,18 +270,22 @@ async function getOrSetCache(key, tags = [], fetchFn, ttl) {
         _sizeBytes: Buffer.byteLength(serialized, 'utf8')
       };
 
-      ramCache.set(key, entry, { ttl: ttl || 3600000 });
+      if (cacheGeneration === startGen) {
+        ramCache.set(key, entry, { ttl: ttl || 3600000 });
 
-      const tagList = Array.isArray(tags) ? tags : [tags];
-      for (const tag of tagList) {
-        const normTag = String(tag).trim();
-        if (!tagIndex.has(normTag)) tagIndex.set(normTag, new Set());
-        tagIndex.get(normTag).add(key);
+        const tagList = Array.isArray(tags) ? tags : [tags];
+        for (const tag of tagList) {
+          const normTag = String(tag).trim();
+          if (!tagIndex.has(normTag)) tagIndex.set(normTag, new Set());
+          tagIndex.get(normTag).add(key);
+        }
       }
 
       return entry;
     } finally {
-      inflight.delete(key);
+      if (inflight.get(key) === promise) {
+        inflight.delete(key);
+      }
     }
   })();
 
@@ -327,10 +341,14 @@ async function getFreshData(key, dbFetchFn, swrMs = 3000) {
 
   if (entry) {
     if (now - entry.time > swrMs && !inflight.has(key)) {
+      const startGen = cacheGeneration;
       const bg = Promise.resolve()
         .then(() => dbFetchFn())
         .then((fresh) => {
           if (fresh !== undefined && fresh !== null) {
+            if (cacheGeneration !== startGen) {
+              return fresh;
+            }
             const freshJson = JSON.stringify(fresh);
             const newHash = crypto.createHash('md5').update(freshJson).digest('hex');
             const freshTtl = Math.max(swrMs * 20, 300000);
@@ -352,7 +370,11 @@ async function getFreshData(key, dbFetchFn, swrMs = 3000) {
           logSwrError(key, err);
           return entry.data;
         })
-        .finally(() => inflight.delete(key));
+        .finally(() => {
+          if (inflight.get(key) === bg) {
+            inflight.delete(key);
+          }
+        });
 
       inflight.set(key, bg);
     }
@@ -361,17 +383,20 @@ async function getFreshData(key, dbFetchFn, swrMs = 3000) {
 
   if (inflight.has(key)) return inflight.get(key);
 
+  const startGen = cacheGeneration;
   const p = (async () => {
     try {
       const data = await dbFetchFn();
-      if (data !== undefined && data !== null) {
+      if (data !== undefined && data !== null && cacheGeneration === startGen) {
         const dataJson = JSON.stringify(data);
         const hash = crypto.createHash('md5').update(dataJson).digest('hex');
         ramCache.set(key, { data, time: Date.now(), hash, _sizeBytes: Buffer.byteLength(dataJson, 'utf8') }, { ttl: Math.max(swrMs * 20, 300000) });
       }
       return data;
     } finally {
-      inflight.delete(key);
+      if (inflight.get(key) === p) {
+        inflight.delete(key);
+      }
     }
   })();
 
@@ -501,6 +526,7 @@ function smartPageCache(swrMs = (process.env.NODE_ENV === 'production' ? 300000 
     }
 
     const origSend = res.locals.publicHtml?.send || res.send.bind(res);
+    const startGen = cacheGeneration;
     res.send = (body) => {
       if (res.locals.publicHtml) body = res.locals.publicHtml.prepare(body);
       const currentCacheControl = String(res.getHeader('Cache-Control') || '');
@@ -522,37 +548,39 @@ function smartPageCache(swrMs = (process.env.NODE_ENV === 'production' ? 300000 
           res.setHeader('X-Cache', 'MISS-REBUILT');
         }
 
-        const builtAt = Date.now();
-        const promoDeadline = nextPromotionBoundaryMs && nextPromotionBoundaryMs > builtAt
-          ? nextPromotionBoundaryMs
-          : null;
-        const staleGraceMs = Math.min(swrMs, 60000);
-        const expiresAt = promoDeadline
-          ? Math.min(builtAt + swrMs, promoDeadline)
-          : builtAt + swrMs;
-        const cacheEndAt = promoDeadline
-          ? Math.min(builtAt + swrMs + staleGraceMs, promoDeadline)
-          : builtAt + swrMs + staleGraceMs;
-        const entry = { raw: body, br: null, gz: null, etag, cacheControl, time: builtAt, expiresAt, promoDeadline, cacheEndAt, revalidating: false, revalidatingSince: 0 };
-        ramCache.set(key, entry, { ttl: Math.max(1000, cacheEndAt - builtAt) });
+        if (cacheGeneration === startGen) {
+          const builtAt = Date.now();
+          const promoDeadline = nextPromotionBoundaryMs && nextPromotionBoundaryMs > builtAt
+            ? nextPromotionBoundaryMs
+            : null;
+          const staleGraceMs = Math.min(swrMs, 60000);
+          const expiresAt = promoDeadline
+            ? Math.min(builtAt + swrMs, promoDeadline)
+            : builtAt + swrMs;
+          const cacheEndAt = promoDeadline
+            ? Math.min(builtAt + swrMs + staleGraceMs, promoDeadline)
+            : builtAt + swrMs + staleGraceMs;
+          const entry = { raw: body, br: null, gz: null, etag, cacheControl, time: builtAt, expiresAt, promoDeadline, cacheEndAt, revalidating: false, revalidatingSince: 0 };
+          ramCache.set(key, entry, { ttl: Math.max(1000, cacheEndAt - builtAt) });
 
-        const rawBuffer = Buffer.from(body, 'utf-8');
-        Promise.all([
-          brotli(rawBuffer, {
-            params: {
-              [zlib.constants.BROTLI_PARAM_MODE]: zlib.constants.BROTLI_MODE_TEXT,
-              [zlib.constants.BROTLI_PARAM_QUALITY]: 5
+          const rawBuffer = Buffer.from(body, 'utf-8');
+          Promise.all([
+            brotli(rawBuffer, {
+              params: {
+                [zlib.constants.BROTLI_PARAM_MODE]: zlib.constants.BROTLI_MODE_TEXT,
+                [zlib.constants.BROTLI_PARAM_QUALITY]: 5
+              }
+            }).catch(() => null),
+            gzip(rawBuffer, { level: 6 }).catch(() => null)
+          ]).then(([br, gz]) => {
+            if (ramCache.get(key) === entry) {
+              entry.br = br;
+              entry.gz = gz;
+              const remTtl = Math.max(1000, (entry.cacheEndAt || Date.now() + swrMs) - Date.now());
+              ramCache.set(key, entry, { ttl: remTtl });
             }
-          }).catch(() => null),
-          gzip(rawBuffer, { level: 6 }).catch(() => null)
-        ]).then(([br, gz]) => {
-          if (ramCache.get(key) === entry) {
-            entry.br = br;
-            entry.gz = gz;
-            const remTtl = Math.max(1000, (entry.cacheEndAt || Date.now() + swrMs) - Date.now());
-            ramCache.set(key, entry, { ttl: remTtl });
-          }
-        }).catch(() => {});
+          }).catch(() => {});
+        }
       } else if (!res.headersSent && !/no-store|private/i.test(currentCacheControl)) {
         res.setHeader('X-Cache', 'MISS-REBUILT');
       }

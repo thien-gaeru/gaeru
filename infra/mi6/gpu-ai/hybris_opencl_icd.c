@@ -368,6 +368,27 @@ static void hy_retain_obj(void *p) {
     pthread_mutex_unlock(&g_map_mu);
 }
 
+static void hy_unlink_free_obj(void *p) {
+    if (!p) return;
+    hy_cl_obj *obj = (hy_cl_obj *)p;
+    if (obj->magic != HY_MAGIC) return;
+    pthread_mutex_lock(&g_map_mu);
+    size_t rb = hash_real(obj->kind, obj->real);
+    hy_cl_obj **pr = &g_real_buckets[rb];
+    while (*pr) {
+        if (*pr == obj) { *pr = obj->next_real; break; }
+        pr = &(*pr)->next_real;
+    }
+    size_t pb = hash_ptr(obj);
+    hy_cl_obj **pp = &g_ptr_buckets[pb];
+    while (*pp) {
+        if (*pp == obj) { *pp = obj->next_ptr; break; }
+        pp = &(*pp)->next_ptr;
+    }
+    pthread_mutex_unlock(&g_map_mu);
+    free(obj);
+}
+
 static hy_cl_obj *hy_release_prepare(void *p, int *should_free) {
     *should_free = 0;
     if (!p) return NULL;
@@ -447,13 +468,17 @@ CL_API_ENTRY cl_int CL_API_CALL hy_clGetPlatformIDs(cl_uint num_entries, cl_plat
         if (num_platforms) *num_platforms = 0;
         return CL_PLATFORM_NOT_FOUND_KHR;
     }
-    cl_platform_id raw[8];
+    if (!platforms && !num_platforms) return CL_INVALID_VALUE;
+    if (platforms && num_entries == 0) return CL_INVALID_VALUE;
+    cl_platform_id raw[8] = {0};
     cl_uint cap = (platforms && num_entries > 0) ? (num_entries < 8 ? num_entries : 8) : 0;
-    cl_int err = g_real.clGetPlatformIDs(cap ? cap : (platforms ? num_entries : 0), platforms ? raw : NULL, num_platforms);
+    cl_uint real_n = 0;
+    cl_int err = g_real.clGetPlatformIDs(cap ? cap : (platforms ? num_entries : 0), platforms ? raw : NULL, &real_n);
+    if (num_platforms) *num_platforms = real_n;
     if (err == CL_SUCCESS && platforms && cap > 0) {
-        cl_uint cnt = (num_platforms && *num_platforms < cap) ? *num_platforms : cap;
+        cl_uint cnt = real_n < cap ? real_n : cap;
         for (cl_uint i = 0; i < cnt; i++) {
-            platforms[i] = (cl_platform_id)hy_wrap(HY_OBJ_PLATFORM, raw[i], 0);
+            platforms[i] = raw[i] ? (cl_platform_id)hy_wrap(HY_OBJ_PLATFORM, raw[i], 0) : NULL;
         }
     }
     return err;
@@ -501,11 +526,11 @@ CL_API_ENTRY cl_int CL_API_CALL hy_clGetPlatformInfo(cl_platform_id platform, cl
 CL_API_ENTRY cl_int CL_API_CALL hy_clGetDeviceIDs(cl_platform_id platform, cl_device_type device_type, cl_uint num_entries, cl_device_id *devices, cl_uint *num_devices) {
     ensure_init();
     if (!g_real.clGetDeviceIDs) return CL_DEVICE_NOT_FOUND;
-    cl_device_id raw[16];
+    cl_device_id raw[16] = {0};
     cl_device_id *heap = NULL;
     cl_device_id *dst = raw;
     if (devices && num_entries > 16) {
-        heap = (cl_device_id *)malloc((size_t)num_entries * sizeof(cl_device_id));
+        heap = (cl_device_id *)calloc((size_t)num_entries, sizeof(cl_device_id));
         if (!heap) return CL_OUT_OF_HOST_MEMORY;
         dst = heap;
     }
@@ -515,7 +540,7 @@ CL_API_ENTRY cl_int CL_API_CALL hy_clGetDeviceIDs(cl_platform_id platform, cl_de
     if (err == CL_SUCCESS && devices && num_entries > 0) {
         cl_uint cnt = real_n < num_entries ? real_n : num_entries;
         for (cl_uint i = 0; i < cnt; i++) {
-            devices[i] = (cl_device_id)hy_wrap(HY_OBJ_DEVICE, dst[i], 0);
+            devices[i] = dst[i] ? (cl_device_id)hy_wrap(HY_OBJ_DEVICE, dst[i], 0) : NULL;
         }
     }
     free(heap);
@@ -563,7 +588,44 @@ CL_API_ENTRY cl_int CL_API_CALL hy_clGetDeviceInfo(cl_device_id device, cl_devic
 CL_API_ENTRY cl_int CL_API_CALL hy_clCreateSubDevices(cl_device_id in_device, const cl_device_partition_property *properties, cl_uint num_devices, cl_device_id *out_devices, cl_uint *num_devices_ret) {
     ensure_init();
     if (!g_real.clCreateSubDevices) return CL_INVALID_OPERATION;
-    return g_real.clCreateSubDevices((cl_device_id)hy_unwrap(in_device), properties, num_devices, out_devices, num_devices_ret);
+    if (out_devices && num_devices == 0) return CL_INVALID_VALUE;
+    cl_device_id raw[16] = {0};
+    cl_device_id *heap = NULL;
+    cl_device_id *dst = raw;
+    if (out_devices && num_devices > 16) {
+        heap = (cl_device_id *)calloc((size_t)num_devices, sizeof(cl_device_id));
+        if (!heap) return CL_OUT_OF_HOST_MEMORY;
+        dst = heap;
+    }
+    cl_uint real_n = 0;
+    cl_uint *p_ret = (out_devices || num_devices_ret) ? &real_n : NULL;
+    cl_int err = g_real.clCreateSubDevices((cl_device_id)hy_unwrap(in_device), properties, num_devices, out_devices ? dst : NULL, p_ret);
+    if (err == CL_SUCCESS && out_devices && num_devices > 0) {
+        cl_uint cnt = real_n < num_devices ? real_n : num_devices;
+        for (cl_uint i = 0; i < cnt; i++) {
+            if (dst[i]) {
+                out_devices[i] = (cl_device_id)hy_wrap(HY_OBJ_DEVICE, dst[i], 0);
+                if (!out_devices[i]) {
+                    for (cl_uint j = 0; j < i; j++) {
+                        hy_unlink_free_obj(out_devices[j]);
+                        out_devices[j] = NULL;
+                    }
+                    if (g_real.clReleaseDevice) {
+                        for (cl_uint j = 0; j < cnt; j++) {
+                            if (dst[j]) g_real.clReleaseDevice(dst[j]);
+                        }
+                    }
+                    err = CL_OUT_OF_HOST_MEMORY;
+                    break;
+                }
+            } else {
+                out_devices[i] = NULL;
+            }
+        }
+    }
+    if (err == CL_SUCCESS && num_devices_ret && p_ret) *num_devices_ret = real_n;
+    free(heap);
+    return err;
 }
 CL_API_ENTRY cl_int CL_API_CALL hy_clRetainDevice(cl_device_id device) {
     ensure_init();
@@ -797,8 +859,15 @@ typedef struct {
 static void CL_CALLBACK mem_dtor_cb(cl_mem raw_unused, void *ud) {
     (void)raw_unused;
     mem_dtor_tramp_t *t = (mem_dtor_tramp_t *)ud;
-    if (t && t->pfn) t->pfn(t->wrapped, t->user_data);
+    if (!t) return;
+    cl_mem wrapped = t->wrapped;
+    void (CL_CALLBACK *pfn)(cl_mem, void *) = t->pfn;
+    void *user_data = t->user_data;
     free(t);
+    if (pfn) pfn(wrapped, user_data);
+    int sf = 0;
+    hy_cl_obj *obj = hy_release_prepare(wrapped, &sf);
+    if (sf) free(obj);
 }
 
 CL_API_ENTRY cl_int CL_API_CALL hy_clSetMemObjectDestructorCallback(cl_mem memobj, void (CL_CALLBACK *pfn_notify)(cl_mem, void *), void *user_data) {
@@ -810,8 +879,14 @@ CL_API_ENTRY cl_int CL_API_CALL hy_clSetMemObjectDestructorCallback(cl_mem memob
     t->pfn = pfn_notify;
     t->user_data = user_data;
     t->wrapped = memobj;
+    hy_retain_obj(memobj);
     cl_int r = g_real.clSetMemObjectDestructorCallback((cl_mem)hy_unwrap(memobj), mem_dtor_cb, t);
-    if (r != CL_SUCCESS) free(t);
+    if (r != CL_SUCCESS) {
+        int sf = 0;
+        hy_cl_obj *obj = hy_release_prepare(memobj, &sf);
+        if (sf) free(obj);
+        free(t);
+    }
     return r;
 }
 
@@ -911,13 +986,30 @@ typedef struct {
     void (CL_CALLBACK *pfn)(cl_program, void *);
     void *user_data;
     cl_program wrapped;
+    int refs;
+    int fired;
 } prog_cb_tramp_t;
+
+static void prog_tramp_unref(prog_cb_tramp_t *t) {
+    if (t && __atomic_sub_fetch(&t->refs, 1, __ATOMIC_ACQ_REL) == 0) {
+        free(t);
+    }
+}
 
 static void CL_CALLBACK prog_notify_cb(cl_program raw_p, void *ud) {
     (void)raw_p;
     prog_cb_tramp_t *t = (prog_cb_tramp_t *)ud;
-    if (t && t->pfn) t->pfn(t->wrapped, t->user_data);
-    free(t);
+    if (!t) return;
+    if (!__atomic_exchange_n(&t->fired, 1, __ATOMIC_ACQ_REL)) {
+        cl_program wrapped = t->wrapped;
+        void (CL_CALLBACK *pfn)(cl_program, void *) = t->pfn;
+        void *user_data = t->user_data;
+        if (pfn) pfn(wrapped, user_data);
+        int sf = 0;
+        hy_cl_obj *obj = hy_release_prepare(wrapped, &sf);
+        if (sf) free(obj);
+    }
+    prog_tramp_unref(t);
 }
 
 CL_API_ENTRY cl_int CL_API_CALL hy_clBuildProgram(cl_program program, cl_uint num_devices, const cl_device_id *device_list, const char *options, void (CL_CALLBACK *pfn_notify)(cl_program, void *), void *user_data) {
@@ -931,9 +1023,20 @@ CL_API_ENTRY cl_int CL_API_CALL hy_clBuildProgram(cl_program program, cl_uint nu
         t->pfn = pfn_notify;
         t->user_data = user_data;
         t->wrapped = program;
+        t->refs = 2;
+        t->fired = 0;
+        hy_retain_obj(program);
     }
     cl_int r = g_real.clBuildProgram((cl_program)hy_unwrap(program), num_devices, rdevs, options, pfn_notify ? prog_notify_cb : NULL, pfn_notify ? t : user_data);
-    if (r != CL_SUCCESS) free(t);
+    if (t) {
+        if (r != CL_SUCCESS && !__atomic_exchange_n(&t->fired, 1, __ATOMIC_ACQ_REL)) {
+            int sf = 0;
+            hy_cl_obj *obj = hy_release_prepare(program, &sf);
+            if (sf) free(obj);
+            prog_tramp_unref(t);
+        }
+        prog_tramp_unref(t);
+    }
     free(hdevs);
     return r;
 }
@@ -951,9 +1054,20 @@ CL_API_ENTRY cl_int CL_API_CALL hy_clCompileProgram(cl_program program, cl_uint 
         t->pfn = pfn_notify;
         t->user_data = user_data;
         t->wrapped = program;
+        t->refs = 2;
+        t->fired = 0;
+        hy_retain_obj(program);
     }
     cl_int r = g_real.clCompileProgram((cl_program)hy_unwrap(program), num_devices, rdevs, options, num_input_headers, rhdrs, header_include_names, pfn_notify ? prog_notify_cb : NULL, pfn_notify ? t : user_data);
-    if (r != CL_SUCCESS) free(t);
+    if (t) {
+        if (r != CL_SUCCESS && !__atomic_exchange_n(&t->fired, 1, __ATOMIC_ACQ_REL)) {
+            int sf = 0;
+            hy_cl_obj *obj = hy_release_prepare(program, &sf);
+            if (sf) free(obj);
+            prog_tramp_unref(t);
+        }
+        prog_tramp_unref(t);
+    }
     free(hdevs);
     free(hhdrs);
     return r;
@@ -1172,8 +1286,15 @@ typedef struct {
 static void CL_CALLBACK ev_notify_cb(cl_event raw_e, cl_int st, void *ud) {
     (void)raw_e;
     ev_cb_tramp_t *t = (ev_cb_tramp_t *)ud;
-    if (t && t->pfn) t->pfn(t->wrapped, st, t->user_data);
+    if (!t) return;
+    cl_event wrapped = t->wrapped;
+    void (CL_CALLBACK *pfn)(cl_event, cl_int, void *) = t->pfn;
+    void *user_data = t->user_data;
     free(t);
+    if (pfn) pfn(wrapped, st, user_data);
+    int sf = 0;
+    hy_cl_obj *obj = hy_release_prepare(wrapped, &sf);
+    if (sf) free(obj);
 }
 
 CL_API_ENTRY cl_int CL_API_CALL hy_clSetEventCallback(cl_event event, cl_int type, void (CL_CALLBACK *pfn_notify)(cl_event, cl_int, void *), void *user_data) {
@@ -1184,8 +1305,14 @@ CL_API_ENTRY cl_int CL_API_CALL hy_clSetEventCallback(cl_event event, cl_int typ
     t->pfn = pfn_notify;
     t->user_data = user_data;
     t->wrapped = event;
+    hy_retain_obj(event);
     cl_int r = g_real.clSetEventCallback((cl_event)hy_unwrap(event), type, ev_notify_cb, t);
-    if (r != CL_SUCCESS) free(t);
+    if (r != CL_SUCCESS) {
+        int sf = 0;
+        hy_cl_obj *obj = hy_release_prepare(event, &sf);
+        if (sf) free(obj);
+        free(t);
+    }
     return r;
 }
 

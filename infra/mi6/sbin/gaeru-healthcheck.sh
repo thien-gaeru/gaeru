@@ -18,44 +18,110 @@ has_any_port() {
       '$1 == "LISTEN" {n=split($4,a,":"); if (a[n] == want) ok=1} END {exit !ok}'
 }
 
+is_upstart_manual() {
+    local svc="$1"
+    [ -f "/etc/init/${svc}.override" ] && grep -Eq '^[[:space:]]*manual[[:space:]]*$' "/etc/init/${svc}.override"
+}
+
+is_env_autostart_disabled() {
+    local env_file="$1"
+    [ -f "$env_file" ] && grep -Eq '^[[:space:]]*AUTOSTART[[:space:]]*=[[:space:]]*["'\'']?(no|false|0)["'\'']?[[:space:]]*$' "$env_file"
+}
+
+is_service_disabled() {
+    local svc="$1"
+    if is_upstart_manual "$svc"; then
+        return 0
+    fi
+    case "$svc" in
+        node-app|node-app-gaeru)
+            is_upstart_manual "node-app" && return 0
+            is_env_autostart_disabled "/storage/apps/gaeru/app.env" && return 0
+            is_env_autostart_disabled "/userdata/storage/apps/gaeru/app.env" && return 0
+            ;;
+        cloudflared)
+            is_env_autostart_disabled "/etc/default/cloudflared" && return 0
+            if [ -d /etc/rc2.d ] && ! ls /etc/rc2.d/S*cloudflared >/dev/null 2>&1 && ls /etc/rc2.d/K*cloudflared >/dev/null 2>&1; then
+                return 0
+            fi
+            ;;
+        *)
+            is_env_autostart_disabled "/etc/default/${svc}" && return 0
+            ;;
+    esac
+    return 1
+}
+
+log_skip_restart() {
+    local msg
+    msg="$(date -u '+%Y-%m-%dT%H:%M:%SZ') skip_restart service=$1 reason=admin_disabled"
+    printf '%s\n' "$msg" >> "$LOG"
+    if [ "${GAERU_HEALTH_QUIET:-0}" != "1" ]; then
+        printf '%s\n' "$msg"
+    fi
+}
+
 check_once() {
-    local problems="" http mem disk root_disk load1 batt temp max_c c_val value f prev state line n3000 n8080 n3100 deploying=0
+    local problems="" http mem disk root_disk load1 batt temp max_c c_val value f prev state line n3000 n8080 n3100 deploying=0 node_app_disabled=0
     [ -e /run/gaeru-deploy.lock ] && deploying=1
 
     if [ "$deploying" -eq 0 ]; then
         if ! has_job postgresql-chroot; then
-            initctl start postgresql-chroot 2>/dev/null || true
-            sleep 2
-            has_job postgresql-chroot || problems="${problems}${problems:+,}job_postgresql-chroot"
+            if is_service_disabled postgresql-chroot; then
+                log_skip_restart postgresql-chroot
+            else
+                initctl start postgresql-chroot 2>/dev/null || true
+                sleep 2
+                has_job postgresql-chroot || problems="${problems}${problems:+,}job_postgresql-chroot"
+            fi
         fi
 
+        if is_service_disabled node-app; then
+            node_app_disabled=1
+        fi
         if ! has_any_port 3000; then
-            initctl start node-app APP=gaeru 2>/dev/null || true
-            sleep 3
-            has_any_port 3000 || problems="${problems}${problems:+,}port_3000"
+            if [ "$node_app_disabled" -eq 1 ]; then
+                log_skip_restart "node-app APP=gaeru"
+            else
+                initctl start node-app APP=gaeru 2>/dev/null || true
+                sleep 3
+                has_any_port 3000 || problems="${problems}${problems:+,}port_3000"
+            fi
         fi
 
         if ! has_any_port 8080; then
-            initctl start server-dashboard 2>/dev/null || true
-            sleep 2
-            has_any_port 8080 || problems="${problems}${problems:+,}port_8080"
+            if is_service_disabled server-dashboard; then
+                log_skip_restart server-dashboard
+            else
+                initctl start server-dashboard 2>/dev/null || true
+                sleep 2
+                has_any_port 8080 || problems="${problems}${problems:+,}port_8080"
+            fi
         fi
 
         if ! has_any_port 3100; then
-            initctl start gaeru-gpu-ai 2>/dev/null || true
-            sleep 2
-            has_any_port 3100 || problems="${problems}${problems:+,}port_3100"
+            if is_service_disabled gaeru-gpu-ai; then
+                log_skip_restart gaeru-gpu-ai
+            else
+                initctl start gaeru-gpu-ai 2>/dev/null || true
+                sleep 2
+                has_any_port 3100 || problems="${problems}${problems:+,}port_3100"
+            fi
         fi
 
         if ! pgrep -f "cloudflared.*tunnel run" >/dev/null 2>&1; then
-            /etc/init.d/cloudflared start >/dev/null 2>&1 || true
-            sleep 2
-            pgrep -f "cloudflared.*tunnel run" >/dev/null 2>&1 || problems="${problems}${problems:+,}cloudflared"
+            if is_service_disabled cloudflared; then
+                log_skip_restart cloudflared
+            else
+                /etc/init.d/cloudflared start >/dev/null 2>&1 || true
+                sleep 2
+                pgrep -f "cloudflared.*tunnel run" >/dev/null 2>&1 || problems="${problems}${problems:+,}cloudflared"
+            fi
         fi
 
         http=$(curl -sS -m 8 -o /dev/null -w '%{http_code}' http://127.0.0.1:3000/health 2>/dev/null || echo 000)
         [ -n "$http" ] || http=000
-        if [ "$http" != "200" ]; then
+        if [ "$node_app_disabled" -eq 0 ] && [ "$http" != "200" ]; then
             problems="${problems}${problems:+,}web_health_${http}"
         fi
     else

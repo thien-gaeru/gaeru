@@ -251,7 +251,7 @@ async function initiateMomoRefund(pool, config, {
     transportError = err;
   }
 
-  // Phase 3: Persist authoritative outcome
+  // Phase 3: Persist authoritative outcome without clobbering concurrent query/reconciliation finalization
   const finalRefund = await withTransaction(pool, async (client) => {
     const nextStatus = providerOutcome ? providerOutcome.state : 'ambiguous';
     const nextResultCode = providerOutcome ? String(providerOutcome.resultCode) : (transportError?.code || 'PAYMENT_NETWORK_ERROR');
@@ -259,6 +259,7 @@ async function initiateMomoRefund(pool, config, {
     const nextRefundTransId = providerOutcome?.refundTransId || null;
     const completedAt = nextStatus === 'succeeded' ? new Date().toISOString() : null;
 
+    const isTerminalPhase2 = nextStatus === 'succeeded' || nextStatus === 'failed';
     const updated = (await client.query(
       `UPDATE momo_refunds
        SET status = $2,
@@ -269,16 +270,21 @@ async function initiateMomoRefund(pool, config, {
            last_checked_at = now(),
            completed_at = COALESCE(completed_at, $7::timestamptz),
            updated_at = now()
-       WHERE id = $1
+       WHERE id = $1 AND status = ANY($8::text[])
        RETURNING *`,
       [
         phase1.refund.id, nextStatus, nextRefundTransId, nextResultCode, nextMessage,
         providerOutcome?.transGroup ? JSON.stringify(providerOutcome.transGroup) : null,
-        completedAt
+        completedAt,
+        isTerminalPhase2 ? ['pending_provider', 'ambiguous'] : ['pending_provider']
       ]
     )).rows[0];
     if (!updated) {
-      throw fail('Bản ghi hoàn tiền MoMo không còn tồn tại để ghi nhận kết quả.', 409);
+      const authoritative = (await client.query('SELECT * FROM momo_refunds WHERE id = $1', [phase1.refund.id])).rows[0];
+      if (!authoritative) {
+        throw fail('Bản ghi hoàn tiền MoMo không còn tồn tại để ghi nhận kết quả.', 409);
+      }
+      return formatRefundRow(authoritative);
     }
 
     await audit(client, {

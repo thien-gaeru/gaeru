@@ -146,7 +146,7 @@ function canUseRowCache(pool) {
 function getPoolState(pool) {
   let state = poolRowCaches.get(pool);
   if (!state) {
-    state = { rows: new Map(), pending: new Map(), bytes: 0 };
+    state = { rows: new Map(), pending: new Map(), bytes: 0, generation: 0 };
     poolRowCaches.set(pool, state);
     if (!pool.__gaeruRenditionTracked) {
       trackedPools.add(new WeakRef(pool));
@@ -159,6 +159,7 @@ function clearImageLookupCache(pool, { broadcast = true } = {}) {
   if (pool && typeof pool === 'object') {
     const state = poolRowCaches.get(pool);
     if (state) {
+      state.generation++;
       state.rows.clear();
       state.pending.clear();
       state.bytes = 0;
@@ -204,30 +205,37 @@ async function getCachedImageRow(pool, key, loader) {
     state.rows.delete(key);
   }
   if (state.pending.has(key)) return state.pending.get(key);
+  const startGen = state.generation;
   const task = Promise.resolve().then(loader).then(row => {
     if (row) {
       if (row.content !== undefined && row.mime_type) {
         row._digest = createHash('sha256').update(row.content).update('\0').update(row.mime_type).digest('hex');
       }
-      const rowBytes = estimateRowBytes(row);
-      if (rowBytes <= MAX_SINGLE_ROW_CACHE_BYTES) {
-        if (state.rows.has(key)) {
-          const prev = state.rows.get(key);
-          state.bytes = Math.max(0, state.bytes - (prev?.bytes || 0));
-          state.rows.delete(key);
+      if (state.generation === startGen) {
+        const rowBytes = estimateRowBytes(row);
+        if (rowBytes <= MAX_SINGLE_ROW_CACHE_BYTES) {
+          if (state.rows.has(key)) {
+            const prev = state.rows.get(key);
+            state.bytes = Math.max(0, state.bytes - (prev?.bytes || 0));
+            state.rows.delete(key);
+          }
+          while ((state.rows.size >= MAX_ROW_CACHE_ENTRIES || state.bytes + rowBytes > MAX_ROW_CACHE_BYTES) && state.rows.size > 0) {
+            const oldestKey = state.rows.keys().next().value;
+            const oldest = state.rows.get(oldestKey);
+            state.bytes = Math.max(0, state.bytes - (oldest?.bytes || 0));
+            state.rows.delete(oldestKey);
+          }
+          state.rows.set(key, { row, until: Date.now() + 600000, bytes: rowBytes });
+          state.bytes += rowBytes;
         }
-        while ((state.rows.size >= MAX_ROW_CACHE_ENTRIES || state.bytes + rowBytes > MAX_ROW_CACHE_BYTES) && state.rows.size > 0) {
-          const oldestKey = state.rows.keys().next().value;
-          const oldest = state.rows.get(oldestKey);
-          state.bytes = Math.max(0, state.bytes - (oldest?.bytes || 0));
-          state.rows.delete(oldestKey);
-        }
-        state.rows.set(key, { row, until: Date.now() + 600000, bytes: rowBytes });
-        state.bytes += rowBytes;
       }
     }
     return row;
-  }).finally(() => state.pending.delete(key));
+  }).finally(() => {
+    if (state.pending.get(key) === task) {
+      state.pending.delete(key);
+    }
+  });
   state.pending.set(key, task);
   return task;
 }

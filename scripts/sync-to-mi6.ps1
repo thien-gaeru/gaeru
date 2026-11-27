@@ -132,12 +132,14 @@ done
 chown -R www-data:www-data "$APP_DIR/.git"
 git -C "$APP_DIR" ls-files -z | (cd "$APP_DIR" && xargs -0 chown www-data:www-data)
 chown www-data:www-data "$APP_DIR"
-for envf in "$APP_DIR/.env" "$APP_DIR/app.env"; do
-  if [ -e "$envf" ]; then
-    chown www-data:www-data "$envf"
-    chmod 0640 "$envf"
-  fi
-done
+if [ -e "$APP_DIR/.env" ]; then
+  chown www-data:www-data "$APP_DIR/.env"
+  chmod 0640 "$APP_DIR/.env"
+fi
+if [ -f "$APP_DIR/app.env" ] && [ ! -L "$APP_DIR/app.env" ]; then
+  chown root:www-data "$APP_DIR/app.env"
+  chmod 0640 "$APP_DIR/app.env"
+fi
 
 find "$APP_DIR/scripts" -type f \( -name '*.sh' -o -name '*.conf' \) | while IFS= read -r f; do
   tr -d '\r' < "$f" > "${f}.lf.$$"
@@ -272,6 +274,7 @@ for asset in index.html logo.png favicon.ico favicon-16x16.png favicon-32x32.png
 done
 sync_host_file "$APP_DIR/infra/mi6/admin/server.js" /userdata/storage/admin/server.js 0600 server-dashboard
 sync_host_file "$APP_DIR/infra/mi6/gpu-ai/gaeru-gpu-ai.cpp" /storage/gpu-ai-build/gaeru-gpu-ai.cpp 0644 ""
+sync_host_file "$APP_DIR/infra/mi6/gpu-ai/hybris_opencl_icd.c" /storage/gpu-ai-build/hybris_opencl_icd.c 0644 ""
 '@
 
   $remoteScript = $remoteTemplate.

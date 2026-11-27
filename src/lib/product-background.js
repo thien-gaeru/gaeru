@@ -103,29 +103,39 @@ async function applyAiSegmentationAlpha(data, width, height, options = {}) {
 }
 
 async function removeWhiteBackground(buffer, options = {}) {
+  const opts = options && typeof options === 'object' ? options : {};
   const parseOptNum = (val, fallback) => {
-    if (val === undefined || val === null || val === '') return fallback;
+    if (val === undefined || val === null || val === '' || typeof val === 'boolean') return fallback;
     const n = Number(val);
     return Number.isFinite(n) ? n : fallback;
   };
-  const {
-    whiteThreshold = parseOptNum(options.whiteThreshold ?? options.threshold, 240),
-    tolerance = parseOptNum(options.tolerance, 35),
-    maxWidth = options.maxWidth ? parseOptNum(options.maxWidth, null) : null,
-    minHoleArea = (options.minHoleArea !== undefined && options.minHoleArea !== null && options.minHoleArea !== '')
-      ? parseOptNum(options.minHoleArea, null)
-      : null,
-    maxTextDimension = parseOptNum(options.maxTextDimension, 45),
-    autoCenterSquare = Boolean(options.autoCenterSquare === true || options.autoCenterSquare === 'true' || options.autoCenterSquare === '1' || options.autoSquare === true || options.autoSquare === '1'),
-    canvasSize = parseOptNum(options.canvasSize ?? options.mainSize, 1000),
-    mainSize = parseOptNum(options.mainSize ?? options.canvasSize, 1000),
-    thumbSize = parseOptNum(options.thumbSize, 400),
-    paddingRatio = parseOptNum(options.paddingRatio, 0.08),
-    enableShadow = options.enableShadow !== undefined ? Boolean(options.enableShadow === true || options.enableShadow === 'true' || options.enableShadow === 1 || options.enableShadow === '1') : true,
-    shadowBlur = parseOptNum(options.shadowBlur, 18),
-    shadowOpacity = parseOptNum(options.shadowOpacity, 0.22),
-    shadowOffsetY = parseOptNum(options.shadowOffsetY, 12)
-  } = options;
+  const parseOptBool = (val, fallback) => {
+    if (val === undefined || val === null || val === '') return fallback;
+    if (typeof val === 'boolean') return val;
+    if (typeof val === 'number') return val !== 0;
+    const s = String(val).trim().toLowerCase();
+    if (s === 'true' || s === '1' || s === 'yes' || s === 'on') return true;
+    if (s === 'false' || s === '0' || s === 'no' || s === 'off') return false;
+    return fallback;
+  };
+  const whiteThreshold = parseOptNum(opts.whiteThreshold ?? opts.threshold, 240);
+  const tolerance = parseOptNum(opts.tolerance, 35);
+  const maxWidth = (opts.maxWidth !== undefined && opts.maxWidth !== null && opts.maxWidth !== '')
+    ? parseOptNum(opts.maxWidth, null)
+    : null;
+  const minHoleArea = (opts.minHoleArea !== undefined && opts.minHoleArea !== null && opts.minHoleArea !== '')
+    ? parseOptNum(opts.minHoleArea, null)
+    : null;
+  const maxTextDimension = parseOptNum(opts.maxTextDimension, 45);
+  const autoCenterSquare = parseOptBool(opts.autoCenterSquare ?? opts.autoSquare, false);
+  const canvasSize = parseOptNum(opts.canvasSize ?? opts.mainSize, 1000);
+  const mainSize = parseOptNum(opts.mainSize ?? opts.canvasSize, 1000);
+  const thumbSize = parseOptNum(opts.thumbSize, 400);
+  const paddingRatio = parseOptNum(opts.paddingRatio, 0.08);
+  const enableShadow = parseOptBool(opts.enableShadow, true);
+  const shadowBlur = parseOptNum(opts.shadowBlur, 18);
+  const shadowOpacity = parseOptNum(opts.shadowOpacity, 0.22);
+  const shadowOffsetY = parseOptNum(opts.shadowOffsetY, 12);
 
   const input = sharp(buffer, { limitInputPixels: 24_000_000, failOn: 'error' });
   const meta = await input.metadata();

@@ -73,5 +73,5 @@ echo "$(date -Is) OK encrypted $OUT_GPG ($(stat -c%s "$OUT_GPG") bytes) + $SQL_G
 
 # Push independently to Google Drive in background if configured
 if [ -x /usr/local/sbin/gaeru-gdrive-sync.sh ]; then
-  nohup /usr/local/sbin/gaeru-gdrive-sync.sh pg >> /var/log/gaeru-gdrive-sync.log 2>&1 &
+  nohup /usr/local/sbin/gaeru-gdrive-sync.sh pg 200>&- </dev/null >> /var/log/gaeru-gdrive-sync.log 2>&1 &
 fi
