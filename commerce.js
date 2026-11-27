@@ -367,9 +367,10 @@ function productCard(product, compact = false) {
       <p class="eyebrow">${escapeHtml(product.descriptor)}</p>
       <h2><a href="${pUrl}">${escapeHtml(product.cardTitle||product.name)}</a></h2>
       <p class="catalog-description">${escapeHtml(String(product.cardSummary||'').replace(/\*\*|__/g,''))}</p>
-      ${promotionLabel(product,false)}
+      <div class="catalog-pricing">
+        ${(()=>{const hasSale=variants.some(v=>v.promotion);return hasSale?`<p class="price price-original"><span class="price-original-label">Giá gốc </span><del>${wrapPrice(getPriceLabel(product,true))}</del></p>${promotionLabel(product,true)}`:`<p class="catalog-price">${wrapPrice(getPriceLabel(product))}</p>`;})()}
+      </div>
       <div class="catalog-actions">
-        <p class="catalog-price">${(()=>{const hasSale=product.variants.some(v=>v.active&&v.promotion);return (hasSale?`<del class="catalog-price-original">${wrapPrice(getPriceLabel(product,true))}</del><br>`:'')+wrapPrice(getPriceLabel(product));})()}</p>
         <a class="button button-blue" href="${pUrl}">Mua ngay</a>
       </div>
     </article>`;
@@ -643,7 +644,7 @@ function renderProduct() {
       <div class="product-detail-art">${(img=>window.GAERUProductArtwork?.picture?.(img,safeProductImage(product.imageUrl),true)||img)(`<img loading="eager" fetchpriority="high" decoding="async" width="800" height="800" data-product-main-image src="${escapeHtml(safeProductImage(product.imageUrl))}" ${window.GAERUProductArtwork?.attributes?.(safeProductImage(product.imageUrl),true)||''} alt="${escapeHtml(product.imageAlt||product.name)}">`)}<div class="product-gallery-thumbnails product-thumbs">${[...new Set([product.imageUrl,...(product.gallery||[])])].map((url,i)=>`<button type="button" data-gallery-image="${escapeHtml(url)}" aria-label="Xem ảnh ${i+1}" aria-pressed="${url===product.imageUrl}">${(img=>window.GAERUProductArtwork?.picture?.(img,url,'thumb')||img)(`<img src="${escapeHtml(url)}" ${window.GAERUProductArtwork?.attributes?.(url,'thumb')||''} alt="" width="74" height="74" loading="lazy" fetchpriority="low" decoding="async">`)}</button>`).join("")}</div></div>
       <div class="product-detail-copy">
         <h2 class="product-config-heading">Phiên bản. <span>${(product.variants || []).some(v => /type-?c|lightning|usb|3\.5mm|chân cắm|kết nối/i.test(`${v.name || ""} ${JSON.stringify(v.options || {})}`)) ? "Chọn kết nối phù hợp với bạn." : "Chọn cấu hình phù hợp với bạn."}</span></h2>
-        ${variantField}<p data-selected-promotion class="store-promotion-note" hidden></p>
+        ${variantField}
         <div class="detail-actions">
           <button class="button button-blue buy-now-button" type="button" data-buy-now="" disabled>Mua ngay</button>
           <button class="button button-blue" type="button" data-add-to-cart="" disabled>Thêm vào giỏ</button>
@@ -720,8 +721,6 @@ function renderProduct() {
     }
     if (priceBox?.classList) priceBox.classList.toggle("is-flash", isFlash);
     if (priceNode?.classList) priceNode.classList.toggle("detail-price-flash", isFlash);
-    const promoNote = root.querySelector("[data-selected-promotion]");
-    if (promoNote) { promoNote.innerHTML = variant.promotion ? `<strong class="promotion-badge">${variant.promotion.type==='flash'?'Flash Sale':'Ưu đãi'}</strong> · Giá bán: <span class="promotion-sale-price">${formatPrice(variant.priceVnd)}</span> (Giá gốc: <del>${formatPrice(variant.originalPriceVnd)}</del>) · Kết thúc ${new Date(variant.promotion.endsAt).toLocaleString('vi-VN')}` : ''; promoNote.hidden = !variant.promotion; }
     root.querySelector("[data-stock-note]").textContent = Number(variant.stockQuantity) > 0 ? "Còn hàng" : "Hết hàng";
     const button = root.querySelector("[data-add-to-cart]");
     button.dataset.addToCart = variant.id;
