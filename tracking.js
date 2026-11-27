@@ -211,11 +211,11 @@
             ` : ''}
             <div class="price-line">
               <span>Phí vận chuyển:</span>
-              <strong>${sum.shippingFeeVnd > 0 ? formatMoney(sum.shippingFeeVnd) : 'Miễn phí'}</strong>
+              <strong>${sum.shippingFeeVnd == null ? 'Chờ xác nhận' : (Number(sum.shippingFeeVnd) > 0 ? formatMoney(sum.shippingFeeVnd) : 'Miễn phí')}</strong>
             </div>
             <div class="price-line total">
               <span>Tổng thanh toán:</span>
-              <strong class="total-amount">${formatMoney(sum.totalVnd)}</strong>
+              <strong class="total-amount">${sum.totalVnd == null ? 'Chờ xác nhận' : formatMoney(sum.totalVnd)}</strong>
             </div>
             <div style="margin-top:8px;font-size:12px;color:#86868b;">
               Hình thức: <strong>${escapeHtml(order.paymentMethodTitle || order.paymentMethod)}</strong>

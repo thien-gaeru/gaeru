@@ -72,10 +72,44 @@ COMMON_FLAGS=(
   --stats 0
 )
 
+SYNC_STATUS="ok"
+SYNC_WARNINGS=()
+
+remote_file_verified() {
+  local src_chroot="$1"
+  local subdir="$2"
+  local filename="$3"
+  local out
+  out=$(run_rclone ls "${REMOTE_ROOT}/${subdir}" --filter "+ ${filename}" --filter "- *" 2>/dev/null || true)
+  printf '%s\n' "$out" | awk -v f="$filename" '$1 > 0 && $2 == f { found=1 } END { exit(found ? 0 : 1) }' || return 1
+  # Verify remote file content hash matches local file on Drive before allowing prune
+  run_rclone check "$src_chroot" "${REMOTE_ROOT}/${subdir}" \
+    --filter "+ ${filename}" \
+    --filter "- *" \
+    --one-way \
+    "${COMMON_FLAGS[@]}" >/dev/null 2>&1
+}
+
 sync_pg() {
   local src_host="/userdata/storage/gaeru-pg-backups"
   local src_chroot="/storage/gaeru-pg-backups"
-  [ -d "$src_host" ] || return 0
+  if [ ! -d "$src_host" ]; then
+    log "WARN (pg): Source directory missing ($src_host); skipping remote prune to protect existing Drive backups."
+    SYNC_STATUS="missing_backup"
+    SYNC_WARNINGS+=("pg_source_missing")
+    return 0
+  fi
+  local newest newest_sql newest_globals latest_dump
+  newest=$(ls -1t "$src_host"/gaeru_store-20*.dump.gpg 2>/dev/null | head -n 1 || true)
+  newest_sql=$(ls -1t "$src_host"/gaeru_store-20*.sql.gz.gpg 2>/dev/null | head -n 1 || true)
+  newest_globals=$(ls -1t "$src_host"/gaeru_store-globals-20*.sql.gz.gpg 2>/dev/null | head -n 1 || true)
+  latest_dump="$src_host/gaeru_store-latest.dump.gpg"
+  if [ -z "$newest" ] && [ ! -s "$latest_dump" ]; then
+    log "WARN (pg): No encrypted PostgreSQL backup found in $src_host; skipping remote prune to protect existing Drive backups."
+    SYNC_STATUS="missing_backup"
+    SYNC_WARNINGS+=("pg_archive_missing")
+    return 0
+  fi
   log "Pushing encrypted PostgreSQL backups to ${REMOTE_ROOT}/pg ..."
   local filter_args=(
     --filter "+ gaeru_store-latest.sql.gz.gpg"
@@ -93,10 +127,6 @@ sync_pg() {
   need_daily_snapshot="false"
   if [ "$MODE" = "all" ] || [ "$current_hour" = "03" ] || [ "$last_daily_date" != "$today_date" ]; then
     need_daily_snapshot="true"
-    local newest newest_sql newest_globals
-    newest=$(ls -1t "$src_host"/gaeru_store-20*.dump.gpg 2>/dev/null | head -n 1 || true)
-    newest_sql=$(ls -1t "$src_host"/gaeru_store-20*.sql.gz.gpg 2>/dev/null | head -n 1 || true)
-    newest_globals=$(ls -1t "$src_host"/gaeru_store-globals-20*.sql.gz.gpg 2>/dev/null | head -n 1 || true)
     [ -n "$newest" ] && filter_args+=(--filter "+ $(basename "$newest")" --filter "+ $(basename "$newest").sha256")
     [ -n "$newest_sql" ] && filter_args+=(--filter "+ $(basename "$newest_sql")" --filter "+ $(basename "$newest_sql").sha256")
     [ -n "$newest_globals" ] && filter_args+=(--filter "+ $(basename "$newest_globals")" --filter "+ $(basename "$newest_globals").sha256")
@@ -104,10 +134,28 @@ sync_pg() {
   filter_args+=(--filter "- *")
 
   run_rclone copy "$src_chroot" "${REMOTE_ROOT}/pg" "${filter_args[@]}" "${COMMON_FLAGS[@]}"
+
+  local verify_name=""
+  if [ "$need_daily_snapshot" = "true" ] && [ -n "$newest" ] && [ -s "${newest}.sha256" ]; then
+    verify_name=$(basename "$newest")
+  elif [ -s "$latest_dump" ] && [ -s "${latest_dump}.sha256" ]; then
+    verify_name="gaeru_store-latest.dump.gpg"
+  fi
+  if [ -z "$verify_name" ] || ! remote_file_verified "$src_chroot" "pg" "$verify_name" || ! remote_file_verified "$src_chroot" "pg" "${verify_name}.sha256"; then
+    log "WARN (pg): Remote verification failed for ${verify_name:-none}; skipping remote prune."
+    SYNC_STATUS="verify_failed"
+    SYNC_WARNINGS+=("pg_remote_verify_failed")
+    return 0
+  fi
+
   if [ "$need_daily_snapshot" = "true" ]; then
     printf '%s\n' "$today_date" > "$daily_stamp_file" 2>/dev/null || true
   fi
-  prune_remote_subdir "pg" --filter "- *-latest.*" --filter "- *-latest.*.*"
+  local prune_filters=(--filter "- *-latest.*" --filter "- *-latest.*.*")
+  [ -n "$newest" ] && prune_filters+=(--filter "- $(basename "$newest")" --filter "- $(basename "$newest").sha256")
+  [ -n "$newest_sql" ] && prune_filters+=(--filter "- $(basename "$newest_sql")" --filter "- $(basename "$newest_sql").sha256")
+  [ -n "$newest_globals" ] && prune_filters+=(--filter "- $(basename "$newest_globals")" --filter "- $(basename "$newest_globals").sha256")
+  prune_remote_subdir "pg" "${prune_filters[@]}"
   log "Encrypted PostgreSQL backup push to Google Drive OK."
 }
 
@@ -120,18 +168,38 @@ prune_remote_subdir() {
 sync_media() {
   local src_host="/userdata/storage/gaeru-media-backups"
   local src_chroot="/storage/gaeru-media-backups"
-  [ -d "$src_host" ] || return 0
-  log "Pushing encrypted Media + Codebase + System Config backups to ${REMOTE_ROOT}/media ..."
-  local newest
-  newest=$(ls -1t "$src_host"/gaeru-media-config-*.tar.gz.gpg 2>/dev/null | head -n 1 || true)
-  if [ -n "$newest" ]; then
-    run_rclone copy "$src_chroot" "${REMOTE_ROOT}/media" \
-      --filter "+ $(basename "$newest")" \
-      --filter "+ $(basename "$newest").sha256" \
-      --filter "- *" \
-      "${COMMON_FLAGS[@]}"
+  if [ ! -d "$src_host" ]; then
+    log "WARN (media): Source directory missing ($src_host); skipping remote prune to protect existing Drive backups."
+    SYNC_STATUS="missing_backup"
+    SYNC_WARNINGS+=("media_source_missing")
+    return 0
   fi
-  prune_remote_subdir "media"
+  local newest newest_base
+  newest=$(ls -1t "$src_host"/gaeru-media-config-*.tar.gz.gpg 2>/dev/null | head -n 1 || true)
+  if [ -z "$newest" ] || [ ! -s "$newest" ] || [ ! -s "${newest}.sha256" ]; then
+    log "WARN (media): No complete encrypted media backup (.tar.gz.gpg + .sha256) in $src_host; preserving remote backups without pruning."
+    SYNC_STATUS="missing_backup"
+    SYNC_WARNINGS+=("media_archive_missing")
+    return 0
+  fi
+  newest_base=$(basename "$newest")
+  log "Pushing encrypted Media + Codebase + System Config backups to ${REMOTE_ROOT}/media ($newest_base) ..."
+  run_rclone copy "$src_chroot" "${REMOTE_ROOT}/media" \
+    --filter "+ ${newest_base}" \
+    --filter "+ ${newest_base}.sha256" \
+    --filter "- *" \
+    "${COMMON_FLAGS[@]}"
+
+  # Fail-closed: verify BOTH archive and checksum exist non-empty on Drive before pruning older generations,
+  # and ALWAYS exclude the newest complete pair so Drive can never lose its last valid media backup.
+  if ! remote_file_verified "$src_chroot" "media" "$newest_base" || ! remote_file_verified "$src_chroot" "media" "${newest_base}.sha256"; then
+    log "WARN (media): Remote verification failed for $newest_base; skipping remote prune to protect existing Drive backups."
+    SYNC_STATUS="verify_failed"
+    SYNC_WARNINGS+=("media_remote_verify_failed")
+    return 0
+  fi
+
+  prune_remote_subdir "media" --filter "- ${newest_base}" --filter "- ${newest_base}.sha256"
   log "Encrypted Media + Codebase backup push to Google Drive OK."
 }
 
@@ -149,13 +217,23 @@ case "$MODE" in
 esac
 
 STAMP_UTC=$(date -u +%Y-%m-%dT%H:%M:%SZ)
+WARNINGS_JSON="[]"
+if [ "${#SYNC_WARNINGS[@]}" -gt 0 ]; then
+  WARNINGS_JSON=$(printf '"%s",' "${SYNC_WARNINGS[@]}")
+  WARNINGS_JSON="[${WARNINGS_JSON%,}]"
+fi
 cat > "${STATUS_FILE}.tmp" <<EOF
 {
   "last_sync_utc": "$STAMP_UTC",
   "mode": "$MODE",
   "remote": "$REMOTE_ROOT",
   "encrypted_only": true,
-  "status": "ok"
+  "status": "$SYNC_STATUS",
+  "warnings": $WARNINGS_JSON
 }
 EOF
 mv "${STATUS_FILE}.tmp" "$STATUS_FILE"
+if [ "$SYNC_STATUS" != "ok" ]; then
+  log "Finished with status=$SYNC_STATUS (warnings=${SYNC_WARNINGS[*]:-none})."
+  exit 2
+fi

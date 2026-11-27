@@ -94,11 +94,30 @@ function normalizePhone(phone) {
   return digits;
 }
 
+function isAnonymizedOrder(order) {
+  if (!order) return true;
+  if (order.anonymized_at) return true;
+  if (!order.customer_id) {
+    const cleanEmail = String(order.email || '').trim().toLowerCase();
+    const cleanPhone = normalizePhone(order.phone);
+    const cleanName = String(order.customer_name || '').trim();
+    const cleanAddress = String(order.address || '').trim();
+    if (
+      cleanEmail === 'anonymized@privacy.gaeru.com' &&
+      cleanPhone === '0000000000' &&
+      (cleanName.startsWith('Khách hàng ẩn danh') || cleanAddress.startsWith('Đã ẩn danh'))
+    ) {
+      return true;
+    }
+  }
+  return false;
+}
+
 /**
  * Verify whether challenge matches the order's phone or email.
  */
 function verifyOrderChallenge(order, challenge) {
-  if (!order || !challenge) return false;
+  if (!order || !challenge || isAnonymizedOrder(order)) return false;
   const trimmed = String(challenge).trim();
   if (!trimmed) return false;
 
@@ -143,7 +162,7 @@ function getCarrierTrackingUrl(carrierId, trackingNumber) {
 /**
  * Build progressive order status timeline for customer UI.
  */
-function buildOrderTimeline(order, shipment) {
+function buildOrderTimeline(order, shipment, { confirmedAt = null } = {}) {
   const isCancelled = order.status === 'cancelled';
   const timeline = [
     {
@@ -166,8 +185,9 @@ function buildOrderTimeline(order, shipment) {
     return timeline;
   }
 
-  // Step 2: Confirmed
+  // Step 2: Confirmed (#18: use immutable confirmed_at / audit timestamp, never mutable updated_at)
   const isConfirmed = ['confirmed', 'processing', 'shipped', 'completed'].includes(order.status);
+  const effectiveConfirmedAt = confirmedAt || order.confirmed_at || null;
   timeline.push({
     step: 'confirmed',
     title: 'Xác nhận đơn hàng',
@@ -175,7 +195,7 @@ function buildOrderTimeline(order, shipment) {
       ? 'Đơn hàng đã được xác nhận và thanh toán thành công.'
       : (order.payment_method === 'cod' ? 'Đơn hàng COD đã xác nhận thông tin giao nhận.' : 'Đang chờ xác nhận giao dịch thanh toán.'),
     status: isConfirmed ? 'completed' : 'in_progress',
-    timestamp: isConfirmed ? order.updated_at : null
+    timestamp: isConfirmed ? effectiveConfirmedAt : null
   });
 
   // Step 3: Processing / Packing
@@ -236,10 +256,11 @@ async function getOrderTrackingDetails(pool, { orderNumber, challenge }) {
 
   // 1. Query order
   const orderResult = await pool.query(
-    `SELECT id, order_number, customer_name, email, phone, address, city,
+    `SELECT id, customer_id, order_number, customer_name, email, phone, address, city,
             payment_method, payment_status, status, subtotal_vnd,
             shipping_fee_vnd, discount_vnd, voucher_code, total_vnd,
-            cancellation_reason, created_at, updated_at, delivered_at, return_completed_at
+            cancellation_reason, created_at, updated_at, confirmed_at, delivered_at,
+            return_completed_at, anonymized_at
      FROM orders
      WHERE UPPER(TRIM(order_number)) = UPPER(TRIM($1))
      LIMIT 1`,
@@ -314,13 +335,60 @@ async function getOrderTrackingDetails(pool, { orderNumber, challenge }) {
   let loyaltyPointsRedeemed = 0;
   try {
     const loyRes = await pool.query(
-      "SELECT COALESCE(SUM(ABS(points)), 0)::int AS pts FROM customer_loyalty_ledger WHERE order_id = $1 AND type = 'redeem'",
+      `SELECT
+         GREATEST(
+           0,
+           COALESCE(SUM(CASE WHEN type = 'redeem' THEN ABS(points::bigint) ELSE 0 END), 0)
+           - COALESCE(SUM(CASE WHEN type = 'refund' AND event_key LIKE 'refund-redeem:%' THEN points::bigint ELSE 0 END), 0)
+         )::int AS active_pts,
+         COALESCE((
+           SELECT ABS(l2.points)::int
+           FROM customer_loyalty_ledger l2
+           WHERE l2.order_id = $1 AND l2.type = 'redeem'
+           ORDER BY l2.created_at DESC, l2.id DESC
+           LIMIT 1
+         ), 0) AS latest_pts
+       FROM customer_loyalty_ledger
+       WHERE order_id = $1`,
       [order.id]
     );
-    loyaltyPointsRedeemed = Number(loyRes.rows[0]?.pts || 0);
+    const activePts = Number(loyRes.rows[0]?.active_pts || 0);
+    const latestPts = Number(loyRes.rows[0]?.latest_pts || 0);
+    const rawPts = activePts > 0
+      ? activePts
+      : ((order.status === 'cancelled' || order.return_completed_at) ? latestPts : 0);
+    loyaltyPointsRedeemed = Math.min(rawPts, Math.max(0, Number(order.discount_vnd || 0)));
   } catch (_) {}
 
-  const timeline = buildOrderTimeline(order, shipment);
+  let confirmedAt = order.confirmed_at || null;
+  if (!confirmedAt && ['confirmed', 'processing', 'shipped', 'completed'].includes(order.status)) {
+    try {
+      const confRes = await pool.query(
+        `SELECT MIN(created_at) AS confirmed_at
+         FROM audit_events
+         WHERE entity_type = 'order'
+           AND entity_id = $1
+           AND (
+             (
+               action IN ('payment.momo.callback', 'payment.momo.query', 'payment.vnpay.callback', 'payment.zalopay.callback')
+               AND metadata->>'successful' = 'true'
+             )
+             OR (
+               action = 'payment.bank_transfer.approved'
+               AND COALESCE(metadata->>'successful', 'true') = 'true'
+             )
+             OR (
+               action IN ('order.update', 'order.status.update', 'order.bulk_update')
+               AND COALESCE(after_state->>'status', metadata->>'status', metadata->'after'->>'status', '') IN ('confirmed', 'processing', 'shipped', 'completed')
+             )
+           )`,
+        [String(order.id)]
+      );
+      confirmedAt = confRes.rows[0]?.confirmed_at || null;
+    } catch (_) {}
+  }
+
+  const timeline = buildOrderTimeline(order, shipment, { confirmedAt });
 
   return {
     found: true,
@@ -345,8 +413,8 @@ async function getOrderTrackingDetails(pool, { orderNumber, challenge }) {
         loyaltyDiscountVnd: loyaltyPointsRedeemed,
         loyaltyPointsRedeemed,
         voucherCode: order.voucher_code || '',
-        shippingFeeVnd: order.shipping_fee_vnd || 0,
-        totalVnd: order.total_vnd
+        shippingFeeVnd: order.shipping_fee_vnd == null ? null : Number(order.shipping_fee_vnd),
+        totalVnd: order.total_vnd == null ? null : Number(order.total_vnd)
       },
       items: itemsResult.rows.map(item => ({
         id: item.id,

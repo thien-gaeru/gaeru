@@ -23,6 +23,34 @@ const LOGS_DIR = path.join(ROOT_DIR, 'logs');
 const RELOAD_FILE = path.join(LOGS_DIR, 'reload.signal');
 const STOP_FILE = path.join(LOGS_DIR, 'stop.signal');
 const CLUSTER_PID_FILE = path.join(LOGS_DIR, 'cluster.pid');
+const RELOAD_STATUS_FILE = path.join(LOGS_DIR, 'cluster-reload-status.json');
+
+function resolveReleaseSha() {
+  try {
+    if (typeof fs.readFileSync !== 'function') return process.env.GAERU_RELEASE_SHA || 'unknown';
+    const gitDir = path.join(ROOT_DIR, '.git');
+    const headRaw = fs.readFileSync(path.join(gitDir, 'HEAD'), 'utf8').trim();
+    if (/^[0-9a-f]{40}$/i.test(headRaw)) return headRaw.toLowerCase();
+    if (headRaw.startsWith('ref:')) {
+      const refPath = headRaw.slice(4).trim();
+      const looseRef = path.join(gitDir, refPath);
+      if (typeof fs.existsSync === 'function' && fs.existsSync(looseRef)) {
+        const refSha = fs.readFileSync(looseRef, 'utf8').trim();
+        if (/^[0-9a-f]{40}$/i.test(refSha)) return refSha.toLowerCase();
+      }
+      const packedPath = path.join(gitDir, 'packed-refs');
+      if (typeof fs.existsSync === 'function' && fs.existsSync(packedPath)) {
+        const lines = fs.readFileSync(packedPath, 'utf8').split(/\r?\n/);
+        for (const line of lines) {
+          if (!line || line.startsWith('#') || line.startsWith('^')) continue;
+          const [sha, name] = line.trim().split(/\s+/);
+          if (name === refPath && /^[0-9a-f]{40}$/i.test(sha || '')) return sha.toLowerCase();
+        }
+      }
+    }
+  } catch (_) {}
+  return process.env.GAERU_RELEASE_SHA || 'unknown';
+}
 
 const SERVER_PORT = parseInt(process.env.PORT || '3000', 10);
 const CLUSTER_BOOT_ID = (process.env.GAERU_CLUSTER_BOOT_ID && String(process.env.GAERU_CLUSTER_BOOT_ID).trim()) || Date.now().toString(36);
@@ -48,6 +76,42 @@ let isShuttingDown = false;
 const workerCrashHistory = new Map(); // workerIndex -> [timestamps]
 const reloadingSlots = new Set();
 const respawnTimers = new Map();
+let reloadSeq = 0;
+
+function writeReloadStatus(extra = {}) {
+  try {
+    if (typeof fs.writeFileSync !== 'function') return;
+    if (typeof fs.mkdirSync === 'function') {
+      try { fs.mkdirSync(LOGS_DIR, { recursive: true }); } catch (_) {}
+    }
+    const workers = [];
+    for (let i = 0; i < NUM_WORKERS; i++) {
+      const w = activeWorkers.get(i);
+      workers.push({
+        slot: i,
+        pid: w?.process?.pid || null,
+        alive: Boolean(w && !w.isDead()),
+        ready: Boolean(w?.isWorkerReady),
+        releaseSha: w?.releaseSha || null
+      });
+    }
+    const payload = {
+      masterPid: process.pid,
+      numWorkers: NUM_WORKERS,
+      reloadSeq,
+      updatedAt: new Date().toISOString(),
+      ...extra,
+      workers
+    };
+    const tmpPath = `${RELOAD_STATUS_FILE}.tmp.${process.pid}`;
+    if (typeof fs.renameSync === 'function') {
+      fs.writeFileSync(tmpPath, JSON.stringify(payload, null, 2), 'utf8');
+      fs.renameSync(tmpPath, RELOAD_STATUS_FILE);
+    } else {
+      fs.writeFileSync(RELOAD_STATUS_FILE, JSON.stringify(payload, null, 2), 'utf8');
+    }
+  } catch (_) {}
+}
 
 function log(msg, level = 'INFO') {
   const ts = new Date().toISOString();
@@ -82,7 +146,11 @@ function attachWorkerSupervision(worker, workerIndex) {
     } catch (_) {}
 
     if (msg.type === 'WORKER_READY') {
+      worker.isWorkerReady = true;
       log(`Worker #${workerIndex} (PID ${worker.process?.pid}) đã sẵn sàng nhận kết nối.`);
+      if (!isRollingReloading) {
+        writeReloadStatus({ status: 'running', releaseSha: resolveReleaseSha() });
+      }
     }
   });
 
@@ -112,17 +180,21 @@ function spawnWorker(workerIndex) {
     respawnTimers.delete(workerIndex);
   }
 
+  const releaseSha = resolveReleaseSha();
   const env = {
     ...process.env,
     CLUSTER_WORKER: '1',
     CLUSTER_ENABLED: 'true',
     WORKER_INDEX: String(workerIndex),
     GAERU_CLUSTER_BOOT_ID: CLUSTER_BOOT_ID,
+    GAERU_RELEASE_SHA: releaseSha,
     PORT: String(SERVER_PORT)
   };
 
   const worker = cluster.fork(env);
   worker.workerIndex = workerIndex;
+  worker.releaseSha = releaseSha;
+  worker.isWorkerReady = false;
   activeWorkers.set(workerIndex, worker);
 
   const pid = worker.process?.pid;
@@ -146,9 +218,22 @@ try {
 
 // True Zero-Downtime Rolling Reload Implementation
 async function executeRollingReload() {
-  if (isRollingReloading || isShuttingDown) return;
+  if (isRollingReloading || isShuttingDown) return { status: 'skipped' };
   isRollingReloading = true;
-  log('Bắt đầu quy trình Zero-Downtime Rolling Reload...', 'INFO');
+  reloadSeq += 1;
+  const targetReleaseSha = resolveReleaseSha();
+  const startedAt = new Date().toISOString();
+  const upgradedSlots = [];
+  const failedSlots = [];
+  log(`Bắt đầu quy trình Zero-Downtime Rolling Reload (seq=${reloadSeq}, sha=${targetReleaseSha})...`, 'INFO');
+  writeReloadStatus({
+    status: 'reloading',
+    releaseSha: targetReleaseSha,
+    startedAt,
+    finishedAt: null,
+    upgradedSlots,
+    failedSlots
+  });
 
   try {
     try {
@@ -162,16 +247,19 @@ async function executeRollingReload() {
         const oldWorker = activeWorkers.get(i);
         log(`Đang nâng cấp Worker #${i}...`, 'INFO');
 
-        // 1. Spawn replacement worker
+        // 1. Spawn replacement worker pinned to targetReleaseSha
         const newWorker = cluster.fork({
           ...process.env,
           CLUSTER_WORKER: '1',
           CLUSTER_ENABLED: 'true',
           WORKER_INDEX: String(i),
           GAERU_CLUSTER_BOOT_ID: CLUSTER_BOOT_ID,
+          GAERU_RELEASE_SHA: targetReleaseSha,
           PORT: String(SERVER_PORT)
         });
         newWorker.workerIndex = i;
+        newWorker.releaseSha = targetReleaseSha;
+        newWorker.isWorkerReady = false;
         if (newWorker.process?.pid) tuneWorkerPriority(newWorker.process.pid);
 
         // 2. F05: Chờ worker mới phát tín hiệu WORKER_READY thật sự (readiness gate)
@@ -211,20 +299,31 @@ async function executeRollingReload() {
         });
 
         if (!ready || newWorker.isDead() || isShuttingDown) {
+          failedSlots.push(i);
           log(`Worker #${i} mới không thể hoàn tất WORKER_READY. Giữ lại Worker cũ để đảm bảo 100% không gián đoạn.`, 'ERROR');
           try {
             if (newWorker.process && !newWorker.isDead()) {
               newWorker.kill('SIGKILL');
             }
           } catch (_) {}
+          writeReloadStatus({
+            status: 'reloading',
+            releaseSha: targetReleaseSha,
+            startedAt,
+            finishedAt: null,
+            upgradedSlots,
+            failedSlots
+          });
           continue;
         }
 
+        newWorker.isWorkerReady = true;
         // F06: Gắn đầy đủ giám sát tự phục hồi (self-healing, message fanout, exit respawn) cho worker mới
         attachWorkerSupervision(newWorker, i);
 
         // Update active map to point to new worker
         activeWorkers.set(i, newWorker);
+        upgradedSlots.push(i);
         log(`Worker #${i} mới (PID ${newWorker.process?.pid}) đã trực tuyến và cùng chia sẻ cổng ${SERVER_PORT}.`, 'INFO');
 
         // 3. Gracefully disconnect old worker with drain window (SEC-08: handle disconnected/hung workers too)
@@ -265,9 +364,37 @@ async function executeRollingReload() {
       }
     }
 
-    log('Zero-Downtime Rolling Reload hoàn thành mỹ mãn! 100% cổng kết nối không gián đoạn.', 'INFO');
+    const finalStatus = failedSlots.length === 0 && upgradedSlots.length === NUM_WORKERS
+      ? 'succeeded'
+      : (upgradedSlots.length > 0 ? 'partial' : 'failed');
+    const finishedAt = new Date().toISOString();
+    writeReloadStatus({
+      status: finalStatus,
+      releaseSha: targetReleaseSha,
+      startedAt,
+      finishedAt,
+      upgradedSlots,
+      failedSlots
+    });
+    if (finalStatus === 'succeeded') {
+      log(`Zero-Downtime Rolling Reload hoàn thành mỹ mãn (${upgradedSlots.length}/${NUM_WORKERS} workers ở ${targetReleaseSha}).`, 'INFO');
+    } else {
+      log(`Zero-Downtime Rolling Reload chưa trọn vẹn (status=${finalStatus}, upgraded=${upgradedSlots.length}/${NUM_WORKERS}, failedSlots=[${failedSlots.join(',')}]).`, 'ERROR');
+    }
+    return { status: finalStatus, releaseSha: targetReleaseSha, upgradedSlots, failedSlots };
   } catch (err) {
+    const finishedAt = new Date().toISOString();
+    writeReloadStatus({
+      status: 'failed',
+      releaseSha: targetReleaseSha,
+      startedAt,
+      finishedAt,
+      upgradedSlots,
+      failedSlots,
+      error: err.message
+    });
     log(`Lỗi trong quá trình Rolling Reload: ${err.message}`, 'ERROR');
+    return { status: 'failed', releaseSha: targetReleaseSha, upgradedSlots, failedSlots, error: err.message };
   } finally {
     isRollingReloading = false;
     // A failed candidate or an active worker lost between slots must not leave

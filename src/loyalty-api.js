@@ -172,9 +172,7 @@ async function previewEarnClawback(client, { customerId, orderId, lock = false }
     'SELECT 1 FROM customer_loyalty_ledger WHERE event_key = $1 LIMIT 1',
     [`refund-earn:${orderId}`]
   );
-  if (revokeCheck.rows.length) {
-    return { earnToRevoke: 0, recoverableFromBalance: 0, shortfallPoints: 0, currentBalance: 0, pendingRedeemRefund: 0, alreadyRevoked: true };
-  }
+  const earnAlreadyRevoked = revokeCheck.rows.length > 0;
   const orderAgg = (await client.query(
     `SELECT
        COALESCE(SUM(CASE WHEN type = 'earn' THEN ABS(points::bigint) ELSE 0 END), 0)::bigint AS "earnedOnOrder",
@@ -186,10 +184,10 @@ async function previewEarnClawback(client, { customerId, orderId, lock = false }
     [orderId]
   )).rows[0];
 
-  const earnToRevoke = Math.max(0, Number(orderAgg?.earnedOnOrder || 0));
+  const earnToRevoke = earnAlreadyRevoked ? 0 : Math.max(0, Number(orderAgg?.earnedOnOrder || 0));
   const pendingRedeemRefund = Math.max(0, Number(orderAgg?.totalRedeemed || 0) - Number(orderAgg?.totalRefunded || 0));
-  if (earnToRevoke <= 0) {
-    return { earnToRevoke: 0, recoverableFromBalance: 0, shortfallPoints: 0, currentBalance: 0, pendingRedeemRefund, alreadyRevoked: false };
+  if (earnToRevoke <= 0 && pendingRedeemRefund <= 0) {
+    return { earnToRevoke: 0, recoverableFromBalance: 0, shortfallPoints: 0, currentBalance: 0, pendingRedeemRefund: 0, alreadyRevoked: earnAlreadyRevoked };
   }
 
   let currentBalance = 0;
@@ -236,10 +234,21 @@ async function previewEarnClawback(client, { customerId, orderId, lock = false }
   }
   const effectivePendingRedeemRefund = redeemRefundPastExpiry ? 0 : pendingRedeemRefund;
 
+  if (earnToRevoke <= 0) {
+    return {
+      earnToRevoke: 0,
+      recoverableFromBalance: 0,
+      shortfallPoints: 0,
+      currentBalance,
+      pendingRedeemRefund: effectivePendingRedeemRefund,
+      alreadyRevoked: earnAlreadyRevoked
+    };
+  }
+
   const effectiveBalance = currentBalance + effectivePendingRedeemRefund;
   const recoverableFromBalance = Math.min(effectiveBalance, earnToRevoke);
   const shortfallPoints = Math.max(0, earnToRevoke - recoverableFromBalance);
-  return { earnToRevoke, recoverableFromBalance, shortfallPoints, currentBalance, pendingRedeemRefund: effectivePendingRedeemRefund, alreadyRevoked: false };
+  return { earnToRevoke, recoverableFromBalance, shortfallPoints, currentBalance, pendingRedeemRefund: effectivePendingRedeemRefund, alreadyRevoked: earnAlreadyRevoked };
 }
 
 async function earnPoints(client, { customerId, orderId, orderTotalVnd, pointsRatio, reason, actor }) {

@@ -83,6 +83,7 @@ DEPLOY_LOCK="/run/gaeru-deploy.lock"
 LOCK_OWNED=0
 cleanup() {
   rm -f -- "$CODE_TAR" "$GIT_TAR" "$OLD_LIST" "$NEW_LIST"
+  rm -rf -- "/storage/apps/.gaeru-npm-stage.$$" "$APP_DIR/.node_modules_old.$$" 2>/dev/null || true
   if [ "$LOCK_OWNED" -eq 1 ]; then
     rm -f -- "$DEPLOY_LOCK"
   fi
@@ -100,6 +101,9 @@ printf '%s\n' "$$" >&9
 OLD_NODE_CONF_SHA=$(sha256sum /etc/init/node-app.conf 2>/dev/null | awk '{print $1}' || true)
 OLD_MASTER_SHA=$(sha256sum "$APP_DIR/src/cluster-master.js" 2>/dev/null | awk '{print $1}' || true)
 OLD_CLUSTER_SHA=$(sha256sum "$APP_DIR/src/cluster.js" 2>/dev/null | awk '{print $1}' || true)
+OLD_LOCK_SHA=$(sha256sum "$APP_DIR/package-lock.json" 2>/dev/null | awk '{print $1}' || true)
+OLD_GPU_CPP_SHA=$(sha256sum /storage/gpu-ai-build/gaeru-gpu-ai.cpp 2>/dev/null | awk '{print $1}' || true)
+OLD_GPU_ICD_SHA=$(sha256sum /storage/gpu-ai-build/hybris_opencl_icd.c 2>/dev/null | awk '{print $1}' || true)
 
 if [ -d "$APP_DIR/.git" ]; then
   git -C "$APP_DIR" ls-files | sort > "$OLD_LIST"
@@ -198,6 +202,83 @@ echo "GIT_STATUS_CLEAN=true"
 NEW_NODE_CONF_SHA=$(sha256sum /etc/init/node-app.conf 2>/dev/null | awk '{print $1}' || true)
 NEW_MASTER_SHA=$(sha256sum "$APP_DIR/src/cluster-master.js" 2>/dev/null | awk '{print $1}' || true)
 NEW_CLUSTER_SHA=$(sha256sum "$APP_DIR/src/cluster.js" 2>/dev/null | awk '{print $1}' || true)
+NEW_LOCK_SHA=$(sha256sum "$APP_DIR/package-lock.json" 2>/dev/null | awk '{print $1}' || true)
+
+# #06: Keep production node_modules strictly synchronized with package-lock.json on ARM64 Mi 6
+LOCK_STAMP="$APP_DIR/node_modules/.gaeru-lock-sha256"
+NEED_NPM_CI=0
+if [ ! -d "$APP_DIR/node_modules/express" ] || [ "$OLD_LOCK_SHA" != "$NEW_LOCK_SHA" ]; then
+  NEED_NPM_CI=1
+elif [ -f "$LOCK_STAMP" ] && [ "$(cat "$LOCK_STAMP" 2>/dev/null || true)" != "$NEW_LOCK_SHA" ]; then
+  NEED_NPM_CI=1
+fi
+if [ "$NEED_NPM_CI" -eq 1 ]; then
+  echo "Staging production node_modules (npm ci --omit=dev) in sibling directory for lock SHA $NEW_LOCK_SHA..."
+  /usr/local/sbin/ubuntu-mount.sh 2>/dev/null || true
+  NPM_STAGE="/storage/apps/.gaeru-npm-stage.$$"
+  OLD_NM="$APP_DIR/.node_modules_old.$$"
+  rm -rf "$NPM_STAGE" "$OLD_NM"
+  mkdir -p "$NPM_STAGE"
+  cp -f "$APP_DIR/package.json" "$APP_DIR/package-lock.json" "$NPM_STAGE/"
+  chown -R www-data:www-data "$NPM_STAGE"
+  env -u LD_PRELOAD chroot /storage/ubuntu runuser -u www-data -- /usr/bin/env -u LANGUAGE HOME=/tmp PATH=/usr/local/bin:/usr/bin:/bin \
+    bash -euo pipefail -c "cd '$NPM_STAGE' && npm ci --omit=dev --no-audit --no-fund && node -e \"require('express'); require('pg');\""
+  printf '%s\n' "$NEW_LOCK_SHA" > "$NPM_STAGE/node_modules/.gaeru-lock-sha256"
+  chown www-data:www-data "$NPM_STAGE/node_modules/.gaeru-lock-sha256" 2>/dev/null || true
+  if [ -d "$APP_DIR/node_modules" ]; then
+    mv "$APP_DIR/node_modules" "$OLD_NM"
+  fi
+  mv "$NPM_STAGE/node_modules" "$APP_DIR/node_modules"
+  rm -rf "$OLD_NM" "$NPM_STAGE"
+fi
+if [ -d "$APP_DIR/node_modules" ] && [ -n "$NEW_LOCK_SHA" ]; then
+  printf '%s\n' "$NEW_LOCK_SHA" > "$LOCK_STAMP"
+  chown www-data:www-data "$LOCK_STAMP" 2>/dev/null || true
+fi
+
+RELOAD_STATUS_FILE="$APP_DIR/logs/cluster-reload-status.json"
+
+run_mi6_node() {
+  if command -v node >/dev/null 2>&1; then
+    node "$@"
+  else
+    env -u LD_PRELOAD chroot /storage/ubuntu /usr/local/bin/node "$@"
+  fi
+}
+
+verify_workers_on_release() {
+  local expected="$1"
+  local min_seq="${2:-0}"
+  local require_succeeded="${3:-0}"
+  run_mi6_node -e '
+    const fs = require("fs");
+    const [statusPath, expectedSha, minSeqStr, reqSuccStr] = process.argv.slice(1);
+    const minSeq = Number(minSeqStr) || 0;
+    const reqSucc = reqSuccStr === "1";
+    if (!fs.existsSync(statusPath)) process.exit(2);
+    const data = JSON.parse(fs.readFileSync(statusPath, "utf8"));
+    if (reqSucc) {
+      if ((Number(data.reloadSeq) || 0) <= minSeq) process.exit(3);
+      if (data.status === "reloading") process.exit(3);
+      if (data.status !== "succeeded") {
+        console.error("RELOAD_FAILED_STATUS=" + data.status + " failedSlots=" + JSON.stringify(data.failedSlots || []));
+        process.exit(4);
+      }
+    }
+    const workers = Array.isArray(data.workers) ? data.workers : [];
+    const expectedCount = Number(data.numWorkers) || 0;
+    if (!expectedCount || workers.length < expectedCount) process.exit(3);
+    const stale = workers.filter(w => !w.alive || !w.ready || w.releaseSha !== expectedSha || !w.pid);
+    if (stale.length > 0) {
+      if (reqSucc) console.error("STALE_WORKERS=" + JSON.stringify(stale));
+      process.exit(reqSucc ? 5 : 3);
+    }
+    for (const w of workers) {
+      try { process.kill(w.pid, 0); } catch (_) { process.exit(reqSucc ? 5 : 3); }
+    }
+    console.log("CLUSTER_RELEASE_VERIFIED=" + expectedSha + " workers=" + workers.length + " status=" + data.status);
+  ' "$RELOAD_STATUS_FILE" "$expected" "$min_seq" "$require_succeeded"
+}
 
 if [ "$RELOAD_MODE" != "skip" ]; then
   MASTER_PID=$(pgrep -f 'node src/cluster(-master)?\.js' | head -n 1 || true)
@@ -206,6 +287,7 @@ if [ "$RELOAD_MODE" != "skip" ]; then
      [ "$OLD_MASTER_SHA" != "$NEW_MASTER_SHA" ] || \
      [ "$OLD_CLUSTER_SHA" != "$NEW_CLUSTER_SHA" ]; then
     echo "Restarting node-app (gaeru)..."
+    rm -f "$RELOAD_STATUS_FILE"
     initctl stop node-app APP=gaeru 2>/dev/null || true
     if [ -n "$MASTER_PID" ]; then
       w=0
@@ -220,16 +302,51 @@ if [ "$RELOAD_MODE" != "skip" ]; then
     sleep 1
     initctl start node-app APP=gaeru 2>/dev/null || true
     initctl status node-app APP=gaeru | grep -q 'start/running'
+    VERIFIED=0
+    for attempt in $(seq 1 30); do
+      if verify_workers_on_release "$EXPECTED_SHA" 0 0; then
+        VERIFIED=1
+        break
+      fi
+      sleep 2
+    done
+    if [ "$VERIFIED" -ne 1 ]; then
+      echo "ERROR: Not all restarted workers reported ready on $EXPECTED_SHA" >&2
+      [ -f "$RELOAD_STATUS_FILE" ] && cat "$RELOAD_STATUS_FILE" >&2
+      exit 1
+    fi
   else
-    echo "Triggering zero-downtime rolling reload (SIGHUP -> PID $MASTER_PID)..."
+    # #07: Track reload sequence and fail deploy if rolling reload rolls back or leaves any stale worker
+    PREV_SEQ=$(run_mi6_node -e 'const fs=require("fs"); try{const d=JSON.parse(fs.readFileSync(process.argv[1],"utf8")); console.log(Number(d.reloadSeq)||0);}catch(_){console.log(0);}' "$RELOAD_STATUS_FILE")
+    echo "Triggering zero-downtime rolling reload (SIGHUP -> PID $MASTER_PID, prevSeq=$PREV_SEQ)..."
     kill -HUP "$MASTER_PID"
-    sleep 5
+    VERIFIED=0
+    for attempt in $(seq 1 75); do
+      set +e
+      verify_workers_on_release "$EXPECTED_SHA" "$PREV_SEQ" 1
+      rc=$?
+      set -e
+      if [ "$rc" -eq 0 ]; then
+        VERIFIED=1
+        break
+      elif [ "$rc" -eq 4 ] || [ "$rc" -eq 5 ]; then
+        echo "ERROR: Rolling reload did not cleanly upgrade all workers to $EXPECTED_SHA (rc=$rc)" >&2
+        [ -f "$RELOAD_STATUS_FILE" ] && cat "$RELOAD_STATUS_FILE" >&2
+        exit 1
+      fi
+      sleep 2
+    done
+    if [ "$VERIFIED" -ne 1 ]; then
+      echo "ERROR: Timed out waiting for all workers to finish rolling reload onto $EXPECTED_SHA" >&2
+      [ -f "$RELOAD_STATUS_FILE" ] && cat "$RELOAD_STATUS_FILE" >&2
+      exit 1
+    fi
   fi
 
   HEALTH_OK=0
   for attempt in $(seq 1 20); do
     BODY=$(curl -fsS --max-time 3 http://127.0.0.1:3000/health 2>/dev/null || true)
-    if printf '%s' "$BODY" | grep -q '"status":"ok"'; then
+    if [ -n "$BODY" ] && printf '%s' "$BODY" | run_mi6_node -e 'const d=JSON.parse(require("fs").readFileSync(0,"utf8")); process.exit(d && d.status === "ok" ? 0 : 1);' 2>/dev/null; then
       echo "HEALTH_OK=$BODY (attempt $attempt)"
       HEALTH_OK=1
       break
@@ -275,6 +392,84 @@ done
 sync_host_file "$APP_DIR/infra/mi6/admin/server.js" /userdata/storage/admin/server.js 0600 server-dashboard
 sync_host_file "$APP_DIR/infra/mi6/gpu-ai/gaeru-gpu-ai.cpp" /storage/gpu-ai-build/gaeru-gpu-ai.cpp 0644 ""
 sync_host_file "$APP_DIR/infra/mi6/gpu-ai/hybris_opencl_icd.c" /storage/gpu-ai-build/hybris_opencl_icd.c 0644 ""
+
+# #17: Rebuild, install, and restart GPU AI binaries automatically whenever C/C++ sources change or diverge from built stamps
+NEW_GPU_CPP_SHA=$(sha256sum /storage/gpu-ai-build/gaeru-gpu-ai.cpp 2>/dev/null | awk '{print $1}' || true)
+NEW_GPU_ICD_SHA=$(sha256sum /storage/gpu-ai-build/hybris_opencl_icd.c 2>/dev/null | awk '{print $1}' || true)
+GPU_ICD_STAMP="/storage/gpu-ai-build/.built-icd.sha256"
+GPU_CPP_STAMP="/storage/gpu-ai-build/.built-gpu-ai.sha256"
+GPU_ICD_BIN="/storage/ubuntu/usr/local/lib/libHybrisOpenCL.so"
+GPU_AI_BIN="/storage/ubuntu/usr/local/bin/gaeru-gpu-ai"
+REBUILD_ICD=0
+REBUILD_GPU_CPP=0
+
+if [ -n "$NEW_GPU_ICD_SHA" ] && [ -f /storage/gpu-ai-build/hybris_opencl_icd.c ]; then
+  if [ ! -f "$GPU_ICD_BIN" ] || [ "$OLD_GPU_ICD_SHA" != "$NEW_GPU_ICD_SHA" ]; then
+    REBUILD_ICD=1
+  elif [ -f "$GPU_ICD_STAMP" ] && [ "$(cat "$GPU_ICD_STAMP" 2>/dev/null || true)" != "$NEW_GPU_ICD_SHA" ]; then
+    REBUILD_ICD=1
+  elif [ ! -f "$GPU_ICD_STAMP" ] && [ -f "$GPU_ICD_BIN" ]; then
+    printf '%s\n' "$NEW_GPU_ICD_SHA" > "$GPU_ICD_STAMP"
+  fi
+fi
+
+if [ -n "$NEW_GPU_CPP_SHA" ] && [ -f /storage/gpu-ai-build/gaeru-gpu-ai.cpp ]; then
+  if [ ! -x "$GPU_AI_BIN" ] || [ "$OLD_GPU_CPP_SHA" != "$NEW_GPU_CPP_SHA" ]; then
+    REBUILD_GPU_CPP=1
+  elif [ -f "$GPU_CPP_STAMP" ] && [ "$(cat "$GPU_CPP_STAMP" 2>/dev/null || true)" != "$NEW_GPU_CPP_SHA" ]; then
+    REBUILD_GPU_CPP=1
+  elif [ ! -f "$GPU_CPP_STAMP" ] && [ -x "$GPU_AI_BIN" ]; then
+    printf '%s\n' "$NEW_GPU_CPP_SHA" > "$GPU_CPP_STAMP"
+  fi
+fi
+
+if [ "$REBUILD_ICD" -eq 1 ] || [ "$REBUILD_GPU_CPP" -eq 1 ]; then
+  /usr/local/sbin/ubuntu-mount.sh 2>/dev/null || true
+  if [ "$REBUILD_ICD" -eq 1 ]; then
+    echo "Rebuilding libHybrisOpenCL.so for source SHA $NEW_GPU_ICD_SHA..."
+    chroot /storage/ubuntu bash -euo pipefail -c '
+      gcc -O2 -fPIC -shared -Wall -Wextra -Wno-unused-parameter -Wno-deprecated-declarations \
+        -o /storage/gpu-ai-build/libHybrisOpenCL.so.new \
+        /storage/gpu-ai-build/hybris_opencl_icd.c \
+        /usr/lib/aarch64-linux-gnu/libhybris-common.so.1 -lpthread -ldl -lm
+      chmod 0755 /storage/gpu-ai-build/libHybrisOpenCL.so.new
+      mv -f /storage/gpu-ai-build/libHybrisOpenCL.so.new /usr/local/lib/libHybrisOpenCL.so
+    '
+    printf '%s\n' "$NEW_GPU_ICD_SHA" > "$GPU_ICD_STAMP"
+  fi
+  if [ "$REBUILD_GPU_CPP" -eq 1 ]; then
+    echo "Rebuilding gaeru-gpu-ai for source SHA $NEW_GPU_CPP_SHA..."
+    chroot /storage/ubuntu bash -euo pipefail -c '
+      g++ -O2 -std=c++17 -Wall -Wextra -Wno-unused-parameter -pthread \
+        -I/storage/gpu-ai-build/MNN/include \
+        -I/storage/gpu-ai-build/llama.cpp/vendor/cpp-httplib \
+        -I/storage/gpu-ai-build/llama.cpp/vendor/nlohmann \
+        /storage/gpu-ai-build/gaeru-gpu-ai.cpp \
+        /storage/gpu-ai-build/httplib.o \
+        -o /storage/gpu-ai-build/gaeru-gpu-ai.new \
+        -L/usr/local/lib -Wl,-rpath,/usr/local/lib -lMNN -lOpenCL -lpthread
+      chmod 0755 /storage/gpu-ai-build/gaeru-gpu-ai.new
+      mv -f /storage/gpu-ai-build/gaeru-gpu-ai.new /usr/local/bin/gaeru-gpu-ai
+    '
+    printf '%s\n' "$NEW_GPU_CPP_SHA" > "$GPU_CPP_STAMP"
+  fi
+  echo "Restarting gaeru-gpu-ai to activate rebuilt GPU binaries..."
+  initctl restart gaeru-gpu-ai 2>/dev/null || (initctl stop gaeru-gpu-ai 2>/dev/null || true; initctl start gaeru-gpu-ai)
+  GPU_OK=0
+  for attempt in $(seq 1 20); do
+    GPU_BODY=$(curl -fsS --max-time 3 http://127.0.0.1:3100/health 2>/dev/null || true)
+    if [ -n "$GPU_BODY" ] && printf '%s' "$GPU_BODY" | run_mi6_node -e 'const d=JSON.parse(require("fs").readFileSync(0,"utf8")); process.exit(d && (d.ok === true || d.status === "ok") ? 0 : 1);' 2>/dev/null; then
+      echo "GPU_AI_REBUILT_AND_HEALTHY=true (attempt $attempt)"
+      GPU_OK=1
+      break
+    fi
+    sleep 2
+  done
+  if [ "$GPU_OK" -ne 1 ]; then
+    echo "ERROR: gaeru-gpu-ai failed health check after C/C++ rebuild" >&2
+    exit 1
+  fi
+fi
 '@
 
   $remoteScript = $remoteTemplate.

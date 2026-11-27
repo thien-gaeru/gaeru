@@ -266,7 +266,10 @@
   async function ropPoEditor(item) {
     if (!item || !can("purchases.write")) return;
     await lookups({ suppliers: true });
-    showEditor("inventory", `<h2>Lập đơn mua theo gợi ý ROP</h2><p class="help-text">Tạo nhanh đơn mua hàng cho sản phẩm <strong>${h(item.productName)} · ${h(item.variantName)}</strong> tại kho <strong>${h(item.warehouseName)}</strong></p><form class="form-grid" data-e-form="rop-po"><input type="hidden" name="warehouseId" value="${h(item.warehouseId)}"><input type="hidden" name="variantId" value="${h(item.variantId)}">${select("Nhà cung cấp", "supplierId", '<option value="">Chọn nhà cung cấp</option>' + options(e.lookup.suppliers), "required")}${field("Số lượng đề xuất đặt", "quantity", item.suggestedOrderQuantity, 'type="number" min="1" required')}${field("Đơn giá nhập dự kiến (₫)", "unitCostVnd", item.costPriceVnd, 'type="number" min="0" required')}${field("Số chứng từ / tham chiếu", "reference", "", 'maxlength="120"')}${noteField()}${submit("Xác nhận tạo đơn mua")}</form>`);
+    const reqKey = (typeof crypto !== "undefined" && typeof crypto.randomUUID === "function")
+      ? crypto.randomUUID()
+      : ("rop-po-" + Date.now().toString(36) + "-" + Math.random().toString(36).slice(2, 10));
+    showEditor("inventory", `<h2>Lập đơn mua theo gợi ý ROP</h2><p class="help-text">Tạo nhanh đơn mua hàng cho sản phẩm <strong>${h(item.productName)} · ${h(item.variantName)}</strong> tại kho <strong>${h(item.warehouseName)}</strong></p><form class="form-grid" data-e-form="rop-po"><input type="hidden" name="requestKey" value="${h(reqKey)}"><input type="hidden" name="warehouseId" value="${h(item.warehouseId)}"><input type="hidden" name="variantId" value="${h(item.variantId)}">${select("Nhà cung cấp", "supplierId", '<option value="">Chọn nhà cung cấp</option>' + options(e.lookup.suppliers), "required")}${field("Số lượng đề xuất đặt", "quantity", item.suggestedOrderQuantity, 'type="number" min="1" required')}${field("Đơn giá nhập dự kiến (₫)", "unitCostVnd", item.costPriceVnd, 'type="number" min="0" required')}${field("Số chứng từ / tham chiếu", "reference", "", 'maxlength="120"')}${noteField()}${submit("Xác nhận tạo đơn mua")}</form>`);
   }
   function variantSelect(markup, extra = "") {
     return `<label class="sku-picker-label">Phiên bản / SKU<input type="search" class="sku-quick-filter" data-e-sku-filter placeholder="Gõ mã SKU hoặc tên để lọc nhanh…" autocomplete="off" aria-label="Lọc nhanh phiên bản SKU"><select name="variantId" ${extra}>${markup}</select></label>`;
@@ -539,8 +542,8 @@
         variantId: values.variantId,
         leadTimeDays: Number(values.leadTimeDays),
         safetyStockDays: Number(values.safetyStockDays),
-        manualSafetyStock: values.manualSafetyStock ? Number(values.manualSafetyStock) : null,
-        manualReorderPoint: values.manualReorderPoint ? Number(values.manualReorderPoint) : null,
+        manualSafetyStock: values.manualSafetyStock !== "" ? Number(values.manualSafetyStock) : null,
+        manualReorderPoint: values.manualReorderPoint !== "" ? Number(values.manualReorderPoint) : null,
         minOrderQuantity: Number(values.minOrderQuantity || 1),
         targetStockDays: Number(values.targetStockDays || 30)
       };
@@ -552,6 +555,7 @@
     } else if (action === "rop-po") {
       if (!can("purchases.write")) throw new Error("Bạn chưa có quyền lập đơn mua.");
       const payload = {
+        requestKey: values.requestKey || undefined,
         supplierId: values.supplierId,
         warehouseId: values.warehouseId,
         reference: values.reference.trim(),

@@ -364,66 +364,88 @@ async function restoreCustomerFromTrash(pool, customerId, actor, reason = 'Quả
   return restored;
 }
 
+function buildBlockingOrderExistsSql(customerRef = '$1', orderAlias = 'o') {
+  return `EXISTS (
+    SELECT 1 FROM orders ${orderAlias}
+    WHERE ${orderAlias}.customer_id = ${customerRef} AND (
+      ${orderAlias}.status = 'shipped'
+      OR (${orderAlias}.status IN ('pending', 'confirmed', 'processing') AND (
+        ${orderAlias}.payment_status = 'paid'
+        OR EXISTS (SELECT 1 FROM sales_receipts sr WHERE sr.order_id = ${orderAlias}.id)
+      ))
+      OR EXISTS (
+        SELECT 1 FROM payment_attempts pa
+        WHERE pa.order_id = ${orderAlias}.id
+          AND pa.provider IN ('vnpay', 'momo', 'zalopay')
+          AND pa.status = 'pending'
+          AND (
+            pa.expires_at > now()
+            OR (pa.provider = 'momo' AND pa.response_code IN ('1000', '7000', '7002') AND COALESCE(pa.expires_at, pa.created_at) > now() - interval '72 hours')
+          )
+      )
+      OR EXISTS (
+        SELECT 1 FROM carrier_shipment_attempts a
+        WHERE a.order_id = ${orderAlias}.id AND a.status IN ('sending', 'unknown')
+      )
+      OR EXISTS (
+        SELECT 1 FROM carrier_shipments s
+        WHERE s.order_id = ${orderAlias}.id AND (
+          s.status IN ('created','picking','delivering','return_requested','returning','cancel_requested','cancel_reconciliation_required')
+          OR (s.status = 'delivered' AND s.cod_amount_vnd > 0 AND s.cod_settlement_status <> 'settled')
+        )
+      )
+    )
+  )`;
+}
+
+async function hasBlockingCustomerActivity(client, customerId, { savepointPrefix = 'sp_cust_del_guard' } = {}) {
+  // Lock all existing orders of this customer in deterministic ID order BEFORE evaluating the guard
+  // to eliminate READ COMMITTED TOCTOU races with concurrent payment IPN callbacks.
+  await client.query('SELECT id FROM orders WHERE customer_id = $1 ORDER BY id FOR UPDATE', [customerId]);
+
+  const inFlight = await client.query(
+    `SELECT 1 FROM customers c WHERE c.id = $1 AND ${buildBlockingOrderExistsSql('c.id', 'o')} LIMIT 1`,
+    [customerId]
+  );
+  if (inFlight.rows.length) {
+    return {
+      blocked: true,
+      reason: 'in_flight_order',
+      message: 'Khách hàng còn đơn hàng đã thanh toán chưa hoàn tất giao, đơn đang giao hoặc chưa đối soát COD. Vui lòng hoàn tất giao vận và đối soát tiền trước khi xóa tài khoản.'
+    };
+  }
+
+  const sp = `${savepointPrefix}_intent`;
+  await client.query(`SAVEPOINT ${sp}`);
+  try {
+    const openIntent = await client.query(
+      "SELECT id FROM checkout_payment_intents WHERE customer_id = $1 AND status = 'pending_provider' LIMIT 1",
+      [customerId]
+    );
+    await client.query(`RELEASE SAVEPOINT ${sp}`);
+    if (openIntent.rows.length) {
+      return {
+        blocked: true,
+        reason: 'pending_checkout_intent',
+        message: 'Khách hàng đang có phiên thanh toán trực tuyến đang chờ xử lý. Vui lòng chờ phiên hoàn tất trước khi xóa tài khoản.'
+      };
+    }
+  } catch (intentErr) {
+    await client.query(`ROLLBACK TO SAVEPOINT ${sp}`).catch(() => {});
+    if (intentErr?.code !== '42P01' && intentErr?.code !== '42703') throw intentErr;
+  }
+
+  return { blocked: false, reason: null, message: null };
+}
+
 async function permanentDeleteCustomer(pool, customerId, actor, reason = 'Quản trị viên xóa vĩnh viễn') {
   return withTransaction(pool, async (client) => {
     const customer = (await client.query('SELECT id, email FROM customers WHERE id = $1 FOR UPDATE', [customerId])).rows[0];
     if (!customer) return null;
 
-    const inFlight = await client.query(
-      `SELECT o.id FROM orders o
-       WHERE o.customer_id = $1 AND (
-         o.status = 'shipped'
-         OR (o.status IN ('pending', 'confirmed', 'processing') AND o.payment_status <> 'paid' AND EXISTS (
-           SELECT 1 FROM sales_receipts sr WHERE sr.order_id = o.id
-         ))
-         OR EXISTS (
-           SELECT 1 FROM payment_attempts pa
-           WHERE pa.order_id = o.id
-             AND pa.provider IN ('vnpay', 'momo', 'zalopay')
-             AND pa.status = 'pending'
-             AND (
-               pa.expires_at > now()
-               OR (pa.provider = 'momo' AND pa.response_code IN ('1000', '7000', '7002') AND COALESCE(pa.expires_at, pa.created_at) > now() - interval '72 hours')
-             )
-         )
-         OR EXISTS (
-           SELECT 1 FROM carrier_shipment_attempts a
-           WHERE a.order_id = o.id AND a.status IN ('sending', 'unknown')
-         )
-         OR EXISTS (
-           SELECT 1 FROM carrier_shipments s
-           WHERE s.order_id = o.id AND (
-             s.status IN ('created','picking','delivering','return_requested','returning','cancel_requested','cancel_reconciliation_required')
-             OR (s.status = 'delivered' AND s.cod_amount_vnd > 0 AND s.cod_settlement_status <> 'settled')
-           )
-         )
-       ) LIMIT 1`,
-      [customerId]
-    );
-    if (inFlight.rows.length) {
-      throw Object.assign(
-        new Error('Khách hàng còn đơn hàng hoặc vận đơn đang giao / đang thanh toán / chưa đối soát COD. Vui lòng hoàn tất giao vận và đối soát tiền trước khi xóa tài khoản.'),
-        { status: 409 }
-      );
-    }
-
-    await client.query('SAVEPOINT sp_del_cust_checkout_intent');
-    try {
-      const openIntent = await client.query(
-        "SELECT id FROM checkout_payment_intents WHERE customer_id = $1 AND status = 'pending_provider' LIMIT 1",
-        [customerId]
-      );
-      await client.query('RELEASE SAVEPOINT sp_del_cust_checkout_intent');
-      if (openIntent.rows.length) {
-        throw Object.assign(
-          new Error('Khách hàng đang có phiên thanh toán trực tuyến đang chờ xử lý. Vui lòng chờ phiên hoàn tất trước khi xóa tài khoản.'),
-          { status: 409 }
-        );
-      }
-    } catch (intentErr) {
-      if (intentErr?.status) throw intentErr;
-      await client.query('ROLLBACK TO SAVEPOINT sp_del_cust_checkout_intent').catch(() => {});
-      if (intentErr?.code !== '42P01' && intentErr?.code !== '42703') throw intentErr;
+    const guard = await hasBlockingCustomerActivity(client, customerId, { savepointPrefix: 'sp_del_cust' });
+    if (guard.blocked) {
+      throw Object.assign(new Error(guard.message), { status: 409 });
     }
 
     // Giải phóng tồn kho giữ chỗ cho các đơn nháp chưa thanh toán trước khi ẩn danh PII
@@ -528,6 +550,8 @@ module.exports = {
   isDisposableEmail,
   isPermanentSendMailError,
   normalizeVietnamPhone,
+  buildBlockingOrderExistsSql,
+  hasBlockingCustomerActivity,
   isValidVietnamMobile,
   checkCustomerPhoneStatus,
   checkCustomerRegEmailStatus,

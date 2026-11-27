@@ -126,21 +126,50 @@ function cosineSimilarity(a, b) {
   return dot;
 }
 
-async function fetchWithTimeout(url, options = {}, timeoutMs = 4000, transport = fetch) {
+async function runWithFetchTimeout(url, options = {}, timeoutMs = 4000, transport = fetch, onResponse = null) {
   const controller = new AbortController();
-  const timer = setTimeout(() => controller.abort(), timeoutMs);
+  let timer = null;
+  const timeoutPromise = new Promise((_, reject) => {
+    timer = setTimeout(() => {
+      const abortErr = Object.assign(new Error(`GPU AI request timed out after ${timeoutMs}ms`), { name: 'AbortError' });
+      controller.abort(abortErr);
+      reject(abortErr);
+    }, timeoutMs);
+    timer.unref?.();
+  });
   try {
-    return await transport(url, { ...options, signal: controller.signal });
+    const res = await Promise.race([
+      transport(url, { ...options, signal: controller.signal }),
+      timeoutPromise
+    ]);
+    if (typeof onResponse !== 'function') return res;
+    return await Promise.race([
+      Promise.resolve().then(() => onResponse(res, controller.signal)),
+      timeoutPromise
+    ]);
+  } catch (err) {
+    try { controller.abort(); } catch (_) {}
+    throw err;
   } finally {
-    clearTimeout(timer);
+    if (timer) clearTimeout(timer);
   }
 }
 
 async function checkGpuHealth({ baseUrl = DEFAULT_GPU_AI_URL, timeoutMs = 1500, transport = fetch } = {}) {
   try {
-    const res = await fetchWithTimeout(`${baseUrl}/health`, { method: 'GET' }, timeoutMs, transport);
-    if (!res.ok) return null;
-    return await res.json();
+    return await runWithFetchTimeout(
+      `${baseUrl}/health`,
+      { method: 'GET' },
+      timeoutMs,
+      transport,
+      async (res) => {
+        if (!res.ok) {
+          try { await res.body?.cancel?.(); } catch (_) {}
+          return null;
+        }
+        return await res.json();
+      }
+    );
   } catch (_) {
     return null;
   }
@@ -166,7 +195,7 @@ async function segmentForegroundMask(rgbBuffer, {
   }
 
   try {
-    const res = await fetchWithTimeout(
+    const out = await runWithFetchTimeout(
       `${baseUrl}/v1/remove-bg?w=${width}&h=${height}`,
       {
         method: 'POST',
@@ -174,25 +203,29 @@ async function segmentForegroundMask(rgbBuffer, {
         body: rgbBuffer
       },
       timeoutMs,
-      transport
-    );
-    if (!res.ok) {
-      if (res.status >= 500 && transport === fetch) recordFailure({ hard: false });
-      return null;
-    }
-    const ab = await res.arrayBuffer();
-    const alpha = Buffer.from(ab);
-    if (alpha.length !== width * height) {
-      if (transport === fetch) recordFailure({ hard: false });
-      return null;
-    }
+      transport,
+      async (res) => {
+        if (!res.ok) {
+          try { await res.body?.cancel?.(); } catch (_) {}
+          if (res.status >= 500 && transport === fetch) recordFailure({ hard: false });
+          return null;
+        }
+        const ab = await res.arrayBuffer();
+        const alpha = Buffer.from(ab);
+        if (alpha.length !== width * height) {
+          if (transport === fetch) recordFailure({ hard: false });
+          return null;
+        }
 
-    if (transport === fetch) recordSuccess();
-    const fgRatio = parseFloat(res.headers?.get?.('x-foreground-ratio') || '0');
-    const rawMin = parseFloat(res.headers?.get?.('x-raw-min') || '0');
-    const rawMax = parseFloat(res.headers?.get?.('x-raw-max') || '0');
-    const inferenceMs = parseFloat(res.headers?.get?.('x-inference-ms') || '0');
-    return { alpha, fgRatio, rawMin, rawMax, inferenceMs };
+        if (transport === fetch) recordSuccess();
+        const fgRatio = parseFloat(res.headers?.get?.('x-foreground-ratio') || '0');
+        const rawMin = parseFloat(res.headers?.get?.('x-raw-min') || '0');
+        const rawMax = parseFloat(res.headers?.get?.('x-raw-max') || '0');
+        const inferenceMs = parseFloat(res.headers?.get?.('x-inference-ms') || '0');
+        return { alpha, fgRatio, rawMin, rawMax, inferenceMs };
+      }
+    );
+    return out;
   } catch (err) {
     if (transport === fetch) {
       const hard = err?.name !== 'AbortError' && err?.name !== 'TimeoutError';
@@ -253,7 +286,7 @@ async function embedTexts(texts, {
     for (let start = 0; start < missing.length; start += batchSize) {
       const chunk = missing.slice(start, start + batchSize);
       try {
-        const res = await fetchWithTimeout(
+        const payload = await runWithFetchTimeout(
           `${baseUrl}/v1/embed`,
           {
             method: 'POST',
@@ -261,18 +294,22 @@ async function embedTexts(texts, {
             body: JSON.stringify({ input: chunk.map(item => item.text) })
           },
           timeoutMs,
-          transport
-        );
-        if (!res.ok) {
-          // Background thermal/busy shed (503) must NOT trip live circuit breaker
-          if (isBackground && res.status === 503) {
-            thermalSheds++;
-            return null;
+          transport,
+          async (res) => {
+            if (!res.ok) {
+              try { await res.body?.cancel?.(); } catch (_) {}
+              // Background thermal/busy shed (503) must NOT trip live circuit breaker
+              if (isBackground && res.status === 503) {
+                thermalSheds++;
+                return null;
+              }
+              if (res.status >= 500 && transport === fetch) recordFailure({ hard: false });
+              return null;
+            }
+            return await res.json();
           }
-          if (res.status >= 500 && transport === fetch) recordFailure({ hard: false });
-          return null;
-        }
-        const payload = await res.json();
+        );
+        if (!payload) return null;
         const data = Array.isArray(payload?.data) ? payload.data : [];
         if (data.length !== chunk.length) {
           if (transport === fetch) recordFailure({ hard: false });

@@ -28,6 +28,7 @@ function formatRefundRow(row) {
     originalTransId: String(row.original_trans_id),
     refundTransId: row.refund_trans_id || null,
     amountVnd: Number(row.amount_vnd),
+    loyaltyClawbackVnd: Number(row.loyalty_clawback_vnd || 0),
     description: row.description || '',
     status: row.status,
     resultCode: row.result_code ?? null,
@@ -70,37 +71,75 @@ const UNSETTLED_MOMO_REFUND_STATUSES = Object.freeze(['pending_provider', 'pendi
 
 async function getOrderRefundLedger(client, order, { lock = false, receivedVnd = null } = {}) {
   const existingRefunds = (await client.query(
-    `SELECT id, status, amount_vnd FROM momo_refunds WHERE order_id = $1${lock ? ' FOR UPDATE' : ''}`,
+    `SELECT id, status, amount_vnd, COALESCE(loyalty_clawback_vnd, 0)::bigint AS loyalty_clawback_vnd
+     FROM momo_refunds WHERE order_id = $1${lock ? ' FOR UPDATE' : ''}`,
     [order.id]
   )).rows;
   const succeededMomoVnd = existingRefunds
     .filter(r => r.status === 'succeeded')
     .reduce((sum, r) => sum + Number(r.amount_vnd || 0), 0);
+  const momoClawbackVnd = existingRefunds
+    .filter(r => r.status === 'succeeded')
+    .reduce((sum, r) => sum + Number(r.loyalty_clawback_vnd || 0), 0);
   const unsettledMomoVnd = existingRefunds
     .filter(r => UNSETTLED_MOMO_REFUND_STATUSES.includes(r.status))
     .reduce((sum, r) => sum + Number(r.amount_vnd || 0), 0);
   const blockingMomo = existingRefunds.find(r => r.status === 'pending_provider' || r.status === 'ambiguous') || null;
   const reservedMomoVnd = existingRefunds
     .filter(r => ['succeeded', 'pending'].includes(r.status))
-    .reduce((sum, r) => sum + Number(r.amount_vnd || 0), 0);
+    .reduce((sum, r) => sum + Number(r.amount_vnd || 0) + Number(r.loyalty_clawback_vnd || 0), 0);
   const manualRmaRow = (await client.query(
-    `SELECT COALESCE(SUM(COALESCE(refund_amount_vnd, 0) + COALESCE(loyalty_clawback_vnd, 0)), 0)::bigint AS settled_rma_vnd
+    `SELECT COALESCE(SUM(COALESCE(refund_amount_vnd, 0) + COALESCE(loyalty_clawback_vnd, 0)), 0)::bigint AS settled_rma_vnd,
+            COALESCE(SUM(COALESCE(loyalty_clawback_vnd, 0)), 0)::bigint AS rma_clawback_vnd
      FROM order_after_sales
      WHERE order_id = $1 AND kind = 'return' AND status = 'resolved'`,
     [order.id]
   )).rows[0];
   const manualSettledVnd = Number(manualRmaRow?.settled_rma_vnd || 0);
+  const manualRmaClawbackVnd = Number(manualRmaRow?.rma_clawback_vnd || 0);
   const collectedVnd = receivedVnd !== null
     ? Number(receivedVnd)
     : Number((await client.query('SELECT COALESCE(SUM(amount_vnd),0) AS received FROM sales_receipts WHERE order_id=$1', [order.id])).rows[0]?.received || 0);
   const baseCollectedVnd = order.payment_status === 'paid' ? Number(order.total_vnd) : collectedVnd;
-  const grossRefundableVnd = Math.max(0, baseCollectedVnd - succeededMomoVnd - manualSettledVnd);
+
+  // Defense-in-depth for pre-migration legacy orders where Xu clawback was only recorded in loyalty ledger / audit_events
+  let legacyClawbackVnd = 0;
+  if (momoClawbackVnd === 0 && manualRmaClawbackVnd === 0 && succeededMomoVnd > 0) {
+    const legacyRow = (await client.query(
+      `SELECT COALESCE(
+         (
+           SELECT MAX((ae.metadata->>'cashRecoveredEarn')::bigint)
+           FROM audit_events ae
+           WHERE ae.action = 'loyalty.refund'
+             AND ae.metadata->>'orderId' = $2
+             AND COALESCE(ae.metadata->>'cashRecoveredEarn', '') ~ '^[0-9]+$'
+             AND (ae.metadata->>'cashRecoveredEarn')::bigint > 0
+         ),
+         (
+           SELECT MAX((substring(l.reason FROM 'khấu trừ tiền hoàn: ([0-9]+) ₫'))::bigint)
+           FROM customer_loyalty_ledger l
+           WHERE l.order_id = $1::uuid
+             AND l.event_key = 'refund-earn:' || $2
+             AND l.reason ~ 'khấu trừ tiền hoàn: [0-9]+ ₫'
+         ),
+         0::bigint
+       ) AS legacy_clawback_vnd`,
+      [order.id, String(order.id)]
+    )).rows[0];
+    const maxLegacyCap = Math.max(0, baseCollectedVnd - succeededMomoVnd - manualSettledVnd);
+    legacyClawbackVnd = Math.min(maxLegacyCap, Math.max(0, Number(legacyRow?.legacy_clawback_vnd || 0)));
+  }
+
+  const effectiveMomoClawbackVnd = momoClawbackVnd + legacyClawbackVnd;
+  const effectiveReservedMomoVnd = reservedMomoVnd + legacyClawbackVnd;
+  const grossRefundableVnd = Math.max(0, baseCollectedVnd - succeededMomoVnd - effectiveMomoClawbackVnd - manualSettledVnd);
   return {
     existingRefunds,
     succeededMomoVnd,
+    momoClawbackVnd: effectiveMomoClawbackVnd,
     unsettledMomoVnd,
     blockingMomo,
-    reservedMomoVnd,
+    reservedMomoVnd: effectiveReservedMomoVnd,
     manualSettledVnd,
     collectedVnd,
     baseCollectedVnd,
@@ -114,7 +153,7 @@ async function finalizeSucceededMomoRefundEffects(client, { orderId, actor = nul
      FROM orders WHERE id = $1 FOR UPDATE`,
     [orderId]
   )).rows[0];
-  if (!order || order.return_completed_at) return { loyaltyRefund: null, revokedWarranties: 0 };
+  if (!order || order.return_completed_at) return { loyaltyRefund: null, revokedWarranties: 0, cashClawbackVnd: 0 };
 
   const attempt = (await client.query(
     `SELECT amount_vnd FROM payment_attempts
@@ -126,27 +165,37 @@ async function finalizeSucceededMomoRefundEffects(client, { orderId, actor = nul
   const ledger = await getOrderRefundLedger(client, order, { lock: true, receivedVnd: paidBaseVnd });
 
   let loyaltyRefund = null;
-  let cashRecoveredEarnVnd = 0;
+  let actualCashClawbackVnd = 0;
   if (order.customer_id) {
     const { previewEarnClawback, refundPoints } = require('./loyalty-api');
     const preview = await previewEarnClawback(client, { customerId: order.customer_id, orderId: order.id, lock: true });
     const shortfall = Math.max(0, Number(preview?.shortfallPoints || 0));
-    cashRecoveredEarnVnd = Math.min(shortfall, Math.max(0, paidBaseVnd - ledger.succeededMomoVnd - ledger.manualSettledVnd));
-    const isFullRefund = paidBaseVnd > 0 && (ledger.succeededMomoVnd + ledger.manualSettledVnd + cashRecoveredEarnVnd) >= paidBaseVnd;
+    const remainingCapacityForClawback = Math.max(0, paidBaseVnd - ledger.succeededMomoVnd - ledger.momoClawbackVnd - ledger.manualSettledVnd);
+    const plannedCashRecoveredEarnVnd = Math.min(shortfall, remainingCapacityForClawback);
+    const isFullRefund = paidBaseVnd > 0 && (ledger.succeededMomoVnd + ledger.momoClawbackVnd + ledger.manualSettledVnd + plannedCashRecoveredEarnVnd) >= paidBaseVnd;
     if (preview.earnToRevoke > 0 || (isFullRefund && preview.pendingRedeemRefund > 0)) {
       loyaltyRefund = await refundPoints(client, {
         customerId: order.customer_id,
         orderId: order.id,
         reason: `Hoàn tiền cổng MoMo cho đơn #${order.order_number}`,
         actor: actor || { username: 'momo', source: 'payment_gateway' },
-        cashRecoveredEarnVnd,
+        cashRecoveredEarnVnd: plannedCashRecoveredEarnVnd,
         revokeEarnOnly: !isFullRefund
       });
+      actualCashClawbackVnd = Math.max(0, Number(loyaltyRefund?.cashRecoveredEarn || 0));
+      if (actualCashClawbackVnd > 0 && refundId) {
+        await client.query(
+          `UPDATE momo_refunds
+           SET loyalty_clawback_vnd = loyalty_clawback_vnd + $2, updated_at = now()
+           WHERE id = $1`,
+          [refundId, actualCashClawbackVnd]
+        );
+      }
     }
   }
 
   let revokedWarranties = 0;
-  const isFullRefund = paidBaseVnd > 0 && (ledger.succeededMomoVnd + ledger.manualSettledVnd + cashRecoveredEarnVnd) >= paidBaseVnd;
+  const isFullRefund = paidBaseVnd > 0 && (ledger.succeededMomoVnd + ledger.momoClawbackVnd + ledger.manualSettledVnd + actualCashClawbackVnd) >= paidBaseVnd;
   if (isFullRefund) {
     await client.query('SAVEPOINT sp_momo_revoke_warranty');
     try {
@@ -170,7 +219,7 @@ async function finalizeSucceededMomoRefundEffects(client, { orderId, actor = nul
       if (wErr?.code !== '42P01') throw wErr;
     }
   }
-  return { loyaltyRefund, revokedWarranties, refundId };
+  return { loyaltyRefund, revokedWarranties, refundId, cashClawbackVnd: actualCashClawbackVnd };
 }
 
 /**
@@ -353,7 +402,10 @@ async function initiateMomoRefund(pool, config, {
     }
 
     if (nextStatus === 'succeeded') {
-      await finalizeSucceededMomoRefundEffects(client, { orderId: phase1.orderId, actor, refundId: phase1.refund.id });
+      const fx = await finalizeSucceededMomoRefundEffects(client, { orderId: phase1.orderId, actor, refundId: phase1.refund.id });
+      if (fx?.cashClawbackVnd > 0) {
+        updated.loyalty_clawback_vnd = Number(updated.loyalty_clawback_vnd || 0) + fx.cashClawbackVnd;
+      }
     }
 
     await audit(client, {
@@ -449,7 +501,10 @@ async function queryMomoRefundStatus(pool, config, refundId, { actor = null, fet
     )).rows[0];
 
     if (nextStatus === 'succeeded') {
-      await finalizeSucceededMomoRefundEffects(client, { orderId: locked.order_id, actor, refundId: locked.id });
+      const fx = await finalizeSucceededMomoRefundEffects(client, { orderId: locked.order_id, actor, refundId: locked.id });
+      if (fx?.cashClawbackVnd > 0) {
+        row.loyalty_clawback_vnd = Number(row.loyalty_clawback_vnd || 0) + fx.cashClawbackVnd;
+      }
     }
 
     await audit(client, {

@@ -103,6 +103,43 @@ const reorderSettingsSchema = z.object({
   targetStockDays: z.number().int().min(1).max(365).default(30)
 });
 
+function computeWarehouseReorderMetrics({ currentStock, incomingStock, dailyVelocity, settings = {} }) {
+  const safeCurrentStock = Number(currentStock) || 0;
+  const safeIncomingStock = Number(incomingStock) || 0;
+  const availableStock = safeCurrentStock + safeIncomingStock;
+  const leadTimeDays = settings.leadTimeDays ?? 7;
+  const safetyStockDays = settings.safetyStockDays ?? 7;
+  const minOrderQuantity = settings.minOrderQuantity ?? 1;
+  const targetStockDays = settings.targetStockDays ?? 30;
+
+  const leadTimeDemand = round(dailyVelocity * leadTimeDays, 2);
+  const calculatedSafetyStock = Math.ceil(dailyVelocity * safetyStockDays);
+  const safetyStock = settings.manualSafetyStock != null
+    ? Number(settings.manualSafetyStock)
+    : calculatedSafetyStock;
+  const calculatedRop = Math.ceil(leadTimeDemand) + safetyStock;
+  const reorderPoint = settings.manualReorderPoint != null
+    ? Number(settings.manualReorderPoint)
+    : calculatedRop;
+  const daysOfSupply = dailyVelocity > 0
+    ? round(safeCurrentStock / dailyVelocity, 1)
+    : null;
+
+  return {
+    currentStock: safeCurrentStock,
+    incomingStock: safeIncomingStock,
+    availableStock,
+    leadTimeDays,
+    safetyStockDays,
+    minOrderQuantity,
+    targetStockDays,
+    leadTimeDemand,
+    safetyStock,
+    reorderPoint,
+    daysOfSupply
+  };
+}
+
 /**
  * Query sales velocity per warehouse and variant over a given period in days.
  */
@@ -340,30 +377,22 @@ async function calculateInventoryForecast(pool, {
 
     const dailyVelocity = velocityData.velocity;
     const soldUnits = velocityData.soldUnits;
-    const currentStock = Number(row.currentStock) || 0;
-    const availableStock = currentStock + incomingUnits;
-
-    const leadTimeDays = settings.leadTimeDays || 7;
-    const safetyStockDays = settings.safetyStockDays || 7;
-    const minOrderQuantity = settings.minOrderQuantity || 1;
-    const targetStockDays = settings.targetStockDays || 30;
-
-    // Formulas
-    const leadTimeDemand = round(dailyVelocity * leadTimeDays, 2);
-    const calculatedSafetyStock = Math.ceil(dailyVelocity * safetyStockDays);
-    const safetyStock = settings.manualSafetyStock != null
-      ? settings.manualSafetyStock
-      : calculatedSafetyStock;
-
-    const calculatedRop = Math.ceil(leadTimeDemand) + safetyStock;
-    const reorderPoint = settings.manualReorderPoint != null
-      ? settings.manualReorderPoint
-      : calculatedRop;
-
-    // Days of supply
-    const daysOfSupply = dailyVelocity > 0
-      ? round(currentStock / dailyVelocity, 1)
-      : null;
+    const {
+      currentStock,
+      availableStock,
+      leadTimeDays,
+      safetyStockDays,
+      minOrderQuantity,
+      targetStockDays,
+      safetyStock,
+      reorderPoint,
+      daysOfSupply
+    } = computeWarehouseReorderMetrics({
+      currentStock: row.currentStock,
+      incomingStock: incomingUnits,
+      dailyVelocity,
+      settings
+    });
 
     // Status evaluation
     let alertStatus = 'optimal';
@@ -420,7 +449,12 @@ async function calculateInventoryForecast(pool, {
       status: alertStatus,
       suggestedOrderQuantity,
       estimatedCostVnd,
-      hasCustomSettings: Boolean(settings.leadTimeDays || settings.manualReorderPoint != null),
+      hasCustomSettings: Boolean(
+        settings.leadTimeDays != null ||
+        settings.safetyStockDays != null ||
+        settings.manualSafetyStock != null ||
+        settings.manualReorderPoint != null
+      ),
       settings: {
         leadTimeDays,
         safetyStockDays,
@@ -501,9 +535,11 @@ async function getVariantForecastDetail(pool, variantId, { days = 30 } = {}) {
 
   const periods = [7, 14, 30, 90];
   const velocityByPeriod = {};
+  let velocityMap30 = new Map();
 
   for (const p of periods) {
     const vMap = await getSalesVelocityMap(pool, p);
+    if (p === 30) velocityMap30 = vMap;
     let totalSold = 0;
     for (const [key, val] of vMap.entries()) {
       if (key.endsWith(`:${variantId}`)) {
@@ -536,31 +572,35 @@ async function getVariantForecastDetail(pool, variantId, { days = 30 } = {}) {
   )).rows;
 
   const incomingMap = await getIncomingStockMap(pool);
-  const velocity30 = velocityByPeriod['30d'].velocity;
 
   const warehousesBreakdown = whStock.map(wh => {
     const key = `${wh.warehouseId}:${variantId}`;
     const incomingStock = incomingMap.get(key) || 0;
-    const currentStock = Number(wh.currentStock) || 0;
-    const availableStock = currentStock + incomingStock;
-    const leadTimeDays = wh.leadTimeDays || 7;
-    const safetyStockDays = wh.safetyStockDays || 7;
-    const calculatedRop = Math.ceil(velocity30 * leadTimeDays) + Math.ceil(velocity30 * safetyStockDays);
-    const reorderPoint = wh.manualReorderPoint != null ? wh.manualReorderPoint : calculatedRop;
+    const whVelocityData = velocityMap30.get(key) || { soldUnits: 0, velocity: 0 };
+    const whVelocity30 = whVelocityData.velocity;
+    const metrics = computeWarehouseReorderMetrics({
+      currentStock: wh.currentStock,
+      incomingStock,
+      dailyVelocity: whVelocity30,
+      settings: wh
+    });
 
     return {
       warehouseId: wh.warehouseId,
       warehouseCode: wh.warehouseCode,
       warehouseName: wh.warehouseName,
-      currentStock,
-      incomingStock,
-      availableStock,
-      reorderPoint,
-      leadTimeDays,
-      safetyStockDays,
+      currentStock: metrics.currentStock,
+      incomingStock: metrics.incomingStock,
+      availableStock: metrics.availableStock,
+      soldUnits: whVelocityData.soldUnits,
+      salesVelocity: whVelocity30,
+      safetyStock: metrics.safetyStock,
+      reorderPoint: metrics.reorderPoint,
+      leadTimeDays: metrics.leadTimeDays,
+      safetyStockDays: metrics.safetyStockDays,
       manualReorderPoint: wh.manualReorderPoint,
       manualSafetyStock: wh.manualSafetyStock,
-      daysOfSupply: velocity30 > 0 ? round(currentStock / velocity30, 1) : null
+      daysOfSupply: metrics.daysOfSupply
     };
   });
 
@@ -639,6 +679,8 @@ async function createPurchaseOrderFromForecast(pool, {
   items,
   reference = '',
   note = '',
+  requestKey = null,
+  allowPartial = false,
   actor
 }) {
   if (!supplierId || !warehouseId) {
@@ -654,6 +696,16 @@ async function createPurchaseOrderFromForecast(pool, {
   }
   if (note !== undefined && note !== null && typeof note !== 'string') {
     throw Object.assign(new Error('Ghi chú đơn mua hàng phải là chuỗi văn bản.'), { status: 400 });
+  }
+  let cleanRequestKey = null;
+  if (requestKey !== undefined && requestKey !== null && requestKey !== '') {
+    if (typeof requestKey !== 'string') {
+      throw Object.assign(new Error('Mã chống trùng đơn mua hàng (requestKey) không hợp lệ.'), { status: 400 });
+    }
+    cleanRequestKey = requestKey.trim();
+    if (!cleanRequestKey || cleanRequestKey.length > 128) {
+      throw Object.assign(new Error('Mã chống trùng đơn mua hàng (requestKey) phải từ 1 đến 128 ký tự.'), { status: 400 });
+    }
   }
   const cleanReference = String(reference || '').trim().slice(0, 200);
   const cleanNote = (String(note || '').trim() || 'Tự động tạo từ dự báo tồn kho & ROP').slice(0, 1000);
@@ -698,7 +750,52 @@ async function createPurchaseOrderFromForecast(pool, {
     throw Object.assign(new Error('Danh sách đặt hàng không có sản phẩm hợp lệ.'), { status: 400 });
   }
 
+  const requestHash = cleanRequestKey
+    ? require('node:crypto')
+        .createHash('sha256')
+        .update(JSON.stringify({
+          supplierId,
+          warehouseId,
+          reference: cleanReference,
+          note: cleanNote,
+          allowPartial: Boolean(allowPartial),
+          items: [...mergedMap.values()].sort((a, b) => a.variantId.localeCompare(b.variantId))
+        }))
+        .digest('hex')
+    : null;
+
   const created = await withTransaction(pool, async (client) => {
+    if (cleanRequestKey) {
+      await client.query("SELECT pg_advisory_xact_lock(hashtext($1))", [`gaeru:purchase-order-req:${cleanRequestKey}`]);
+      const existingPo = (await client.query(
+        `SELECT id, number, status, total_vnd AS "totalVnd", created_at AS "createdAt", request_hash AS "requestHash"
+         FROM purchase_orders WHERE request_key = $1`,
+        [cleanRequestKey]
+      )).rows[0];
+      if (existingPo) {
+        if (existingPo.requestHash && existingPo.requestHash !== requestHash) {
+          throw Object.assign(new Error('Mã yêu cầu lập đơn mua hàng đã được sử dụng cho nội dung khác.'), { status: 409 });
+        }
+        const countRes = (await client.query(
+          'SELECT COUNT(*)::integer AS cnt FROM purchase_order_items WHERE purchase_order_id = $1',
+          [existingPo.id]
+        )).rows[0];
+        return {
+          purchaseOrder: {
+            id: existingPo.id,
+            number: existingPo.number,
+            status: existingPo.status,
+            totalVnd: Number(existingPo.totalVnd),
+            createdAt: existingPo.createdAt
+          },
+          itemsCount: Number(countRes?.cnt || 0),
+          totalVnd: Number(existingPo.totalVnd),
+          replayed: true,
+          message: `Đơn mua hàng ${existingPo.number} đã được tạo trước đó cho yêu cầu này.`
+        };
+      }
+    }
+
     // 1. Verify supplier
     const supplier = (await client.query(
       `SELECT id, name FROM suppliers WHERE id = $1 AND active = true`,
@@ -713,24 +810,10 @@ async function createPurchaseOrderFromForecast(pool, {
     )).rows[0];
     if (!warehouse) throw Object.assign(new Error('Kho hàng không tồn tại hoặc đã ngừng hoạt động.'), { status: 404 });
 
-    // 3. Serialize PO number generation across concurrent transactions (COM-08: eliminate 23505 race)
-    await client.query("SELECT pg_advisory_xact_lock(hashtext('gaeru:purchase-order-number'))");
-    const countResult = (await client.query(`SELECT COUNT(*)::integer AS total FROM purchase_orders`)).rows[0];
-    let nextNum = (Number(countResult?.total) || 0) + 1;
-    const currentYear = new Date().getFullYear();
-    let poNumber = `PO-${currentYear}-${String(nextNum).padStart(5, '0')}`;
-    for (let attempt = 0; attempt < 20; attempt++) {
-      const dup = await client.query('SELECT 1 FROM purchase_orders WHERE number = $1 LIMIT 1', [poNumber]);
-      if (!dup.rows.length) break;
-      nextNum += 1;
-      poNumber = attempt >= 18
-        ? `PO-${currentYear}-${require('node:crypto').randomBytes(4).toString('hex').toUpperCase()}`
-        : `PO-${currentYear}-${String(nextNum).padStart(5, '0')}`;
-    }
-
-    // 4. Resolve variants & validate totals against DB bounds
+    // 3. Resolve ALL requested variants & validate totals BEFORE allocating a PO number (#11)
     let totalVnd = 0;
     const validatedItems = [];
+    const missingVariantIds = [];
 
     for (const item of mergedMap.values()) {
       const variant = (await client.query(
@@ -742,7 +825,10 @@ async function createPurchaseOrderFromForecast(pool, {
         [item.variantId]
       )).rows[0];
 
-      if (!variant) continue;
+      if (!variant) {
+        missingVariantIds.push(item.variantId);
+        continue;
+      }
 
       const qty = item.quantity;
       const unitCost = item.unitCostVnd !== undefined
@@ -765,24 +851,47 @@ async function createPurchaseOrderFromForecast(pool, {
       });
     }
 
-    if (!validatedItems.length) {
-      throw Object.assign(new Error('Không có sản phẩm hợp lệ để lập đơn mua.'), { status: 400 });
+    if (missingVariantIds.length > 0 && allowPartial !== true) {
+      throw Object.assign(
+        new Error(`Có ${missingVariantIds.length} phiên bản sản phẩm không còn tồn tại hoặc đã bị xóa. Vui lòng kiểm tra lại danh sách trước khi lập đơn mua.`),
+        { status: 400, missingVariantIds }
+      );
     }
 
-    // 5. Insert purchase order (populate submitted_by metadata for submitted status)
+    if (!validatedItems.length) {
+      throw Object.assign(new Error('Không có sản phẩm hợp lệ để lập đơn mua.'), { status: 400, missingVariantIds });
+    }
+
+    // 4. Serialize PO number generation across concurrent transactions ONLY after all items pass validation
+    await client.query("SELECT pg_advisory_xact_lock(hashtext('gaeru:purchase-order-number'))");
+    const countResult = (await client.query(`SELECT COUNT(*)::integer AS total FROM purchase_orders`)).rows[0];
+    let nextNum = (Number(countResult?.total) || 0) + 1;
+    const currentYear = new Date().getFullYear();
+    let poNumber = `PO-${currentYear}-${String(nextNum).padStart(5, '0')}`;
+    for (let attempt = 0; attempt < 20; attempt++) {
+      const dup = await client.query('SELECT 1 FROM purchase_orders WHERE number = $1 LIMIT 1', [poNumber]);
+      if (!dup.rows.length) break;
+      nextNum += 1;
+      poNumber = attempt >= 18
+        ? `PO-${currentYear}-${require('node:crypto').randomBytes(4).toString('hex').toUpperCase()}`
+        : `PO-${currentYear}-${String(nextNum).padStart(5, '0')}`;
+    }
+
+    // 5. Insert purchase order (populate submitted_by metadata + optional idempotency request_key)
     const rawActorId = typeof actor?.id === 'string' ? actor.id.trim() : '';
     const actorId = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(rawActorId) ? rawActorId : null;
     const actorUsername = String(actor?.username || 'system');
     const po = (await client.query(
       `INSERT INTO purchase_orders (
          number, supplier_id, warehouse_id, supplier_name, reference, note,
-         status, total_vnd, created_by, created_by_username, submitted_by, submitted_by_username
+         status, total_vnd, created_by, created_by_username, submitted_by, submitted_by_username,
+         request_key, request_hash
        )
-       VALUES ($1, $2, $3, $4, $5, $6, 'submitted', $7, $8, $9, $8, $9)
+       VALUES ($1, $2, $3, $4, $5, $6, 'submitted', $7, $8, $9, $8, $9, $10, $11)
        RETURNING id, number, status, total_vnd AS "totalVnd", created_at AS "createdAt"`,
       [
         poNumber, supplierId, warehouseId, supplier.name, cleanReference,
-        cleanNote, totalVnd, actorId, actorUsername
+        cleanNote, totalVnd, actorId, actorUsername, cleanRequestKey, requestHash
       ]
     )).rows[0];
 
@@ -897,11 +1006,18 @@ function createInventoryForecastApi(pool) {
         items: req.body.items,
         reference: req.body.reference || '',
         note: req.body.note || '',
+        requestKey: req.body.requestKey || req.get('Idempotency-Key') || null,
+        allowPartial: req.body.allowPartial === true,
         actor: req.admin
       });
-      res.status(201).json(result);
+      res.status(result.replayed ? 200 : 201).json(result);
     } catch (err) {
-      if (err.status) return res.status(err.status).json({ error: err.message });
+      if (err.status) {
+        return res.status(err.status).json({
+          error: err.message,
+          ...(Array.isArray(err.missingVariantIds) ? { missingVariantIds: err.missingVariantIds } : {})
+        });
+      }
       next(err);
     }
   });

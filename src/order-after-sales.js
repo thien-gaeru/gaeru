@@ -300,7 +300,7 @@ function afterSalesRouter(pool) {
 
       const result = await pool.query(
         `SELECT a.*, o.order_number, o.customer_id, o.customer_name, o.phone, o.email, o.status AS order_status, o.payment_status,
-          GREATEST(0, (CASE WHEN o.payment_status='paid' THEN COALESCE(o.total_vnd, 0) ELSE COALESCE((SELECT SUM(r.amount_vnd) FROM sales_receipts r WHERE r.order_id=o.id),0) END) - COALESCE((SELECT SUM(mr.amount_vnd) FROM momo_refunds mr WHERE mr.order_id=o.id AND mr.status='succeeded'),0)) AS refundable_amount_vnd,
+          GREATEST(0, (CASE WHEN o.payment_status='paid' THEN COALESCE(o.total_vnd, 0) ELSE COALESCE((SELECT SUM(r.amount_vnd) FROM sales_receipts r WHERE r.order_id=o.id),0) END) - COALESCE((SELECT SUM(COALESCE(mr.amount_vnd, 0) + COALESCE(mr.loyalty_clawback_vnd, 0)) FROM momo_refunds mr WHERE mr.order_id=o.id AND mr.status='succeeded'),0)) AS refundable_amount_vnd,
           (SELECT COALESCE(SUM(mr.amount_vnd),0) FROM momo_refunds mr WHERE mr.order_id=o.id AND mr.status IN ${unsettledMomoStates}) AS momo_pending_refund_vnd
          FROM order_after_sales a
          JOIN orders o ON o.id = a.order_id

@@ -186,6 +186,90 @@ verify_all() {
   say "=== ALL ACTIVE ENCRYPTED BACKUP LAYERS VERIFIED INTACT (iCloud+ Mail active) ==="
 }
 
+select_latest_complete_pg_set() {
+  local chroot_dir="$1"
+  local listing
+  listing=$(env -u LD_PRELOAD chroot "$chroot_dir" /usr/bin/rclone --config /etc/gaeru-rclone/rclone.conf \
+    lsf --files-only --format "tps" --separator "|" "gdrive:GAERU_Backups/pg" 2>/dev/null || true)
+  # Pick the newest timestamp <STAMP> that has a COMPLETE non-empty pair of BOTH:
+  #   gaeru_store-<STAMP>.dump.gpg (+ .sha256) AND gaeru_store-<STAMP>.sql.gz.gpg (+ .sha256)
+  # Automatically falls back to the next older complete set if the newest upload is partial.
+  printf '%s\n' "$listing" \
+    | awk -F'|' '
+        $3 + 0 > 0 { ts[$2] = $1; present[$2] = 1 }
+        END {
+          for (f in present) {
+            if (f ~ /^gaeru_store-20.*\.dump\.gpg$/) {
+              stamp = f
+              sub(/^gaeru_store-/, "", stamp)
+              sub(/\.dump\.gpg$/, "", stamp)
+              dump_f = "gaeru_store-" stamp ".dump.gpg"
+              sql_f = "gaeru_store-" stamp ".sql.gz.gpg"
+              glob_f = "gaeru_store-globals-" stamp ".sql.gz.gpg"
+              if (present[dump_f] && present[dump_f ".sha256"] && present[sql_f] && present[sql_f ".sha256"]) {
+                g = (present[glob_f] && present[glob_f ".sha256"]) ? glob_f : ""
+                print ts[dump_f] "|" stamp "|" dump_f "|" sql_f "|" g
+              }
+            }
+          }
+        }
+      ' \
+    | sort -r \
+    | head -n 1 || true
+}
+
+select_latest_complete_media() {
+  local chroot_dir="$1"
+  local listing
+  listing=$(env -u LD_PRELOAD chroot "$chroot_dir" /usr/bin/rclone --config /etc/gaeru-rclone/rclone.conf \
+    lsf --files-only --format "tps" --separator "|" "gdrive:GAERU_Backups/media" 2>/dev/null || true)
+  printf '%s\n' "$listing" \
+    | awk -F'|' '
+        $3 + 0 > 0 { ts[$2] = $1; present[$2] = 1 }
+        END {
+          for (f in present) {
+            if (f ~ /^gaeru-media-config-.*\.tar\.gz\.gpg$/ && present[f ".sha256"]) {
+              print ts[f] "|" f
+            }
+          }
+        }
+      ' \
+    | sort -r \
+    | head -n 1 || true
+}
+
+format_age_summary() {
+  local iso_ts="$1"
+  local now_s file_s diff_s hours days
+  now_s=$(date +%s)
+  file_s=$(date -d "$iso_ts" +%s 2>/dev/null || echo 0)
+  if [ "$file_s" -le 0 ] || [ "$now_s" -lt "$file_s" ]; then
+    printf 'unknown age'
+    return
+  fi
+  diff_s=$((now_s - file_s))
+  hours=$((diff_s / 3600))
+  days=$((hours / 24))
+  if [ "$days" -gt 0 ]; then
+    printf '%dd %dh (%dh)' "$days" "$((hours % 24))" "$hours"
+  else
+    printf '%dh' "$hours"
+  fi
+}
+
+pull_remote_pair() {
+  local chroot_dir="$1"
+  local remote_sub="$2"
+  local local_chroot_dir="$3"
+  local filename="$4"
+  env -u LD_PRELOAD chroot "$chroot_dir" /usr/bin/rclone --config /etc/gaeru-rclone/rclone.conf \
+    copy "gdrive:GAERU_Backups/${remote_sub}" "$local_chroot_dir" \
+    --filter "+ ${filename}" \
+    --filter "+ ${filename}.sha256" \
+    --filter "- *" \
+    --transfers 2
+}
+
 pull_from_gdrive() {
   local chroot_dir
   /usr/local/sbin/ubuntu-mount.sh
@@ -193,11 +277,28 @@ pull_from_gdrive() {
   [ -d "$chroot_dir" ] || die "Missing chroot"
   mkdir -p "$PG_DIR" "$MEDIA_DIR"
   chmod 700 "$PG_DIR" "$MEDIA_DIR"
-  say "Pulling newest encrypted backups from Google Drive (gdrive:GAERU_Backups)..."
-  env -u LD_PRELOAD chroot "$chroot_dir" /usr/bin/rclone --config /etc/gaeru-rclone/rclone.conf \
-    copy "gdrive:GAERU_Backups/pg" "/storage/gaeru-pg-backups" --max-age 48h --transfers 2
-  env -u LD_PRELOAD chroot "$chroot_dir" /usr/bin/rclone --config /etc/gaeru-rclone/rclone.conf \
-    copy "gdrive:GAERU_Backups/media" "/storage/gaeru-media-backups" --max-age 7d --transfers 2
+  say "Inspecting newest complete encrypted backups on Google Drive (gdrive:GAERU_Backups)..."
+
+  local pg_set media_entry
+  pg_set=$(select_latest_complete_pg_set "$chroot_dir")
+  media_entry=$(select_latest_complete_media "$chroot_dir")
+
+  [ -n "$pg_set" ] || die "No complete PostgreSQL backup set (.dump.gpg + .sql.gz.gpg + .sha256) found on gdrive:GAERU_Backups/pg"
+  [ -n "$media_entry" ] || die "No complete Media+Config backup (.tar.gz.gpg + .sha256) found on gdrive:GAERU_Backups/media"
+
+  local pg_ts pg_stamp pg_dump_file pg_sql_file pg_globals_file media_ts media_file
+  IFS='|' read -r pg_ts pg_stamp pg_dump_file pg_sql_file pg_globals_file <<< "$pg_set"
+  media_ts="${media_entry%%|*}"; media_file="${media_entry#*|}"
+
+  say "Selected complete PG set [${pg_stamp}]: ${pg_dump_file} + ${pg_sql_file} (timestamp=${pg_ts}, age=$(format_age_summary "$pg_ts"))"
+  say "Selected complete Media/Code: ${media_file} (timestamp=${media_ts}, age=$(format_age_summary "$media_ts"))"
+
+  pull_remote_pair "$chroot_dir" "pg" "/storage/gaeru-pg-backups" "$pg_dump_file"
+  pull_remote_pair "$chroot_dir" "pg" "/storage/gaeru-pg-backups" "$pg_sql_file"
+  if [ -n "$pg_globals_file" ]; then
+    pull_remote_pair "$chroot_dir" "pg" "/storage/gaeru-pg-backups" "$pg_globals_file"
+  fi
+  pull_remote_pair "$chroot_dir" "media" "/storage/gaeru-media-backups" "$media_file"
   verify_all
 }
 
@@ -295,6 +396,35 @@ restore_media_code() {
   fi
   stop_gaeru_app
   tar -xzpf "$archive" -C / --numeric-owner
+  # #06: Restore production node_modules matching package-lock.json on clean hosts (archive excludes node_modules)
+  /usr/local/sbin/ubuntu-mount.sh
+  local chroot_dir lock_sha stamp_file
+  chroot_dir=$(resolve_chroot)
+  if [ -f /userdata/storage/apps/gaeru/package-lock.json ]; then
+    lock_sha=$(sha256sum /userdata/storage/apps/gaeru/package-lock.json | awk '{print $1}')
+    stamp_file="/userdata/storage/apps/gaeru/node_modules/.gaeru-lock-sha256"
+    if [ ! -d /userdata/storage/apps/gaeru/node_modules/express ] || [ ! -f "$stamp_file" ] || [ "$(cat "$stamp_file" 2>/dev/null || true)" != "$lock_sha" ]; then
+      [ -d "$chroot_dir" ] || die "Missing Ubuntu chroot to install Node.js production dependencies"
+      say "Staging ARM64 Node.js production dependencies (npm ci --omit=dev) matching package-lock.json..."
+      local stage_dir="/userdata/storage/apps/.gaeru-npm-stage.$$"
+      local old_nm="/userdata/storage/apps/gaeru/.node_modules_old.$$"
+      GAERU_TMP_CLEANUP_DIRS+=("$stage_dir" "$old_nm")
+      mkdir -p "$stage_dir"
+      cp -f /userdata/storage/apps/gaeru/package.json /userdata/storage/apps/gaeru/package-lock.json "$stage_dir/"
+      chown -R 33:33 "$stage_dir"
+      env -u LD_PRELOAD chroot "$chroot_dir" runuser -u www-data -- /usr/bin/env -u LANGUAGE HOME=/tmp PATH=/usr/local/bin:/usr/bin:/bin \
+        bash -euo pipefail -c "cd '/storage/apps/.gaeru-npm-stage.$$' && npm ci --omit=dev --no-audit --no-fund && node -e \"require('express'); require('pg');\""
+      printf '%s\n' "$lock_sha" > "$stage_dir/node_modules/.gaeru-lock-sha256"
+      chown 33:33 "$stage_dir/node_modules/.gaeru-lock-sha256"
+      if [ -d /userdata/storage/apps/gaeru/node_modules ]; then
+        mv /userdata/storage/apps/gaeru/node_modules "$old_nm"
+      fi
+      mv "$stage_dir/node_modules" /userdata/storage/apps/gaeru/node_modules
+      rm -rf "$old_nm" "$stage_dir"
+    fi
+    env -u LD_PRELOAD chroot "$chroot_dir" runuser -u www-data -- /usr/bin/env -u LANGUAGE PATH=/usr/local/bin:/usr/bin:/bin \
+      bash -euo pipefail -c "cd /storage/apps/gaeru && node -e \"require('./src/config'); require('express'); require('pg');\""
+  fi
   start_gaeru_app
   RESTART_ON_EXIT=0
   cleanup_deploy_lock

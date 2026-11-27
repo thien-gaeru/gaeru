@@ -937,7 +937,7 @@ function createStoreApi(pool, { ordersEnabled = false, getOrdersEnabled = null, 
             order: { id: attempt.orderId, order_number: parameters.vnp_TxnRef, payment_method: "vnpay", total_vnd: attempt.totalVnd },
             actor: { username: "vnpay", source: "payment_gateway" }
           });
-          await client.query("UPDATE orders SET payment_status='paid', status=CASE WHEN status IN ('pending','confirmed') THEN 'processing' ELSE status END, updated_at=now() WHERE id=$1", [attempt.orderId]);
+          await client.query("UPDATE orders SET payment_status='paid', status=CASE WHEN status IN ('pending','confirmed') THEN 'processing' ELSE status END, confirmed_at=CASE WHEN status IN ('pending','confirmed','processing','shipped','completed') THEN COALESCE(confirmed_at, now()) ELSE confirmed_at END, updated_at=now() WHERE id=$1", [attempt.orderId]);
           if (attempt.orderStatus === "cancelled") {
             await client.query(
               "INSERT INTO order_reviews (order_id, reason) VALUES ($1, 'late_payment_on_cancelled_order') ON CONFLICT (order_id) DO UPDATE SET reason = 'late_payment_on_cancelled_order', resolved_at = NULL, updated_at = now()",

@@ -348,6 +348,7 @@ async function anonymizeCustomerOrders(client, customerId, { actor = { username:
          address = 'Đã ẩn danh theo quy định lưu trữ',
          city = 'Đã ẩn danh',
          note = 'Đã ẩn danh thông tin cá nhân theo quy định lưu trữ kế toán',
+         anonymized_at = COALESCE(anonymized_at, now()),
          updated_at = now()
      WHERE customer_id = $1`,
     [customerId]
