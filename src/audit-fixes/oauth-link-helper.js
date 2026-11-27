@@ -51,9 +51,18 @@ async function applyPendingOAuthLink(pool, customer, pending) {
   };
 
   try {
-    return typeof pool?.connect === 'function'
-      ? await withTransaction(pool, runLink)
-      : await runLink(pool);
+    if (typeof pool?.connect === 'function') {
+      return await withTransaction(pool, runLink);
+    }
+    await pool.query('SAVEPOINT sp_apply_pending_oauth_link');
+    try {
+      const ok = await runLink(pool);
+      await pool.query('RELEASE SAVEPOINT sp_apply_pending_oauth_link');
+      return ok;
+    } catch (innerErr) {
+      await pool.query('ROLLBACK TO SAVEPOINT sp_apply_pending_oauth_link').catch(() => {});
+      throw innerErr;
+    }
   } catch (linkErr) {
     console.warn('Auto-linking pending OAuth failed:', linkErr.message);
     return false;

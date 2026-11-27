@@ -469,16 +469,30 @@ async function sendRecoveryEmail(pool, config, cart, mailer, stageOverride = nul
     }
     return { success: true, messageId: result?.messageId };
   } catch (err) {
+    const { isPermanentSendMailError } = require('./customer-lifecycle');
+    const priorFailRow = (await pool.query(
+      "SELECT COUNT(*)::int AS fails FROM abandoned_cart_reminders WHERE cart_id = $1 AND status = 'failed'",
+      [cart.id]
+    )).rows[0];
+    const totalFails = Number(priorFailRow?.fails || 0) + 1;
+    const isHardBounce = isPermanentSendMailError(err);
+    const shouldStop = isHardBounce || totalFails >= 5;
+    const backoffMinutes = Math.min(24 * 60, 30 * (2 ** Math.min(4, Math.max(0, totalFails - 1))));
     await pool.query(
       `WITH pending AS (
-         UPDATE abandoned_carts SET next_reminder_at = now() + interval '30 minutes', updated_at = now()
-         WHERE id = $1 AND version = $6 AND recovery_consent AND status IN ('abandoned','recovering') RETURNING id
+         UPDATE abandoned_carts
+         SET status = CASE WHEN $7::boolean THEN 'expired' ELSE status END,
+             next_reminder_at = CASE WHEN $7::boolean THEN NULL ELSE now() + ($8::text || ' minutes')::interval END,
+             version = CASE WHEN $7::boolean THEN version + 1 ELSE version END,
+             updated_at = now()
+         WHERE id = $1 AND version = $6 AND recovery_consent AND status IN ('abandoned','recovering')
+         RETURNING id
        )
        INSERT INTO abandoned_cart_reminders (cart_id, stage, email, subject, status, error_message)
        SELECT id, $2, $3, $4, 'failed', $5 FROM pending`,
-      [cart.id, stage, normEmail, subject, err.message, cart.version]
+      [cart.id, stage, normEmail, subject, err.message, cart.version, shouldStop, String(backoffMinutes)]
     );
-    return { success: false, error: err.message };
+    return { success: false, error: err.message, permanentFailure: shouldStop };
   }
 }
 

@@ -882,7 +882,10 @@ Quy tắc cốt lõi:
 
       if (wantsOnlyRevenueSummary) {
         if (overview.revenue?.paidFormatted) {
-          out += `**Doanh thu ${periodText}:** Thực thu **${overview.revenue.paidFormatted}** · Tổng giá trị **${overview.revenue.grossFormatted}** (${overview.totalOrders} đơn hàng${overview.pendingOrders > 0 ? `, ${overview.pendingOrders} chờ xác nhận` : ''}).\n\n`;
+          const orderSummarySuffix = overview.totalOrders !== undefined
+            ? ` (${overview.totalOrders} đơn hàng${overview.pendingOrders > 0 ? `, ${overview.pendingOrders} chờ xác nhận` : ''})`
+            : '';
+          out += `**Doanh thu ${periodText}:** Thực thu **${overview.revenue.paidFormatted}** · Tổng giá trị **${overview.revenue.grossFormatted}**${orderSummarySuffix}.\n\n`;
         } else {
           out += `**Doanh thu (${periodText}):** ${overview.revenue?.note || 'Không có quyền xem dữ liệu tài chính.'}\n\n`;
         }
@@ -893,8 +896,18 @@ Quy tắc cốt lõi:
         } else if (overview.revenue?.note) {
           out += `- **Doanh thu:** *${overview.revenue.note}*\n`;
         }
-        out += `- **Đơn hàng:** **${overview.totalOrders}** đơn (Chờ xác nhận: ${overview.pendingOrders}, Đang xử lý: ${overview.processingOrders}, Đang giao: ${overview.shippedOrders}, Hoàn thành: ${overview.completedOrders})\n`;
-        out += `- **Khách mới:** ${overview.newCustomers} tài khoản\n\n`;
+        if (overview.totalOrders !== undefined) {
+          out += `- **Đơn hàng:** **${overview.totalOrders}** đơn (Chờ xác nhận: ${overview.pendingOrders}, Đang xử lý: ${overview.processingOrders}, Đang giao: ${overview.shippedOrders}, Hoàn thành: ${overview.completedOrders})\n`;
+        } else if (overview.ordersNote) {
+          out += `- **Đơn hàng:** *${overview.ordersNote}*\n`;
+        }
+        if (overview.newCustomers !== undefined) {
+          out += `- **Khách mới:** ${overview.newCustomers} tài khoản\n\n`;
+        } else if (overview.customersNote) {
+          out += `- **Khách mới:** *${overview.customersNote}*\n\n`;
+        } else {
+          out += `\n`;
+        }
       }
     }
 
@@ -952,15 +965,19 @@ Quy tắc cốt lõi:
 
     // 5. Lưu lượng truy cập Storefront
     if (traffic) {
-      const nf = new Intl.NumberFormat('vi-VN');
-      const onlyOnline = !detailed && hasAnyBoundaryTerm(norm, ['dang online', 'khach online', 'nguoi online']) && !hasAnyBoundaryTerm(norm, ['luot xem', 'pageview', 'tong']);
-      if (onlyOnline) {
-        out += `- **Đang trực tuyến:** **${traffic.activeNow}** khách (hôm nay: ${nf.format(traffic.todayVisitors)} khách, ${nf.format(traffic.todayPageviews)} lượt xem).\n\n`;
+      if (traffic.error) {
+        out += `- ⚠️ ${traffic.error}\n\n`;
       } else {
-        out += `**Lưu lượng truy cập Website:**\n`;
-        out += `- Đang trực tuyến (15 phút qua): **${traffic.activeNow}** khách\n`;
-        out += `- Hôm nay: **${nf.format(traffic.todayPageviews)}** lượt xem (**${nf.format(traffic.todayVisitors)}** khách)\n`;
-        out += `- Tổng tích lũy: **${nf.format(traffic.totalPageviews)}** lượt xem\n\n`;
+        const nf = new Intl.NumberFormat('vi-VN');
+        const onlyOnline = !detailed && hasAnyBoundaryTerm(norm, ['dang online', 'khach online', 'nguoi online']) && !hasAnyBoundaryTerm(norm, ['luot xem', 'pageview', 'tong']);
+        if (onlyOnline) {
+          out += `- **Đang trực tuyến:** **${traffic.activeNow}** khách (hôm nay: ${nf.format(traffic.todayVisitors)} khách, ${nf.format(traffic.todayPageviews)} lượt xem).\n\n`;
+        } else {
+          out += `**Lưu lượng truy cập Website:**\n`;
+          out += `- Đang trực tuyến (15 phút qua): **${traffic.activeNow}** khách\n`;
+          out += `- Hôm nay: **${nf.format(traffic.todayPageviews)}** lượt xem (**${nf.format(traffic.todayVisitors)}** khách)\n`;
+          out += `- Tổng tích lũy: **${nf.format(traffic.totalPageviews)}** lượt xem\n\n`;
+        }
       }
     }
 
@@ -995,24 +1012,32 @@ Quy tắc cốt lõi:
 
     // 8. Sức khỏe Hệ thống
     if (sys) {
-      out += `**Hệ thống (${String(sys.status || 'ok').toUpperCase()}):** ${sys.clusterMode} · Uptime ${Math.max(1, Math.round((sys.uptimeSeconds || 0) / 60))} phút · RSS **${sys.memoryRssMb} MB** (Heap **${sys.heapUsedMb} MB**) · DB **${sys.dbLatencyMs} ms** · WAF đã chặn **${sys.threatsBlocked}**.`;
-      if (sys.gpuAi?.online) {
-        const g = sys.gpuAi;
-        out += `\n- **GAERU GPU AI:** Trực tuyến (${g.mode}) · GPU **${g.gpu?.temp_c ?? '—'}°C** (${g.gpu?.clk_mhz ?? '—'} MHz) · RAM AI **${g.rssMb?.total ?? '—'} MB** · Vector đã lập chỉ mục: **${g.vectorStore?.totalVectors ?? 0}**.`;
+      if (sys.error) {
+        out += `- ⚠️ ${sys.error}\n\n`;
+      } else {
+        out += `**Hệ thống (${String(sys.status || 'ok').toUpperCase()}):** ${sys.clusterMode} · Uptime ${Math.max(1, Math.round((sys.uptimeSeconds || 0) / 60))} phút · RSS **${sys.memoryRssMb} MB** (Heap **${sys.heapUsedMb} MB**) · DB **${sys.dbLatencyMs} ms** · WAF đã chặn **${sys.threatsBlocked}**.`;
+        if (sys.gpuAi?.online) {
+          const g = sys.gpuAi;
+          out += `\n- **GAERU GPU AI:** Trực tuyến (${g.mode}) · GPU **${g.gpu?.temp_c ?? '—'}°C** (${g.gpu?.clk_mhz ?? '—'} MHz) · RAM AI **${g.rssMb?.total ?? '—'} MB** · Vector đã lập chỉ mục: **${g.vectorStore?.totalVectors ?? 0}**.`;
+        }
+        out += `\n\n`;
       }
-      out += `\n\n`;
     }
 
     // 9. Tri thức Tự học
     if (learned) {
-      const counts = learned.stats || learned.counts || {};
-      out += `**Tri thức tự học:** **${counts.total || 0}** bài (**${counts.active_count || 0}** đang bật, **${counts.total_interactions || 0}** lượt học, tin cậy TB **${Math.round((counts.avg_confidence ?? 0.85) * 100)}%**).\n`;
-      if (learned.topEntries && learned.topEntries.length) {
-        for (const e of learned.topEntries.slice(0, 5)) {
-          out += `- **${e.topic}** (${e.occurrence_count} lần · ${Math.round(e.confidence_score * 100)}%)\n`;
+      if (learned.error) {
+        out += `- ⚠️ ${learned.error}\n\n`;
+      } else {
+        const counts = learned.stats || learned.counts || {};
+        out += `**Tri thức tự học:** **${counts.total || 0}** bài (**${counts.active_count || 0}** đang bật, **${counts.total_interactions || 0}** lượt học, tin cậy TB **${Math.round((counts.avg_confidence ?? 0.85) * 100)}%**).\n`;
+        if (learned.topEntries && learned.topEntries.length) {
+          for (const e of learned.topEntries.slice(0, 5)) {
+            out += `- **${e.topic}** (${e.occurrence_count} lần · ${Math.round(e.confidence_score * 100)}%)\n`;
+          }
         }
+        out += `\n`;
       }
-      out += `\n`;
     }
 
     // 10. Action Card
@@ -1280,26 +1305,41 @@ Quy tắc cốt lõi:
       return res.status(404).send('Không tìm thấy phiên hội thoại hoặc không có quyền truy cập');
     }
 
+    if (res.closed || res.destroyed || res.writableEnded || req.aborted) {
+      return;
+    }
+
     const { acquireSseSlot } = require('./realtime-sse');
     if (typeof acquireSseSlot === 'function' && !acquireSseSlot(req, res)) {
       return;
     }
 
-    res.writeHead(200, {
-      'Content-Type': 'text/event-stream',
-      'Cache-Control': 'no-cache, no-transform',
-      'Connection': 'keep-alive',
-      'X-Accel-Buffering': 'no'
-    });
-
     let streamClosed = false;
-    req.on?.('close', () => { streamClosed = true; });
-    res.on?.('close', () => { streamClosed = true; });
+    res.once?.('close', () => { streamClosed = true; });
+    res.once?.('finish', () => { streamClosed = true; });
+    res.once?.('error', () => { streamClosed = true; });
+
+    try {
+      res.writeHead(200, {
+        'Content-Type': 'text/event-stream',
+        'Cache-Control': 'no-cache, no-transform',
+        'Connection': 'keep-alive',
+        'X-Accel-Buffering': 'no'
+      });
+    } catch (_) {
+      streamClosed = true;
+      return;
+    }
 
     const sendEvent = (event, data) => {
-      if (streamClosed || res.writableEnded || res.destroyed) return false;
-      res.write(`event: ${event}\ndata: ${JSON.stringify(data)}\n\n`);
-      return true;
+      if (streamClosed || res.closed || res.writableEnded || res.destroyed) return false;
+      try {
+        res.write(`event: ${event}\ndata: ${JSON.stringify(data)}\n\n`);
+        return true;
+      } catch (_) {
+        streamClosed = true;
+        return false;
+      }
     };
 
     try {

@@ -373,6 +373,19 @@ async function permanentDeleteCustomer(pool, customerId, actor, reason = 'Quản
       `SELECT o.id FROM orders o
        WHERE o.customer_id = $1 AND (
          o.status = 'shipped'
+         OR (o.status IN ('pending', 'confirmed', 'processing') AND o.payment_status <> 'paid' AND EXISTS (
+           SELECT 1 FROM sales_receipts sr WHERE sr.order_id = o.id
+         ))
+         OR EXISTS (
+           SELECT 1 FROM payment_attempts pa
+           WHERE pa.order_id = o.id
+             AND pa.provider IN ('vnpay', 'momo', 'zalopay')
+             AND pa.status = 'pending'
+             AND (
+               pa.expires_at > now()
+               OR (pa.provider = 'momo' AND pa.response_code IN ('1000', '7000', '7002') AND COALESCE(pa.expires_at, pa.created_at) > now() - interval '72 hours')
+             )
+         )
          OR EXISTS (
            SELECT 1 FROM carrier_shipment_attempts a
            WHERE a.order_id = o.id AND a.status IN ('sending', 'unknown')
@@ -389,9 +402,28 @@ async function permanentDeleteCustomer(pool, customerId, actor, reason = 'Quản
     );
     if (inFlight.rows.length) {
       throw Object.assign(
-        new Error('Khách hàng còn đơn hàng hoặc vận đơn đang giao / chưa đối soát COD. Vui lòng hoàn tất giao vận và đối soát tiền trước khi xóa tài khoản.'),
+        new Error('Khách hàng còn đơn hàng hoặc vận đơn đang giao / đang thanh toán / chưa đối soát COD. Vui lòng hoàn tất giao vận và đối soát tiền trước khi xóa tài khoản.'),
         { status: 409 }
       );
+    }
+
+    await client.query('SAVEPOINT sp_del_cust_checkout_intent');
+    try {
+      const openIntent = await client.query(
+        "SELECT id FROM checkout_payment_intents WHERE customer_id = $1 AND status = 'pending_provider' LIMIT 1",
+        [customerId]
+      );
+      await client.query('RELEASE SAVEPOINT sp_del_cust_checkout_intent');
+      if (openIntent.rows.length) {
+        throw Object.assign(
+          new Error('Khách hàng đang có phiên thanh toán trực tuyến đang chờ xử lý. Vui lòng chờ phiên hoàn tất trước khi xóa tài khoản.'),
+          { status: 409 }
+        );
+      }
+    } catch (intentErr) {
+      if (intentErr?.status) throw intentErr;
+      await client.query('ROLLBACK TO SAVEPOINT sp_del_cust_checkout_intent').catch(() => {});
+      if (intentErr?.code !== '42P01' && intentErr?.code !== '42703') throw intentErr;
     }
 
     // Giải phóng tồn kho giữ chỗ cho các đơn nháp chưa thanh toán trước khi ẩn danh PII
@@ -424,13 +456,44 @@ async function permanentDeleteCustomer(pool, customerId, actor, reason = 'Quản
        )`,
       [customerId]
     );
-    await client.query(
+    const deletedWarranties = (await client.query(
       `DELETE FROM warranty_activations WHERE customer_id = $1 OR order_item_id IN (
          SELECT i.id FROM order_items i JOIN orders o ON o.id = i.order_id
          WHERE o.customer_id = $1
-       )`,
+       ) RETURNING channel, external_order_number`,
       [customerId]
-    );
+    )).rows;
+    for (const dw of deletedWarranties) {
+      if (!dw.external_order_number || !dw.channel) continue;
+      const claimKey = String(dw.external_order_number).replace(/\s/g, '').toUpperCase();
+      await client.query(
+        `DELETE FROM warranty_order_claims
+         WHERE channel = $1 AND order_key = $2
+           AND NOT EXISTS (
+             SELECT 1 FROM warranty_activations
+             WHERE channel = $1
+               AND upper(regexp_replace(COALESCE(external_order_number, ''), '[[:space:]]', '', 'g')) = $2
+               AND withdrawn_at IS NULL
+               AND status IN ('pending', 'active', 'revoked')
+           )`,
+        [dw.channel, claimKey]
+      );
+    }
+    await client.query('SAVEPOINT sp_del_cust_abandoned_and_outbox');
+    try {
+      await client.query('DELETE FROM abandoned_carts WHERE customer_id = $1', [customerId]);
+      await client.query(
+        `UPDATE order_email_outbox
+         SET status = 'skipped', finished_at = now(), result = 'Tài khoản khách hàng đã bị xóa vĩnh viễn'
+         WHERE status = 'pending'
+           AND (customer_id = $1 OR order_id IN (SELECT id FROM orders WHERE customer_id = $1))`,
+        [customerId]
+      );
+      await client.query('RELEASE SAVEPOINT sp_del_cust_abandoned_and_outbox');
+    } catch (cleanErr) {
+      await client.query('ROLLBACK TO SAVEPOINT sp_del_cust_abandoned_and_outbox').catch(() => {});
+      if (cleanErr?.code !== '42P01') throw cleanErr;
+    }
     await client.query('DELETE FROM customer_contact_changes WHERE customer_id = $1', [customerId]);
     await client.query('DELETE FROM customer_addresses WHERE customer_id = $1', [customerId]);
     await client.query('DELETE FROM customer_vouchers WHERE customer_id = $1', [customerId]);

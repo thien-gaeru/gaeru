@@ -670,6 +670,9 @@ async function verifyPackItem(pool, { orderId, scannedCode, actor = null }) {
     if (order.status === "cancelled" || order.return_completed_at) {
       throw fail("Không thể đóng gói đơn hàng đã hủy hoặc đã hoàn trả.", 409);
     }
+    if (order.status === "shipped" || order.status === "completed") {
+      throw fail("Đơn hàng đã xuất kho hoặc hoàn tất; không thể quét đóng gói lại.", 409);
+    }
     if (order.payment_method !== "cod" && order.payment_status !== "paid") {
       throw fail("Đơn trả trước chưa hoàn tất thanh toán; không thể đóng gói xuất kho.", 409);
     }
@@ -788,6 +791,9 @@ async function dispatchByBarcode(pool, { orderId, trackingCode = null, actor = n
     const order = ordRes.rows[0];
     if (order.status === "cancelled" || order.return_completed_at) {
       throw fail("Không thể xuất kho đơn hàng đã hủy hoặc đã hoàn trả.", 409);
+    }
+    if (order.status === "shipped" || order.status === "completed") {
+      throw fail("Đơn hàng đã xuất kho hoặc hoàn tất; không thể xuất kho lại.", 409);
     }
     if (order.payment_method !== "cod" && order.payment_status !== "paid") {
       throw fail("Đơn trả trước chưa thanh toán; không thể xuất kho.", 409);

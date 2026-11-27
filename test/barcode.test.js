@@ -249,10 +249,10 @@ test("Barcode Station & Scanner Workflows Comprehensive Test Suite", async (t) =
     const checkOrder = await pool.query(`SELECT status FROM orders WHERE id = $1`, [orderId]);
     assert.equal(checkOrder.rows[0].status, "shipped");
 
-    // Rejects dispatch if already dispatched
+    // Rejects dispatch if already dispatched / shipped (COM-09)
     await assert.rejects(
       () => dispatchByBarcode(pool, { orderId }),
-      /chưa hoàn tất kiểm tra đóng gói/
+      /đã xuất kho hoặc hoàn tất/
     );
   });
 

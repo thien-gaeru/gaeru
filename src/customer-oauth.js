@@ -215,8 +215,35 @@ async function resolveGoogleIdentity(pool, googleUser) {
       }
 
       // NẾU CẢ TÀI KHOẢN GAERU VÀ GOOGLE ĐỀU ĐÃ XÁC THỰC EMAIL:
-      // Cả hai bên đều đã xác thực quyền sở hữu email chính chủ -> Tự động liên kết Google identity an toàn tuyệt đối
+      // Kiểm tra trước trạng thái khóa số điện thoại và trạng thái MFA (SEC-03):
+      // Tuyệt đối KHÔNG ghi auth_identities/google_id trước khi hoàn tất MFA hoặc khi tài khoản sắp bị khóa.
       if (googleUser.emailVerified && collision.emailVerified) {
+        const { checkCustomerPhoneStatus } = require('./customer-lifecycle');
+        const phoneCheck = checkCustomerPhoneStatus({
+          phone: collision.phone,
+          phone_invalid_at: collision.phoneInvalidAt,
+          created_at: collision.createdAt
+        });
+        if (phoneCheck.isExpired) {
+          return { kind: 'existing', customer: collision };
+        }
+        const secRow = (await client.query(
+          "SELECT method FROM account_security WHERE account_key = $1",
+          [`customer:${collision.id}`]
+        )).rows[0];
+        if (secRow && secRow.method && secRow.method !== 'off') {
+          return {
+            kind: 'existing',
+            customer: collision,
+            deferredOAuthLink: {
+              email: collision.email,
+              provider: 'google',
+              googleSub: subject,
+              picture: googleUser.picture || null,
+              createdAt: Date.now()
+            }
+          };
+        }
         await client.query(
           `INSERT INTO auth_identities (customer_id, provider, issuer, provider_subject, email_at_link)
            VALUES ($1, 'google', $2, $3, $4)
@@ -415,8 +442,14 @@ function createCustomerOAuthRouter(pool, { config = {}, accountSecurity, fetcher
       }
 
       if (accountSecurity && typeof accountSecurity.beginExternalLogin === 'function') {
-        const mfaStarted = await accountSecurity.beginExternalLogin(req, res, `customer:${outcome.customer.id}`, { sendJson: true });
+        const mfaStarted = await accountSecurity.beginExternalLogin(req, res, `customer:${outcome.customer.id}`, {
+          sendJson: true,
+          pendingOAuthLink: outcome.deferredOAuthLink || null
+        });
         if (mfaStarted) return;
+      }
+      if (outcome.deferredOAuthLink) {
+        await require('./audit-fixes/oauth-link-helper').applyPendingOAuthLink(pool, outcome.customer, outcome.deferredOAuthLink);
       }
       startCustomerSession(req, res, next, outcome.customer, accountSecurity);
     } catch (error) {
@@ -507,11 +540,17 @@ function createCustomerOAuthRouter(pool, { config = {}, accountSecurity, fetcher
 
       const targetUrl = req.path === '/auth/google' ? '/account' : (accountBase + '#customer-account');
       if (accountSecurity && typeof accountSecurity.beginExternalLogin === 'function') {
-        const mfaStarted = await accountSecurity.beginExternalLogin(req, res, `customer:${outcome.customer.id}`, { sendJson: false });
+        const mfaStarted = await accountSecurity.beginExternalLogin(req, res, `customer:${outcome.customer.id}`, {
+          sendJson: false,
+          pendingOAuthLink: outcome.deferredOAuthLink || null
+        });
         if (mfaStarted) {
           const mfaTarget = req.path === '/auth/google' ? '/account?mfaRequired=1#login' : (accountBase + '?mfaRequired=1#login');
           return res.redirect(302, mfaTarget);
         }
+      }
+      if (outcome.deferredOAuthLink) {
+        await require('./audit-fixes/oauth-link-helper').applyPendingOAuthLink(pool, outcome.customer, outcome.deferredOAuthLink);
       }
       startCustomerSession(req, res, next, outcome.customer, accountSecurity, {
         redirectUrl: targetUrl

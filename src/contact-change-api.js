@@ -63,7 +63,9 @@ function createContactChangeApi(pool,{smtpConfig=null,mailer,config=null}={}){
     const oldConfirmed=row.old_confirmed||old,newConfirmed=row.new_confirmed||!old;
     await client.query('UPDATE customer_contact_changes SET old_confirmed=$2,new_confirmed=$3 WHERE id=$1',[row.id,oldConfirmed,newConfirmed]);
     if(!oldConfirmed||!newConfirmed)return {pending:true,message:'Đã ghi nhận xác nhận. Hãy mở liên kết trong hộp thư còn lại để hoàn tất thay đổi.'};
-    const customer=(await client.query('UPDATE customers SET email=$2,phone=$3,email_verified_at=now(),reg_email_failed_at=NULL,phone_invalid_at=NULL,updated_at=now() WHERE id=$1 RETURNING id,full_name AS "fullName",email,phone,true AS "emailVerified"',[req.customerId,row.new_email,row.new_phone])).rows[0];
+    const emailChanged=row.old_email!==row.new_email;
+    const customer=(await client.query('UPDATE customers SET email=$2,phone=$3,email_verified_at=now(),reg_email_failed_at=NULL,phone_invalid_at=NULL,google_id=CASE WHEN $4::boolean THEN NULL ELSE google_id END,updated_at=now() WHERE id=$1 RETURNING id,full_name AS "fullName",email,phone,true AS "emailVerified"',[req.customerId,row.new_email,row.new_phone,emailChanged])).rows[0];
+    if(emailChanged){await client.query("DELETE FROM auth_identities WHERE customer_id=$1 AND provider='google'",[req.customerId]);}
     await client.query('UPDATE customer_contact_changes SET applied_at=now() WHERE id=$1',[row.id]);
     await client.query('DELETE FROM customer_password_reset_tokens WHERE customer_id=$1',[req.customerId]);
     await client.query('DELETE FROM customer_email_verification_tokens WHERE customer_id=$1',[req.customerId]);

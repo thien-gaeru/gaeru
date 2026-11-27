@@ -160,7 +160,41 @@ function getActiveSseCount() {
   return activeSseConnections.size;
 }
 
+function isStreamClosed(req, res) {
+  return Boolean(
+    !res ||
+    res.closed ||
+    res.destroyed ||
+    res.writableEnded ||
+    req?.aborted ||
+    req?.socket?.destroyed
+  );
+}
+
+function canReceiveAdminEvent(admin, event) {
+  if (!admin) return false;
+  if (admin.role === 'owner' || admin.source === 'bootstrap' || admin.isOwner === true) return true;
+  const perms = Array.isArray(admin.permissions) ? admin.permissions : [];
+  const ev = String(event || '');
+  if (ev.startsWith('chat:') || ev.startsWith('shopping_chat:')) return perms.includes('customers.read');
+  if (ev.startsWith('care:') || ev.startsWith('order:') || ev.startsWith('after_sales:')) return perms.includes('orders.read');
+  if (ev.startsWith('inventory:') || ev.startsWith('stock:')) return perms.includes('inventory.read') || perms.includes('catalog.read');
+  if (ev.startsWith('marketing:')) return perms.includes('marketing.read');
+  if (ev.startsWith('finance:')) return perms.includes('finance.read');
+  if (ev.startsWith('product:')) return perms.includes('catalog.read');
+  return perms.includes('dashboard.read');
+}
+
+function redactAdminBroadcastPayload(data) {
+  if (!data || typeof data !== 'object' || Array.isArray(data)) return {};
+  const { body: _body, content: _content, file: _file, message: _message, text: _text, ...safeMeta } = data;
+  return safeMeta;
+}
+
 function acquireSseSlot(req, res) {
+  if (isStreamClosed(req, res)) {
+    return false;
+  }
   if (activeSseConnections.size >= MAX_TOTAL_SSE) {
     if (typeof res.status === 'function') {
       res.status(503).json({ error: 'Hệ thống đang phục vụ lượng kết nối thời gian thực tối đa. Vui lòng thử lại sau.' });
@@ -197,47 +231,92 @@ function acquireSseSlot(req, res) {
     }
   };
 
-  // GAERU RT-01: Release slot strictly on response close/finish.
-  // In modern Node.js, req emits 'end' and 'close' immediately when GET request headers finish,
-  // while the SSE response stream is still alive and streaming.
+  // GAERU RT-01 & SEC-01: Release slot strictly on response close/finish/error,
+  // and immediately release if the response already closed before listeners attached.
   res.once?.('close', release);
   res.once?.('finish', release);
+  res.once?.('error', release);
+  if (isStreamClosed(req, res)) {
+    release();
+    return false;
+  }
   return true;
 }
 
 const activeStreams = new Set();
 
-function openSseStream(req, res, channel, { hub = defaultHub, isAdmin = false, checkSession = null } = {}) {
+function openSseStream(req, res, channel, { hub = defaultHub, isAdmin = false, checkSession = null, filterEvent = null } = {}) {
+  if (isStreamClosed(req, res)) return;
   if (!acquireSseSlot(req, res)) return;
   activeStreams.add(res);
   configureSseSocket(req, res);
-  res.writeHead(200, {
-    'Content-Type': 'text/event-stream',
-    'Cache-Control': 'no-cache, no-transform',
-    'Connection': 'keep-alive',
-    'X-Accel-Buffering': 'no',
-    'X-Content-Type-Options': 'nosniff'
-  });
 
-  res.write(': connected\n\n');
-  res.write(`event: init\ndata: ${JSON.stringify({ connected: true, channel, at: Date.now() })}\n\n`);
+  let cleanedUp = false;
+  let unsubscribe = null;
+  let heartbeatTimer = null;
+  const cleanup = () => {
+    if (cleanedUp) return;
+    cleanedUp = true;
+    if (heartbeatTimer) {
+      clearInterval(heartbeatTimer);
+      heartbeatTimer = null;
+    }
+    if (typeof unsubscribe === 'function') {
+      const fn = unsubscribe;
+      unsubscribe = null;
+      try { fn(); } catch (_) {}
+    }
+    activeStreams.delete(res);
+  };
+
+  try {
+    res.writeHead(200, {
+      'Content-Type': 'text/event-stream',
+      'Cache-Control': 'no-cache, no-transform',
+      'Connection': 'keep-alive',
+      'X-Accel-Buffering': 'no',
+      'X-Content-Type-Options': 'nosniff'
+    });
+    res.write(': connected\n\n');
+    res.write(`event: init\ndata: ${JSON.stringify({ connected: true, channel, at: Date.now() })}\n\n`);
+  } catch (_) {
+    cleanup();
+    try { res.destroy?.(); } catch (_) {}
+    return;
+  }
 
   const onEvent = ({ event, data, id }) => {
-    if (res.writableEnded || res.destroyed) return;
+    if (cleanedUp || isStreamClosed(req, res)) {
+      cleanup();
+      return;
+    }
+    if (typeof filterEvent === 'function') {
+      try {
+        if (!filterEvent(event, data)) return;
+      } catch (_) {
+        return;
+      }
+    }
     if (typeof res.writableLength === 'number' && res.writableLength > 512 * 1024) {
+      cleanup();
       try { res.end(); } catch (_) {}
       return;
     }
-    res.write(`id: ${id}\nevent: ${event}\ndata: ${JSON.stringify(data)}\n\n`);
+    try {
+      res.write(`id: ${id}\nevent: ${event}\ndata: ${JSON.stringify(data)}\n\n`);
+    } catch (_) {
+      cleanup();
+      try { res.destroy?.(); } catch (_) {}
+    }
   };
 
-  const unsubscribe = hub.subscribe(channel, onEvent);
+  unsubscribe = hub.subscribe(channel, onEvent);
 
   let checkInFlight = false;
   let consecutiveDbErrors = 0;
-  const heartbeatTimer = setInterval(async () => {
-    if (res.writableEnded) {
-      clearInterval(heartbeatTimer);
+  heartbeatTimer = setInterval(async () => {
+    if (cleanedUp || isStreamClosed(req, res)) {
+      cleanup();
       return;
     }
     if (checkInFlight) return;
@@ -252,34 +331,43 @@ function openSseStream(req, res, channel, { hub = defaultHub, isAdmin = false, c
           consecutiveDbErrors++;
           valid = consecutiveDbErrors < 2;
         }
+        if (cleanedUp || isStreamClosed(req, res)) {
+          cleanup();
+          return;
+        }
         if (!valid) {
-          if (!res.writableEnded) {
-            res.write(`event: session-expired\ndata: ${JSON.stringify({ error: isAdmin ? 'Phiên quản trị đã hết hạn hoặc đã bị thu hồi.' : 'Phiên đăng nhập đã hết hạn hoặc đã bị thu hồi.' })}\n\n`);
-            res.end();
-          }
-          clearInterval(heartbeatTimer);
+          try {
+            if (!isStreamClosed(req, res)) {
+              res.write(`event: session-expired\ndata: ${JSON.stringify({ error: isAdmin ? 'Phiên quản trị đã hết hạn hoặc đã bị thu hồi.' : 'Phiên đăng nhập đã hết hạn hoặc đã bị thu hồi.' })}\n\n`);
+              res.end();
+            }
+          } catch (_) {}
+          cleanup();
           return;
         }
       }
-      if (!res.writableEnded) res.write(': ping\n\n');
+      if (!cleanedUp && !isStreamClosed(req, res)) {
+        try {
+          res.write(': ping\n\n');
+        } catch (_) {
+          cleanup();
+        }
+      }
+    } catch (_) {
+      cleanup();
     } finally {
       checkInFlight = false;
     }
   }, 15000);
   if (heartbeatTimer.unref) heartbeatTimer.unref();
 
-  let cleanedUp = false;
-  const cleanup = () => {
-    if (cleanedUp) return;
-    cleanedUp = true;
-    clearInterval(heartbeatTimer);
-    unsubscribe();
-    activeStreams.delete(res);
-  };
-
-  // GAERU RT-01: Cleanup SSE subscription and timers strictly on response close/finish.
+  // GAERU RT-01 & SEC-01: Cleanup SSE subscription and timers strictly on response close/finish/error.
   res.once?.('close', cleanup);
   res.once?.('finish', cleanup);
+  res.once?.('error', cleanup);
+  if (isStreamClosed(req, res)) {
+    cleanup();
+  }
 }
 
 function createRealtimeRouter({ pool, config, hub = defaultHub } = {}) {
@@ -289,10 +377,12 @@ function createRealtimeRouter({ pool, config, hub = defaultHub } = {}) {
   const adminSessionChecker = (req) => checkAdminSessionDbValid(pool, req);
 
   adminRouter.get('/realtime-sse', requirePermission('dashboard.read'), (req, res) => {
+    const principal = req.admin;
     openSseStream(req, res, 'admin', {
       hub,
       isAdmin: true,
-      checkSession: adminSessionChecker
+      checkSession: adminSessionChecker,
+      filterEvent: (event) => canReceiveAdminEvent(principal, event)
     });
   });
 
@@ -357,15 +447,16 @@ function publishAdminEvent(event, data) {
 
 function publishCareEvent(careId, event, data) {
   defaultHub.publish('care:' + careId, event, data);
-  defaultHub.publish('admin', 'care:update', { careId, ...data });
+  defaultHub.publish('admin', 'care:update', { careId, ...redactAdminBroadcastPayload(data) });
 }
 
 function publishChatEvent(threadId, event, data) {
   defaultHub.publish('shopping_chat:' + threadId, event, data);
-  defaultHub.publish('admin', 'chat:message', { threadId, ...data });
-  defaultHub.publish('admin', 'shopping_chat:message', { threadId, ...data });
+  const safeAdminPayload = { threadId, ...redactAdminBroadcastPayload(data) };
+  defaultHub.publish('admin', 'chat:message', safeAdminPayload);
+  defaultHub.publish('admin', 'shopping_chat:message', safeAdminPayload);
   if (event === 'chat:update') {
-    defaultHub.publish('admin', 'chat:update', { threadId, ...data });
+    defaultHub.publish('admin', 'chat:update', safeAdminPayload);
   }
 }
 
@@ -373,41 +464,58 @@ function publishChatEvent(threadId, event, data) {
 const realtimeClients = new Set();
 
 function sseHandler(req, res) {
+  if (isStreamClosed(req, res)) return;
   if (!acquireSseSlot(req, res)) return;
   configureSseSocket(req, res);
-  res.writeHead(200, {
-    'Content-Type': 'text/event-stream',
-    'Cache-Control': 'no-cache, no-transform',
-    'Connection': 'keep-alive',
-    'X-Accel-Buffering': 'no',
-    'X-Content-Type-Options': 'nosniff'
-  });
 
-  res.write(`data: ${JSON.stringify({ type: 'CONNECTED', timestamp: Date.now() })}\n\n`);
+  let cleanedUp = false;
+  let heartbeat = null;
+  const cleanup = () => {
+    if (cleanedUp) return;
+    cleanedUp = true;
+    if (heartbeat) {
+      clearInterval(heartbeat);
+      heartbeat = null;
+    }
+    realtimeClients.delete(res);
+  };
+
+  try {
+    res.writeHead(200, {
+      'Content-Type': 'text/event-stream',
+      'Cache-Control': 'no-cache, no-transform',
+      'Connection': 'keep-alive',
+      'X-Accel-Buffering': 'no',
+      'X-Content-Type-Options': 'nosniff'
+    });
+    res.write(`data: ${JSON.stringify({ type: 'CONNECTED', timestamp: Date.now() })}\n\n`);
+  } catch (_) {
+    cleanup();
+    try { res.destroy?.(); } catch (_) {}
+    return;
+  }
   realtimeClients.add(res);
 
-  const heartbeat = setInterval(() => {
-    if (res.writableEnded) {
-      clearInterval(heartbeat);
+  heartbeat = setInterval(() => {
+    if (cleanedUp || isStreamClosed(req, res)) {
+      cleanup();
       return;
     }
     try {
       res.write(': keepalive\n\n');
-    } catch (_) {}
+    } catch (_) {
+      cleanup();
+    }
   }, 15000);
   if (heartbeat.unref) heartbeat.unref();
 
-  let cleanedUp = false;
-  const cleanup = () => {
-    if (cleanedUp) return;
-    cleanedUp = true;
-    clearInterval(heartbeat);
-    realtimeClients.delete(res);
-  };
-
-  // GAERU RT-01: Remove SSE client strictly on response close/finish.
+  // GAERU RT-01 & SEC-01: Remove SSE client strictly on response close/finish/error.
   res.once?.('close', cleanup);
   res.once?.('finish', cleanup);
+  res.once?.('error', cleanup);
+  if (isStreamClosed(req, res)) {
+    cleanup();
+  }
 }
 
 const PUBLIC_SSE_TAGS = new Set(['*', 'catalog', 'stock', 'product', 'products', 'promotion', 'promotions', 'news', 'pages', 'store-config', 'payment-channels', 'shipping', 'bundles']);

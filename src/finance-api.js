@@ -67,13 +67,13 @@ async function recordFullOrderPayment(client, orderOrPayload, maybeActor, maybeO
   const internalKey = (options && options.requestKey) || ('order-full:' + order.id + ':' + createHash('sha256').update(reference).digest('hex').slice(0, 24));
   const payloadHash = digest({ orderId: order.id, amountVnd: remaining, method, reference });
   await client.query("SELECT pg_advisory_xact_lock(hashtext($1))", [`sales_receipts:${internalKey}`]);
-  const existing = (await client.query("SELECT id, request_hash FROM sales_receipts WHERE request_key = $1", [internalKey])).rows[0];
+  const existing = (await client.query("SELECT id, request_hash, amount_vnd FROM sales_receipts WHERE request_key = $1", [internalKey])).rows[0];
   if (existing) {
     if (existing.request_hash !== payloadHash) throw fail(409, "Mã đối soát thanh toán đã được sử dụng cho nội dung khác.");
     return existing;
   }
   const inserted = await client.query(`INSERT INTO sales_receipts (order_id,amount_vnd,method,reference,note,request_key,request_hash,created_by)
-    VALUES ($1,$2,$3,$4,$5,$6,$7,$8) RETURNING id`, [order.id, remaining, method, reference, note, internalKey, payloadHash, actor?.username || "system"]);
+    VALUES ($1,$2,$3,$4,$5,$6,$7,$8) RETURNING id, amount_vnd`, [order.id, remaining, method, reference, note, internalKey, payloadHash, actor?.username || "system"]);
   return inserted.rows[0];
 }
 async function supplierBalance(client, supplierId) {
@@ -185,6 +185,22 @@ function createFinanceApi(pool) {
           [order.id, canCompleteCod]
         )).rows[0];
         await client.query("UPDATE payment_attempts SET status='paid', updated_at=now() WHERE order_id=$1 AND status='pending'", [order.id]);
+        if (order.payment_method === "bank_transfer") {
+          await client.query(
+            "UPDATE order_reviews SET resolved_at = COALESCE(resolved_at, now()), resolution = COALESCE(NULLIF(resolution, ''), 'Tự động xác nhận qua phiếu thu chuyển khoản đã đối soát') WHERE order_id = $1 AND resolved_at IS NULL",
+            [order.id]
+          );
+          await client.query("SAVEPOINT sp_finance_payment_confirmed_email");
+          try {
+            await client.query(
+              "INSERT INTO order_email_outbox(order_id, kind) VALUES($1, 'payment_confirmed') ON CONFLICT(order_id, kind) DO NOTHING",
+              [order.id]
+            );
+            await client.query("RELEASE SAVEPOINT sp_finance_payment_confirmed_email");
+          } catch (_) {
+            await client.query("ROLLBACK TO SAVEPOINT sp_finance_payment_confirmed_email").catch(() => {});
+          }
+        }
         if (carrierCodShip) {
           const txRef = String(data.reference).trim();
           const batchLockKey = `cod_batch:${carrierCodShip.carrier_id}:${txRef}`;
@@ -205,7 +221,8 @@ function createFinanceApi(pool) {
               [carrierCodShip.carrier_id, txRef, data.method, txRef, String(data.note || '').trim(), req.admin.username]
             )).rows[0];
           }
-          const allocAmountVnd = Number(order.total_vnd);
+          // COM-02: Allocate the actual remaining receipt amount (not full order.total_vnd when partial receipts already existed).
+          const allocAmountVnd = Number(data.amountVnd);
           if (batch.declared_payout_vnd !== null && Number(batch.allocated_total_vnd) + allocAmountVnd > Number(batch.declared_payout_vnd)) {
             throw fail(409, `Tổng tiền phân bổ (${Number(batch.allocated_total_vnd) + allocAmountVnd} ₫) vượt quá tổng tiền sao kê của lô ${txRef} (${batch.declared_payout_vnd} ₫).`);
           }
@@ -235,10 +252,13 @@ function createFinanceApi(pool) {
         }
       }
       await appendAudit(client, { actor: req.admin, action: "finance.receipt.post", entityType: "sales_receipt", entityId: inserted.rows[0].id, metadata: { orderId: order.id, amountVnd: data.amountVnd, method: data.method } });
-      return { id: inserted.rows[0].id, replayed: false };
+      return { id: inserted.rows[0].id, replayed: false, bankTransferPaid: order.payment_method === "bank_transfer" && received + data.amountVnd === Number(order.total_vnd) };
     });
     if (!result.replayed) {
       try { require("./cache").invalidateTags(["orders", `order:${data.orderId}`, "finance"]); } catch (_) {}
+      if (result.bankTransferPaid) {
+        try { require("./order-email").nudgeOrderEmailWorker?.(); } catch (_) {}
+      }
     }
     res.status(result.replayed ? 200 : 201).json(result);
   }));

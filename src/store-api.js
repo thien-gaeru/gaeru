@@ -126,21 +126,53 @@ async function releaseCheckoutIntentOnClient(client, intentId, nextStatus = "rel
   }
 
   for (const [variantId, holds] of [...byVariant.entries()].sort(([a], [b]) => a.localeCompare(b))) {
-    await client.query("SELECT id FROM product_variants WHERE id = $1 FOR UPDATE", [variantId]);
+    const varMeta = (await client.query(
+      `SELECT v.id, v.sku, v.name AS "variantName", p.name AS "productName"
+       FROM product_variants v
+       JOIN products p ON p.id = v.product_id
+       WHERE v.id = $1 FOR UPDATE OF v`,
+      [variantId]
+    )).rows[0];
     const heldWhIds = [...new Set(holds.map((h) => h.warehouseId).filter(Boolean))].sort();
+    const whBeforeMap = new Map();
     if (heldWhIds.length) {
-      await client.query(
-        "SELECT warehouse_id FROM warehouse_stock WHERE variant_id = $1 AND warehouse_id = ANY($2::uuid[]) ORDER BY warehouse_id FOR UPDATE",
+      const wsRows = (await client.query(
+        "SELECT warehouse_id, quantity FROM warehouse_stock WHERE variant_id = $1 AND warehouse_id = ANY($2::uuid[]) ORDER BY warehouse_id FOR UPDATE",
         [variantId, heldWhIds]
-      );
+      )).rows;
+      for (const r of wsRows) whBeforeMap.set(r.warehouse_id, Number(r.quantity || 0));
     }
     let totalReleased = 0;
     for (const h of holds) {
       if (h.warehouseId) {
+        const beforeQty = whBeforeMap.has(h.warehouseId) ? whBeforeMap.get(h.warehouseId) : 0;
+        const afterQty = beforeQty + h.quantity;
         await client.query(
-          "UPDATE warehouse_stock SET quantity = quantity + $3, updated_at = now() WHERE warehouse_id = $1 AND variant_id = $2",
-          [h.warehouseId, variantId, h.quantity]
+          "UPDATE warehouse_stock SET quantity = $3, updated_at = now() WHERE warehouse_id = $1 AND variant_id = $2",
+          [h.warehouseId, variantId, afterQty]
         );
+        whBeforeMap.set(h.warehouseId, afterQty);
+        if (varMeta) {
+          await client.query(
+            `INSERT INTO inventory_movements (event_key, warehouse_id, variant_id, sku, product_name, variant_name,
+              movement_type, delta, quantity_before, quantity_after, reference_type, reference_id, reason, actor_id, actor_username)
+             VALUES ($1, $2, $3, $4, $5, $6, 'sale_release', $7, $8, $9, 'checkout_intent', $10, $11, NULL, 'system')
+             ON CONFLICT (event_key) DO NOTHING`,
+            [
+              `release-hold:${intentId}:${variantId}:${h.warehouseId}:${h.id}`,
+              h.warehouseId,
+              variantId,
+              varMeta.sku,
+              varMeta.productName,
+              varMeta.variantName,
+              h.quantity,
+              beforeQty,
+              afterQty,
+              String(intentId),
+              `Hoàn tồn do hủy/hết hạn phiên thanh toán ${intent.orderNumber || intentId}`
+            ]
+          );
+        }
       }
       await client.query("UPDATE checkout_stock_holds SET released_at = now() WHERE id = $1", [h.id]);
       totalReleased += h.quantity;
@@ -965,9 +997,15 @@ function createStoreApi(pool, { ordersEnabled = false, getOrdersEnabled = null, 
       const { verifyGuestTrackingToken } = require("./shipping-management");
       const guestToken = String(req.query?.token || req.headers["x-tracking-token"] || req.headers["x-order-token"] || "").trim();
       const hasValidToken = guestToken ? verifyGuestTrackingToken(config, orderNumber, guestToken) : false;
-      const adminPrincipal = req.session?.admin
+      let adminPrincipal = req.session?.admin
         ? await require("./staff-access").resolveAdminSession(req, pool, config)
         : null;
+      if (adminPrincipal && config && require("./security-hardening").required(config)) {
+        const needsEnrollment = await require("./security-hardening").enrollment(config, req, adminPrincipal);
+        if (needsEnrollment || req.session?.adminMfaVerified !== true) {
+          adminPrincipal = null;
+        }
+      }
       const isSessionOwner = (req.session?.customer?.id && row.customerId === req.session.customer.id) ||
                              (Array.isArray(req.session?.placedOrders) && req.session.placedOrders.includes(orderNumber)) ||
                              Boolean(
@@ -1542,8 +1580,15 @@ function createStoreApi(pool, { ordersEnabled = false, getOrdersEnabled = null, 
               "SELECT points_balance, expires_at FROM customer_loyalty WHERE customer_id = $1 FOR UPDATE",
               [calc.activeCustomerId]
             )).rows[0];
-            if (!curLoy || Number(curLoy.points_balance) < calc.effectivePointsToRedeem) {
-              throw Object.assign(new Error("Số dư GAERU Xu vừa thay đổi. Vui lòng thử lại."), { status: 409 });
+            const { getPendingRefundLockedEarnPoints } = require("./loyalty-api");
+            const refundLocked = await getPendingRefundLockedEarnPoints(client, calc.activeCustomerId);
+            const spendablePts = Math.max(0, Number(curLoy?.points_balance || 0) - refundLocked);
+            if (!curLoy || spendablePts < calc.effectivePointsToRedeem) {
+              throw Object.assign(new Error(
+                refundLocked > 0
+                  ? `Số dư GAERU Xu khả dụng không đủ (${spendablePts} Xu khả dụng, ${refundLocked} Xu đang tạm khóa chờ đối soát hoàn tiền MoMo).`
+                  : "Số dư GAERU Xu vừa thay đổi. Vui lòng thử lại."
+              ), { status: 409 });
             }
             heldLoyaltyPoints = calc.effectivePointsToRedeem;
             heldLoyaltyExpiresAt = curLoy.expires_at || null;
@@ -1617,6 +1662,25 @@ function createStoreApi(pool, { ordersEnabled = false, getOrdersEnabled = null, 
                     `INSERT INTO checkout_stock_holds (intent_id, variant_id, warehouse_id, quantity)
                      VALUES ($1, $2, $3, $4)`,
                     [intentId, item.id, b.warehouseId, amount]
+                  );
+                  // COM-06: Record inventory_movements chronologically in Phase 1 at exact stock deduction time
+                  await client.query(
+                    `INSERT INTO inventory_movements (event_key, warehouse_id, variant_id, sku, product_name, variant_name,
+                      movement_type, delta, quantity_before, quantity_after, reference_type, reference_id, reason, actor_id, actor_username)
+                     VALUES ($1, $2, $3, $4, $5, $6, 'sale_reservation', $7, $8, $9, 'checkout_intent', $10, $11, NULL, 'customer')`,
+                    [
+                      `hold:${intentId}:${item.id}:${b.warehouseId}`,
+                      b.warehouseId,
+                      item.id,
+                      item.sku,
+                      item.productName,
+                      item.variantName,
+                      -amount,
+                      b.quantity,
+                      after,
+                      String(intentId),
+                      `Giữ tồn khả dụng cho phiên thanh toán ${orderNumber}`
+                    ]
                   );
                   holds.push({
                     variantId: item.id,
@@ -1825,23 +1889,6 @@ function createStoreApi(pool, { ordersEnabled = false, getOrdersEnabled = null, 
                   "INSERT INTO order_stock_allocations (order_id, variant_id, warehouse_id, quantity) VALUES ($1, $2, $3, $4)",
                   [createdOrder.id, hold.variantId, hold.warehouseId, hold.quantity]
                 );
-                await client.query(
-                  `INSERT INTO inventory_movements (event_key, warehouse_id, variant_id, sku, product_name, variant_name,
-                    movement_type, delta, quantity_before, quantity_after, reference_type, reference_id, reason, actor_id, actor_username)
-                   VALUES ($1, $2, $3, $4, $5, $6, 'sale_reservation', $7, $8, $9, 'order', $10, 'Giữ tồn khả dụng cho đơn hàng', NULL, 'customer')`,
-                  [
-                    `reserve:${createdOrder.id}:${hold.variantId}:${hold.warehouseId}`,
-                    hold.warehouseId,
-                    hold.variantId,
-                    hold.sku,
-                    hold.productName,
-                    hold.variantName,
-                    -hold.quantity,
-                    hold.before,
-                    hold.after,
-                    String(createdOrder.id)
-                  ]
-                );
               }
               for (const item of phase1.prepared) {
                 await appendAudit(client, {
@@ -1849,7 +1896,7 @@ function createStoreApi(pool, { ordersEnabled = false, getOrdersEnabled = null, 
                   action: "inventory.reserve",
                   entityType: "order",
                   entityId: createdOrder.id,
-                  metadata: { variantId: item.id, quantity: item.quantity }
+                  metadata: { variantId: item.id, quantity: item.quantity, intentId: phase1.intentId }
                 });
               }
             }

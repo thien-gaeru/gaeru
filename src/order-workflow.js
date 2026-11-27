@@ -350,14 +350,23 @@ function createOrderWorkflow({
                 }
               });
             }
-            const receiptId = receiptRow?.id || (await client.query(
-              'SELECT id FROM sales_receipts WHERE order_id = $1 ORDER BY created_at DESC LIMIT 1',
+            const latestReceipt = receiptRow || (await client.query(
+              'SELECT id, amount_vnd FROM sales_receipts WHERE order_id = $1 ORDER BY created_at DESC LIMIT 1',
               [current.id]
-            )).rows[0]?.id || null;
+            )).rows[0] || null;
+            const receiptId = latestReceipt?.id || null;
+            const codAllocAmountVnd = Number(
+              receiptRow?.amount_vnd ??
+              (receivedAmount > 0 ? Math.max(0, Number(total || 0) - receivedAmount) : null) ??
+              latestReceipt?.amount_vnd ??
+              total ??
+              carrierCodShipment.cod_amount_vnd ??
+              0
+            );
             await recordManualCodSettlementBatch(client, {
               shipment: carrierCodShipment,
               orderId: current.id,
-              amountVnd: Number(total || carrierCodShipment.cod_amount_vnd || 0),
+              amountVnd: codAllocAmountVnd > 0 ? codAllocAmountVnd : Number(latestReceipt?.amount_vnd || total || carrierCodShipment.cod_amount_vnd || 0),
               txRef: effectiveRef,
               explicitRef,
               receiptId,
@@ -402,14 +411,15 @@ function createOrderWorkflow({
           const explicitRef = String(update.reconciliationRef || '').trim();
           const defaultCodRef = 'COD-' + (current.order_number || current.id.slice(0, 8));
           const effectiveRef = (explicitRef && explicitRef.length >= 4) ? explicitRef : defaultCodRef;
-          const latestReceiptId = (await client.query(
-            'SELECT id FROM sales_receipts WHERE order_id = $1 ORDER BY created_at DESC LIMIT 1',
+          const latestReceipt = (await client.query(
+            'SELECT id, amount_vnd FROM sales_receipts WHERE order_id = $1 ORDER BY created_at DESC LIMIT 1',
             [current.id]
-          )).rows[0]?.id || null;
+          )).rows[0] || null;
+          const latestReceiptId = latestReceipt?.id || null;
           await recordManualCodSettlementBatch(client, {
             shipment: activeCarrierShipment,
             orderId: current.id,
-            amountVnd: Number(total || activeCarrierShipment.cod_amount_vnd || 0),
+            amountVnd: Number(latestReceipt?.amount_vnd || total || activeCarrierShipment.cod_amount_vnd || 0),
             txRef: effectiveRef,
             explicitRef,
             receiptId: latestReceiptId,
@@ -440,10 +450,29 @@ function createOrderWorkflow({
         );
         if (shippingFeeChanged && current.payment_method === 'bank_transfer' && total !== null) {
           if (total > 0) {
-            await client.query(
+            const updAttempt = await client.query(
               "UPDATE payment_attempts SET amount_vnd = $2, updated_at = now() WHERE order_id = $1 AND provider = 'bank_transfer' AND status = 'pending'",
               [current.id, total]
             );
+            if (!updAttempt.rowCount && targetPaymentStatus !== 'paid') {
+              const reopened = await client.query(
+                `UPDATE payment_attempts SET status = 'pending', amount_vnd = $2, expires_at = GREATEST(expires_at, now() + interval '24 hours'), updated_at = now()
+                 WHERE id = (
+                   SELECT id FROM payment_attempts
+                   WHERE order_id = $1 AND provider = 'bank_transfer' AND status = 'failed'
+                   ORDER BY updated_at DESC, created_at DESC LIMIT 1
+                 )`,
+                [current.id, total]
+              );
+              if (!reopened.rowCount) {
+                const txRef = `${current.order_number || current.id.slice(0, 8)}-BT-${require('node:crypto').randomBytes(3).toString('hex').toUpperCase()}`;
+                await client.query(
+                  `INSERT INTO payment_attempts (order_id, provider, transaction_ref, amount_vnd, status, expires_at)
+                   VALUES ($1, 'bank_transfer', $2, $3, 'pending', now() + interval '24 hours')`,
+                  [current.id, txRef, total]
+                );
+              }
+            }
           } else {
             await client.query(
               "UPDATE payment_attempts SET status = 'failed', updated_at = now() WHERE order_id = $1 AND provider = 'bank_transfer' AND status = 'pending'",

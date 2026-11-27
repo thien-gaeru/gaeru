@@ -227,17 +227,23 @@ async function executeRollingReload() {
         activeWorkers.set(i, newWorker);
         log(`Worker #${i} mới (PID ${newWorker.process?.pid}) đã trực tuyến và cùng chia sẻ cổng ${SERVER_PORT}.`, 'INFO');
 
-        // 3. Gracefully disconnect old worker with drain window
-        if (oldWorker && oldWorker.isConnected()) {
+        // 3. Gracefully disconnect old worker with drain window (SEC-08: handle disconnected/hung workers too)
+        if (oldWorker && !oldWorker.isDead()) {
           log(`Tiến hành rút Worker cũ (PID ${oldWorker.process?.pid}) sau khi đã có Worker mới thay thế an toàn...`);
-          // Notify worker explicitly before disconnect(): Node cluster waits for server.close()
-          // (blocked by HTTP keep-alive/SSE sockets) before emitting 'disconnect' inside the worker.
-          try {
-            oldWorker.send?.({ type: 'GRACEFUL_SHUTDOWN' });
-          } catch (_) {}
-          try {
-            oldWorker.disconnect();
-          } catch (_) {}
+          if (oldWorker.isConnected()) {
+            // Notify worker explicitly before disconnect(): Node cluster waits for server.close()
+            // (blocked by HTTP keep-alive/SSE sockets) before emitting 'disconnect' inside the worker.
+            try {
+              oldWorker.send?.({ type: 'GRACEFUL_SHUTDOWN' });
+            } catch (_) {}
+            try {
+              oldWorker.disconnect();
+            } catch (_) {}
+          } else {
+            try {
+              oldWorker.kill('SIGTERM');
+            } catch (_) {}
+          }
 
           // Safety timeout above worker's internal 15s shutdownTimer to allow clean DB/session drain
           const drainTimeout = setTimeout(() => {
@@ -301,16 +307,23 @@ async function gracefulShutdown() {
 
   try { if (fs.existsSync(CLUSTER_PID_FILE)) fs.unlinkSync(CLUSTER_PID_FILE); } catch (_) {}
 
+  const allWorkers = new Set([
+    ...Object.values(cluster.workers || {}).filter(Boolean),
+    ...activeWorkers.values()
+  ]);
   const exits = [];
-  for (const [, worker] of activeWorkers.entries()) {
+  for (const worker of allWorkers) {
     try {
-      if (worker && worker.isConnected()) {
-        exits.push(new Promise((resolve) => {
-          worker.once('exit', resolve);
+      if (!worker || worker.isDead()) continue;
+      exits.push(new Promise((resolve) => {
+        worker.once('exit', resolve);
+        if (worker.isConnected()) {
           try { worker.send?.({ type: 'GRACEFUL_SHUTDOWN' }); } catch (_) {}
-          worker.disconnect();
-        }));
-      }
+          try { worker.disconnect(); } catch (_) {}
+        } else {
+          try { worker.kill('SIGTERM'); } catch (_) {}
+        }
+      }));
     } catch (_) {}
   }
 
@@ -319,8 +332,15 @@ async function gracefulShutdown() {
     Promise.allSettled(exits),
     new Promise((resolve) => {
       forceTimer = setTimeout(() => {
-        for (const [, worker] of activeWorkers.entries()) {
-          try { worker?.process?.kill?.('SIGKILL'); } catch (_) {}
+        const remainingWorkers = new Set([
+          ...allWorkers,
+          ...Object.values(cluster.workers || {}).filter(Boolean),
+          ...activeWorkers.values()
+        ]);
+        for (const worker of remainingWorkers) {
+          try {
+            if (worker && !worker.isDead()) worker.process?.kill?.('SIGKILL');
+          } catch (_) {}
         }
         resolve();
       }, 12000);

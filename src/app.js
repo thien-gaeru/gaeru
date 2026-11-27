@@ -215,14 +215,20 @@ function createApp({ config, pool, sessionStore, customerMailer, oauthClient = n
     const isLoopback = remoteAddr === "127.0.0.1" || remoteAddr === "::1" || remoteAddr === "::ffff:127.0.0.1";
     const cfConnectingIp = String(req.headers["cf-connecting-ip"] || "").trim();
     const cfRay = String(req.headers["cf-ray"] || "").trim();
-    const trustCfLoopback = String(config?.TRUST_CLOUDFLARE_LOOPBACK ?? process.env.TRUST_CLOUDFLARE_LOOPBACK ?? "true").trim().toLowerCase() !== "false";
+    const rawTrustCf = config?.TRUST_CLOUDFLARE_LOOPBACK ?? process.env.TRUST_CLOUDFLARE_LOOPBACK;
     const trustLocalXff = String(config?.TRUST_LOCAL_X_FORWARDED_FOR ?? process.env.TRUST_LOCAL_X_FORWARDED_FOR ?? "false").trim().toLowerCase() === "true";
+    // SEC-07: When TRUST_LOCAL_X_FORWARDED_FOR=true (non-Cloudflare local proxy), do not trust spoofable CF headers unless explicitly enabled,
+    // and extract the rightmost proxy-appended IP hop instead of the client-spoofable leftmost hop.
+    const trustCfLoopback = rawTrustCf !== undefined
+      ? String(rawTrustCf).trim().toLowerCase() !== "false"
+      : !trustLocalXff;
     if (isLoopback && trustCfLoopback && cfConnectingIp && CF_RAY_RE.test(cfRay) && net.isIP(cfConnectingIp)) {
       req.headers["x-forwarded-for"] = cfConnectingIp;
     } else if (isLoopback && trustLocalXff && req.headers["x-forwarded-for"]) {
       delete req.headers["cf-connecting-ip"];
-      const firstHop = String(req.headers["x-forwarded-for"]).split(",")[0].trim();
-      if (net.isIP(firstHop)) req.headers["x-forwarded-for"] = firstHop;
+      const hops = String(req.headers["x-forwarded-for"]).split(",").map((s) => s.trim()).filter(Boolean);
+      const rightmostHop = hops.length ? hops[hops.length - 1] : "";
+      if (net.isIP(rightmostHop)) req.headers["x-forwarded-for"] = rightmostHop;
       else delete req.headers["x-forwarded-for"];
     } else if ((config?.NODE_ENV || process.env.NODE_ENV) === "production") {
       delete req.headers["cf-connecting-ip"];

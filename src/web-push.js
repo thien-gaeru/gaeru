@@ -157,7 +157,7 @@ async function sendWebPushNotification(subscription, payload, vapidConfig, fetch
   }
 
   const { assertSafePushEndpoint } = require('./audit-fixes/push-url-guard');
-  const { url: endpointUrl } = await assertSafePushEndpoint(subscription.endpoint, {
+  const { url: endpointUrl, addresses } = await assertSafePushEndpoint(subscription.endpoint, {
     allowUnresolvedForMockFetch: fetchImpl !== globalThis.fetch
   });
   const audience = endpointUrl.origin;
@@ -165,27 +165,69 @@ async function sendWebPushNotification(subscription, payload, vapidConfig, fetch
 
   const payloadString = typeof payload === 'string' ? payload : JSON.stringify(payload);
   const body = encryptWebPushPayload(Buffer.from(payloadString, 'utf8'), subscription.keys);
+  const headers = {
+    Authorization: `vapid t=${jwt}, k=${publicKey}`,
+    'Content-Type': 'application/octet-stream',
+    'Content-Encoding': 'aes128gcm',
+    'Content-Length': String(body.length),
+    TTL: '86400',
+    Urgency: 'high'
+  };
 
-  const response = await fetchImpl(endpointUrl.toString(), {
-    method: 'POST',
-    redirect: 'manual',
-    headers: {
-      Authorization: `vapid t=${jwt}, k=${publicKey}`,
-      'Content-Type': 'application/octet-stream',
-      'Content-Encoding': 'aes128gcm',
-      'Content-Length': String(body.length),
-      TTL: '86400',
-      Urgency: 'high'
-    },
-    body,
-    signal: AbortSignal.timeout(12000)
-  });
+  let status = 0;
+  // SEC-06: When using live network (globalThis.fetch), connect directly to the validated IP
+  // via node:https with SNI servername + Host header to eliminate DNS-rebinding TOCTOU completely.
+  if (fetchImpl === globalThis.fetch && Array.isArray(addresses) && addresses.length > 0) {
+    const https = require('node:https');
+    const net = require('node:net');
+    const pinnedIp = addresses[0];
+    const family = net.isIP(pinnedIp);
+    status = await new Promise((resolve, reject) => {
+      const req = https.request(
+        {
+          host: pinnedIp,
+          port: 443,
+          family: family || undefined,
+          servername: endpointUrl.hostname,
+          path: endpointUrl.pathname + endpointUrl.search,
+          method: 'POST',
+          headers: {
+            ...headers,
+            Host: endpointUrl.host
+          },
+          timeout: 12000
+        },
+        (res) => {
+          res.resume();
+          res.on('end', () => resolve(Number(res.statusCode || 0)));
+          res.on('error', reject);
+        }
+      );
+      req.on('timeout', () => {
+        req.destroy(new Error('Web Push request timeout'));
+      });
+      req.on('error', reject);
+      req.end(body);
+    });
+  } else {
+    const response = await fetchImpl(endpointUrl.toString(), {
+      method: 'POST',
+      redirect: 'manual',
+      headers,
+      body,
+      signal: AbortSignal.timeout(12000)
+    });
+    status = Number(response?.status || 0);
+    try {
+      await response?.body?.cancel?.();
+    } catch (_) {}
+  }
 
-  const gone = response.status === 404 || response.status === 410;
-  const ok = response.status >= 200 && response.status < 300;
+  const gone = status === 404 || status === 410;
+  const ok = status >= 200 && status < 300;
   return {
     ok,
-    status: response.status,
+    status,
     gone
   };
 }

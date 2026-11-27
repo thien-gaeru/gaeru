@@ -108,6 +108,71 @@ async function getOrderRefundLedger(client, order, { lock = false, receivedVnd =
   };
 }
 
+async function finalizeSucceededMomoRefundEffects(client, { orderId, actor = null, refundId = null }) {
+  const order = (await client.query(
+    `SELECT id, order_number, customer_id, total_vnd, payment_status, return_completed_at
+     FROM orders WHERE id = $1 FOR UPDATE`,
+    [orderId]
+  )).rows[0];
+  if (!order || order.return_completed_at) return { loyaltyRefund: null, revokedWarranties: 0 };
+
+  const attempt = (await client.query(
+    `SELECT amount_vnd FROM payment_attempts
+     WHERE order_id = $1 AND provider = 'momo' AND status = 'paid'
+     ORDER BY updated_at DESC, created_at DESC LIMIT 1`,
+    [orderId]
+  )).rows[0];
+  const paidBaseVnd = Number(attempt?.amount_vnd || order.total_vnd || 0);
+  const ledger = await getOrderRefundLedger(client, order, { lock: true, receivedVnd: paidBaseVnd });
+
+  let loyaltyRefund = null;
+  let cashRecoveredEarnVnd = 0;
+  if (order.customer_id) {
+    const { previewEarnClawback, refundPoints } = require('./loyalty-api');
+    const preview = await previewEarnClawback(client, { customerId: order.customer_id, orderId: order.id, lock: true });
+    const shortfall = Math.max(0, Number(preview?.shortfallPoints || 0));
+    cashRecoveredEarnVnd = Math.min(shortfall, Math.max(0, paidBaseVnd - ledger.succeededMomoVnd - ledger.manualSettledVnd));
+    const isFullRefund = paidBaseVnd > 0 && (ledger.succeededMomoVnd + ledger.manualSettledVnd + cashRecoveredEarnVnd) >= paidBaseVnd;
+    if (preview.earnToRevoke > 0 || (isFullRefund && preview.pendingRedeemRefund > 0)) {
+      loyaltyRefund = await refundPoints(client, {
+        customerId: order.customer_id,
+        orderId: order.id,
+        reason: `Hoàn tiền cổng MoMo cho đơn #${order.order_number}`,
+        actor: actor || { username: 'momo', source: 'payment_gateway' },
+        cashRecoveredEarnVnd,
+        revokeEarnOnly: !isFullRefund
+      });
+    }
+  }
+
+  let revokedWarranties = 0;
+  const isFullRefund = paidBaseVnd > 0 && (ledger.succeededMomoVnd + ledger.manualSettledVnd + cashRecoveredEarnVnd) >= paidBaseVnd;
+  if (isFullRefund) {
+    await client.query('SAVEPOINT sp_momo_revoke_warranty');
+    try {
+      const revoked = await client.query(
+        `UPDATE warranty_activations
+         SET status = 'revoked',
+             reason = COALESCE(NULLIF(reason, ''), 'Thu hồi tự động do hoàn tiền toàn bộ đơn hàng qua MoMo'),
+             version = version + 1,
+             updated_at = now()
+         WHERE automatic = true
+           AND withdrawn_at IS NULL
+           AND status IN ('pending', 'active')
+           AND order_item_id IN (SELECT id FROM order_items WHERE order_id = $1)
+         RETURNING id`,
+        [order.id]
+      );
+      revokedWarranties = revoked.rows.length;
+      await client.query('RELEASE SAVEPOINT sp_momo_revoke_warranty');
+    } catch (wErr) {
+      await client.query('ROLLBACK TO SAVEPOINT sp_momo_revoke_warranty').catch(() => {});
+      if (wErr?.code !== '42P01') throw wErr;
+    }
+  }
+  return { loyaltyRefund, revokedWarranties, refundId };
+}
+
 /**
  * 3-Phase Non-Blocking MoMo Refund:
  * Phase 1: Validate order/attempt/remaining amount, reserve row with status='pending_provider' & commit.
@@ -287,6 +352,10 @@ async function initiateMomoRefund(pool, config, {
       return formatRefundRow(authoritative);
     }
 
+    if (nextStatus === 'succeeded') {
+      await finalizeSucceededMomoRefundEffects(client, { orderId: phase1.orderId, actor, refundId: phase1.refund.id });
+    }
+
     await audit(client, {
       actor: actor || { username: 'owner', source: 'admin' },
       action: 'payment.momo.refund',
@@ -378,6 +447,10 @@ async function queryMomoRefundStatus(pool, config, refundId, { actor = null, fet
         completedAt
       ]
     )).rows[0];
+
+    if (nextStatus === 'succeeded') {
+      await finalizeSucceededMomoRefundEffects(client, { orderId: locked.order_id, actor, refundId: locked.id });
+    }
 
     await audit(client, {
       actor: actor || { username: 'momo', source: 'payment_gateway' },

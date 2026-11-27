@@ -172,6 +172,7 @@ function createAdminNotifications(pool,config){
       const {endpoint,keys}=parsed.data;
       try{await assertSafePushEndpoint(endpoint);}catch(err){return res.status(400).json({error:err.message||'Endpoint Web Push không hợp lệ.'});}
       const ua=String(req.get('user-agent')||'').slice(0,500);
+      const accKey=accountKey(req.admin);
       await pool.query(
         `INSERT INTO admin_push_subscriptions(account_key,endpoint,p256dh,auth,user_agent,updated_at)
          VALUES($1,$2,$3,$4,$5,now())
@@ -181,7 +182,19 @@ function createAdminNotifications(pool,config){
            auth=EXCLUDED.auth,
            user_agent=EXCLUDED.user_agent,
            updated_at=now()`,
-        [accountKey(req.admin),endpoint,keys.p256dh,keys.auth,ua]
+        [accKey,endpoint,keys.p256dh,keys.auth,ua]
+      );
+      // SEC-06: Cap push subscriptions per admin account (keep 20 most recent) to prevent DB/fanout amplification
+      await pool.query(
+        `DELETE FROM admin_push_subscriptions
+         WHERE account_key=$1
+           AND endpoint NOT IN (
+             SELECT endpoint FROM admin_push_subscriptions
+             WHERE account_key=$1
+             ORDER BY updated_at DESC, endpoint ASC
+             LIMIT 20
+           )`,
+        [accKey]
       );
       res.json({ok:true,message:'Đã đăng ký nhận thông báo đẩy.'});
     }catch(e){next(e);}

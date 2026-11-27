@@ -60,6 +60,17 @@ async function restoreOrder(client,{id,data,actor,inventory=require('./inventory
   }
  }
  await inventory.restoreOrderStock(client,{orderId:id,items:raw,requestKey:data.requestKey,actor});
+ if(order.payment_method==='bank_transfer'&&order.total_vnd!==null&&Number(order.total_vnd)>0){
+  const totalVnd=Number(order.total_vnd);
+  const existingPending=await client.query("UPDATE payment_attempts SET amount_vnd=$2,expires_at=GREATEST(expires_at,now()+interval '24 hours'),updated_at=now() WHERE order_id=$1 AND provider='bank_transfer' AND status='pending'",[id,totalVnd]);
+  if(!existingPending.rowCount){
+   const reopened=await client.query(`UPDATE payment_attempts SET status='pending',amount_vnd=$2,expires_at=GREATEST(expires_at,now()+interval '24 hours'),updated_at=now() WHERE id=(SELECT id FROM payment_attempts WHERE order_id=$1 AND provider='bank_transfer' AND status='failed' ORDER BY updated_at DESC,created_at DESC LIMIT 1)`,[id,totalVnd]);
+   if(!reopened.rowCount){
+    const txRef=`${order.order_number||id.slice(0,8)}-BT-${require('node:crypto').randomBytes(3).toString('hex').toUpperCase()}`;
+    await client.query(`INSERT INTO payment_attempts(order_id,provider,transaction_ref,amount_vnd,status,expires_at) VALUES($1,'bank_transfer',$2,$3,'pending',now()+interval '24 hours')`,[id,txRef,totalVnd]);
+   }
+  }
+ }
  const restored=(await client.query("UPDATE orders SET status='pending',updated_at=now() WHERE id=$1 RETURNING id,order_number AS \"orderNumber\",status,payment_status AS \"paymentStatus\",management_version AS version",[id])).rows[0];
  await audit(client,{actor,action:'order.restore',entityType:'order',entityId:id,before:{status:'cancelled',version:order.management_version},after:restored,metadata:{requestKey:data.requestKey,reason:data.reason,confirmedUnpaid:true}});
  await client.query('INSERT INTO order_restoration_requests(request_key,order_id,request_hash,result,actor_username) VALUES($1,$2,$3,$4,$5)',[data.requestKey,id,hash,JSON.stringify(restored),actor.username]);

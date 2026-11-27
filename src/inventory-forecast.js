@@ -646,11 +646,59 @@ async function createPurchaseOrderFromForecast(pool, {
   }
   supplierId = assertUuid(supplierId, 'Mã nhà cung cấp không hợp lệ.');
   warehouseId = assertUuid(warehouseId, 'Mã kho nhận hàng không hợp lệ.');
-  if (!Array.isArray(items) || !items.length) {
-    throw Object.assign(new Error('Danh sách đặt hàng không được để trống.'), { status: 400 });
+  if (!Array.isArray(items) || !items.length || items.length > 500) {
+    throw Object.assign(new Error('Danh sách đặt hàng không được để trống (tối đa 500 dòng).'), { status: 400 });
+  }
+  if (reference !== undefined && reference !== null && typeof reference !== 'string') {
+    throw Object.assign(new Error('Mã tham chiếu đơn mua hàng phải là chuỗi văn bản.'), { status: 400 });
+  }
+  if (note !== undefined && note !== null && typeof note !== 'string') {
+    throw Object.assign(new Error('Ghi chú đơn mua hàng phải là chuỗi văn bản.'), { status: 400 });
+  }
+  const cleanReference = String(reference || '').trim().slice(0, 200);
+  const cleanNote = (String(note || '').trim() || 'Tự động tạo từ dự báo tồn kho & ROP').slice(0, 1000);
+
+  // Deduplicate & validate items BEFORE opening DB transaction (COM-08: prevent 500/22P02 & overflow)
+  const MAX_QTY = 1_000_000;
+  const MAX_COST_VND = 9_000_000_000_000;
+  const mergedMap = new Map();
+  for (const rawItem of items) {
+    if (!rawItem || typeof rawItem !== 'object') {
+      throw Object.assign(new Error('Mục sản phẩm đặt hàng không hợp lệ.'), { status: 400 });
+    }
+    const variantId = assertUuid(rawItem.variantId, 'Mã phiên bản sản phẩm không hợp lệ.');
+    const qty = Number(rawItem.quantity);
+    if (!Number.isSafeInteger(qty) || qty <= 0 || qty > MAX_QTY) {
+      throw Object.assign(new Error('Số lượng đặt hàng phải là số nguyên dương từ 1 đến 1.000.000.'), { status: 400 });
+    }
+    let parsedUnitCost = undefined;
+    if (rawItem.unitCostVnd !== undefined && rawItem.unitCostVnd !== null && rawItem.unitCostVnd !== '') {
+      const c = Number(rawItem.unitCostVnd);
+      if (!Number.isSafeInteger(c) || c < 0 || c > MAX_COST_VND) {
+        throw Object.assign(new Error('Đơn giá nhập dự kiến không hợp lệ hoặc vượt giới hạn cho phép.'), { status: 400 });
+      }
+      parsedUnitCost = c;
+    }
+    const prev = mergedMap.get(variantId);
+    if (prev) {
+      if (prev.quantity + qty > MAX_QTY) {
+        throw Object.assign(new Error('Tổng số lượng của một phiên bản vượt giới hạn 1.000.000.'), { status: 400 });
+      }
+      prev.quantity += qty;
+      if (parsedUnitCost !== undefined) prev.unitCostVnd = parsedUnitCost;
+    } else {
+      mergedMap.set(variantId, {
+        variantId,
+        quantity: qty,
+        unitCostVnd: parsedUnitCost
+      });
+    }
+  }
+  if (!mergedMap.size) {
+    throw Object.assign(new Error('Danh sách đặt hàng không có sản phẩm hợp lệ.'), { status: 400 });
   }
 
-  return await withTransaction(pool, async (client) => {
+  const created = await withTransaction(pool, async (client) => {
     // 1. Verify supplier
     const supplier = (await client.query(
       `SELECT id, name FROM suppliers WHERE id = $1 AND active = true`,
@@ -665,7 +713,8 @@ async function createPurchaseOrderFromForecast(pool, {
     )).rows[0];
     if (!warehouse) throw Object.assign(new Error('Kho hàng không tồn tại hoặc đã ngừng hoạt động.'), { status: 404 });
 
-    // 3. Generate collision-safe PO number
+    // 3. Serialize PO number generation across concurrent transactions (COM-08: eliminate 23505 race)
+    await client.query("SELECT pg_advisory_xact_lock(hashtext('gaeru:purchase-order-number'))");
     const countResult = (await client.query(`SELECT COUNT(*)::integer AS total FROM purchase_orders`)).rows[0];
     let nextNum = (Number(countResult?.total) || 0) + 1;
     const currentYear = new Date().getFullYear();
@@ -679,27 +728,7 @@ async function createPurchaseOrderFromForecast(pool, {
         : `PO-${currentYear}-${String(nextNum).padStart(5, '0')}`;
     }
 
-    // 4. Deduplicate items by variantId & calculate total
-    const mergedMap = new Map();
-    for (const rawItem of items) {
-      if (!rawItem?.variantId) continue;
-      const qty = parseInt(rawItem.quantity, 10);
-      if (!Number.isSafeInteger(qty) || qty <= 0) continue;
-      const prev = mergedMap.get(rawItem.variantId);
-      if (prev) {
-        prev.quantity += qty;
-        if (rawItem.unitCostVnd !== undefined && rawItem.unitCostVnd !== null) {
-          prev.unitCostVnd = rawItem.unitCostVnd;
-        }
-      } else {
-        mergedMap.set(rawItem.variantId, {
-          variantId: rawItem.variantId,
-          quantity: qty,
-          unitCostVnd: rawItem.unitCostVnd
-        });
-      }
-    }
-
+    // 4. Resolve variants & validate totals against DB bounds
     let totalVnd = 0;
     const validatedItems = [];
 
@@ -716,11 +745,13 @@ async function createPurchaseOrderFromForecast(pool, {
       if (!variant) continue;
 
       const qty = item.quantity;
-      const rawUnitCost = item.unitCostVnd !== undefined && item.unitCostVnd !== null ? parseInt(item.unitCostVnd, 10) : NaN;
-      const unitCost = Number.isSafeInteger(rawUnitCost) && rawUnitCost >= 0
-        ? rawUnitCost
+      const unitCost = item.unitCostVnd !== undefined
+        ? item.unitCostVnd
         : (Number(variant.costPriceVnd) || Math.round(Number(variant.priceVnd) * 0.6) || 0);
       const lineTotal = qty * unitCost;
+      if (!Number.isSafeInteger(lineTotal) || lineTotal < 0 || lineTotal > MAX_COST_VND || totalVnd + lineTotal > MAX_COST_VND) {
+        throw Object.assign(new Error('Tổng giá trị đơn mua hàng vượt giới hạn xử lý an toàn.'), { status: 400 });
+      }
       totalVnd += lineTotal;
 
       validatedItems.push({
@@ -738,18 +769,20 @@ async function createPurchaseOrderFromForecast(pool, {
       throw Object.assign(new Error('Không có sản phẩm hợp lệ để lập đơn mua.'), { status: 400 });
     }
 
-    // 5. Insert purchase order
+    // 5. Insert purchase order (populate submitted_by metadata for submitted status)
+    const rawActorId = typeof actor?.id === 'string' ? actor.id.trim() : '';
+    const actorId = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(rawActorId) ? rawActorId : null;
+    const actorUsername = String(actor?.username || 'system');
     const po = (await client.query(
       `INSERT INTO purchase_orders (
          number, supplier_id, warehouse_id, supplier_name, reference, note,
-         status, total_vnd, created_by, created_by_username
+         status, total_vnd, created_by, created_by_username, submitted_by, submitted_by_username
        )
-       VALUES ($1, $2, $3, $4, $5, $6, 'submitted', $7, $8, $9)
+       VALUES ($1, $2, $3, $4, $5, $6, 'submitted', $7, $8, $9, $8, $9)
        RETURNING id, number, status, total_vnd AS "totalVnd", created_at AS "createdAt"`,
       [
-        poNumber, supplierId, warehouseId, supplier.name, reference.trim(),
-        (note || 'Tự động tạo từ dự báo tồn kho & ROP').trim(),
-        totalVnd, actor?.id || null, actor?.username || 'system'
+        poNumber, supplierId, warehouseId, supplier.name, cleanReference,
+        cleanNote, totalVnd, actorId, actorUsername
       ]
     )).rows[0];
 
@@ -765,9 +798,14 @@ async function createPurchaseOrderFromForecast(pool, {
       );
     }
 
-    // Invalidate cache across workers
-    invalidateForecastCache(warehouseId);
-    invalidateForecastCache('all');
+    const { appendAudit } = require('./audit');
+    await appendAudit(client, {
+      actor: actor || { username: actorUsername, source: 'system' },
+      action: 'purchase_order.create_from_forecast',
+      entityType: 'purchase_order',
+      entityId: po.id,
+      after: { number: po.number, supplierId, warehouseId, totalVnd, itemsCount: validatedItems.length }
+    });
 
     return {
       purchaseOrder: po,
@@ -776,6 +814,11 @@ async function createPurchaseOrderFromForecast(pool, {
       message: `Đã tạo đơn mua hàng ${po.number} thành công từ gợi ý ROP.`
     };
   });
+
+  // Invalidate cache across workers ONLY AFTER transaction commits
+  invalidateForecastCache(warehouseId);
+  invalidateForecastCache('all');
+  return created;
 }
 
 /**

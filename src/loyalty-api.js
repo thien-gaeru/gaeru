@@ -336,6 +336,30 @@ async function earnPoints(client, { customerId, orderId, orderTotalVnd, pointsRa
   };
 }
 
+async function getPendingRefundLockedEarnPoints(client, customerId) {
+  if (!customerId) return 0;
+  const reg = (await client.query("SELECT to_regclass('public.momo_refunds') AS tbl")).rows[0];
+  if (!reg?.tbl) return 0;
+  const row = (await client.query(
+    `SELECT COALESCE(SUM(ABS(l.points::bigint)), 0)::bigint AS locked
+     FROM customer_loyalty_ledger l
+     WHERE l.customer_id = $1
+       AND l.type = 'earn'
+       AND l.order_id IS NOT NULL
+       AND EXISTS (
+         SELECT 1 FROM momo_refunds r
+         WHERE r.order_id = l.order_id
+           AND r.status IN ('pending_provider', 'pending', 'ambiguous')
+       )
+       AND NOT EXISTS (
+         SELECT 1 FROM customer_loyalty_ledger rv
+         WHERE rv.event_key = 'refund-earn:' || l.order_id::text
+       )`,
+    [customerId]
+  )).rows[0];
+  return Math.max(0, Number(row?.locked || 0));
+}
+
 async function redeemPoints(client, { customerId, orderId, pointsToRedeem, maxRedeemRatio = 0.5, orderTotalVnd, maxPayableVnd, cycleKey = null, alreadyReservedPoints = 0, reason, actor }) {
   if (!customerId) throw fail('Khách hàng cần đăng nhập để sử dụng GAERU Xu.', 401);
   let redeemAmount = Number(pointsToRedeem) || 0;
@@ -371,13 +395,20 @@ async function redeemPoints(client, { customerId, orderId, pointsToRedeem, maxRe
   }
 
   const loyalty = await getOrCreateLoyalty(client, customerId);
+  const refundLocked = await getPendingRefundLockedEarnPoints(client, customerId);
+  const spendableBalance = Math.max(0, loyalty.pointsBalance - refundLocked);
   const reserved = Math.max(0, Number(alreadyReservedPoints) || 0);
-  const availableWithReserve = loyalty.pointsBalance + reserved;
+  const availableWithReserve = spendableBalance + reserved;
   if (availableWithReserve < redeemAmount) {
-    throw fail(`Số dư GAERU Xu không đủ (Hiện có: ${availableWithReserve} Xu, yêu cầu: ${redeemAmount} Xu).`, 409);
+    throw fail(
+      refundLocked > 0
+        ? `Số dư GAERU Xu khả dụng không đủ (${availableWithReserve} Xu khả dụng, ${refundLocked} Xu đang tạm khóa chờ đối soát hoàn tiền MoMo).`
+        : `Số dư GAERU Xu không đủ (Hiện có: ${availableWithReserve} Xu, yêu cầu: ${redeemAmount} Xu).`,
+      409
+    );
   }
 
-  const newBalance = availableWithReserve - redeemAmount;
+  const newBalance = loyalty.pointsBalance + reserved - redeemAmount;
   const newLifetimeSpent = loyalty.lifetimeSpent + redeemAmount;
 
   await client.query(
@@ -409,7 +440,7 @@ async function redeemPoints(client, { customerId, orderId, pointsToRedeem, maxRe
   return { success: true, existing: false, redeemedPoints: redeemAmount, discountVnd: redeemAmount, balanceAfter: newBalance, ledgerId: entry.rows[0].id };
 }
 
-async function refundPoints(client, { customerId, orderId, reason = 'Hoàn trả do đơn hủy hoặc trả hàng', actor, cashRecoveredEarnVnd = 0 }) {
+async function refundPoints(client, { customerId, orderId, reason = 'Hoàn trả do đơn hủy hoặc trả hàng', actor, cashRecoveredEarnVnd = 0, revokeEarnOnly = false }) {
   if (!customerId || !orderId) return { success: false, reason: 'Thiếu thông tin' };
 
   let refundedRedeem = 0;
@@ -439,11 +470,11 @@ async function refundPoints(client, { customerId, orderId, reason = 'Hoàn trả
   const pointsToRefund = Math.max(0, Number(redeemAgg?.totalRedeemed || 0) - Number(redeemAgg?.totalRefunded || 0));
   const pointsToRevoke = earnEntry.rows.reduce((sum, r) => sum + Math.abs(r.points || 0), 0);
 
-  let loyalty = (pointsToRefund > 0 || pointsToRevoke > 0)
+  let loyalty = ((!revokeEarnOnly && pointsToRefund > 0) || pointsToRevoke > 0)
     ? await getOrCreateLoyalty(client, customerId)
     : null;
 
-  if (pointsToRefund > 0) {
+  if (!revokeEarnOnly && pointsToRefund > 0) {
     const refundCount = redeemAgg?.refundCount || 0;
     const refundEventKey = refundCount === 0 ? `refund-redeem:${orderId}` : `refund-redeem:${orderId}:${refundCount + 1}`;
     const checkRefund = await client.query('SELECT id FROM customer_loyalty_ledger WHERE event_key = $1', [refundEventKey]);
@@ -897,6 +928,7 @@ module.exports = {
   redeemPoints,
   refundPoints,
   previewEarnClawback,
+  getPendingRefundLockedEarnPoints,
   adjustPoints,
   calculateTier, DEFAULT_POLICY, readPolicy, tierBenefits, policySchema
 };
