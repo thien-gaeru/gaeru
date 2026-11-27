@@ -50,6 +50,51 @@ function Get-NewestBackupFile([string]$Dir, [string]$Filter) {
     return $file.FullName
 }
 
+function Test-Sha256CompanionValid([string]$FilePath) {
+    if (-not (Test-Path -LiteralPath $FilePath -PathType Leaf)) { return $false }
+    if ((Get-Item -LiteralPath $FilePath).Length -le 0) { return $false }
+    try {
+        Assert-Sha256Companion -FilePath $FilePath | Out-Null
+        return $true
+    } catch {
+        return $false
+    }
+}
+
+function Get-LatestCompletePgBackupSet([string]$Dir) {
+    $dumps = Get-ChildItem -LiteralPath $Dir -Filter "gaeru_store-20*.dump.gpg" -File -ErrorAction SilentlyContinue |
+        Where-Object { $_.Name -notmatch '-latest\.' -and $_.Name -notmatch '\.sha256$' -and $_.Name -notmatch '-globals-' } |
+        Sort-Object @{ Expression = { $_.Name }; Descending = $true }, @{ Expression = { $_.LastWriteTime }; Descending = $true }
+    foreach ($dump in $dumps) {
+        if ($dump.Name -notmatch '^gaeru_store-(20.+)\.dump\.gpg$') { continue }
+        $stamp = $Matches[1]
+        $sqlPath = Join-Path $Dir "gaeru_store-${stamp}.sql.gz.gpg"
+        $globalsPath = Join-Path $Dir "gaeru_store-globals-${stamp}.sql.gz.gpg"
+        if ((Test-Sha256CompanionValid $dump.FullName) -and (Test-Sha256CompanionValid $sqlPath)) {
+            $validGlobals = if (Test-Sha256CompanionValid $globalsPath) { $globalsPath } else { $null }
+            return @{
+                Stamp = $stamp
+                DumpFile = $dump.FullName
+                SqlFile = $sqlPath
+                GlobalsFile = $validGlobals
+            }
+        }
+    }
+    throw "No complete, SHA-256 verified PostgreSQL backup set (matching <STAMP> .dump.gpg + .sql.gz.gpg + .sha256) found in $Dir"
+}
+
+function Get-LatestCompleteMediaBackup([string]$Dir) {
+    $archives = Get-ChildItem -LiteralPath $Dir -Filter "gaeru-media-config-*.tar.gz.gpg" -File -ErrorAction SilentlyContinue |
+        Where-Object { $_.Name -notmatch '-latest\.' -and $_.Name -notmatch '\.sha256$' } |
+        Sort-Object @{ Expression = { $_.Name }; Descending = $true }, @{ Expression = { $_.LastWriteTime }; Descending = $true }
+    foreach ($archive in $archives) {
+        if (Test-Sha256CompanionValid $archive.FullName) {
+            return $archive.FullName
+        }
+    }
+    throw "No complete, SHA-256 verified Media backup (.tar.gz.gpg + .sha256) found in $Dir"
+}
+
 function Assert-Sha256Companion([string]$FilePath) {
     $shaFile = "${FilePath}.sha256"
     if (-not (Test-Path -LiteralPath $shaFile)) {
@@ -108,9 +153,10 @@ if ($Mode -eq "VerifyPortable" -or ($Mode -eq "TestDatabaseRestore" -and $Portab
         return
     }
 } else {
-    $newestPg = Get-NewestBackupFile -Dir $pgDir -Filter "gaeru_store-*.dump.gpg"
-    $newestPgSql = Get-NewestBackupFile -Dir $pgDir -Filter "gaeru_store-*.sql.gz.gpg"
-    $newestMedia = Get-NewestBackupFile -Dir $mediaDir -Filter "gaeru-media-config-*.tar.gz.gpg"
+    $pgSet = Get-LatestCompletePgBackupSet -Dir $pgDir
+    $newestPg = $pgSet.DumpFile
+    $newestPgSql = $pgSet.SqlFile
+    $newestMedia = Get-LatestCompleteMediaBackup -Dir $mediaDir
 }
 
 function Protect-TempPath([string]$Path) {

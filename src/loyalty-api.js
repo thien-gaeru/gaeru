@@ -278,7 +278,20 @@ async function earnPoints(client, { customerId, orderId, orderTotalVnd, pointsRa
   const earnBasisPoints = matchedTier ? matchedTier.earnBasisPoints : 100;
   const ratio = pointsRatio === undefined ? earnBasisPoints / 10000 : pointsRatio;
   if (!Number.isFinite(ratio) || ratio < 0 || ratio > 1 || !Number.isSafeInteger(Number(orderTotalVnd)) || Number(orderTotalVnd) < 0) throw fail('Dữ liệu tích Xu không hợp lệ.');
-  const points = Math.floor(Number(orderTotalVnd) * ratio);
+  let effectiveEarnBaseVnd = Number(orderTotalVnd);
+  if (orderId && effectiveEarnBaseVnd > 0) {
+    const refundRes = await client.query(
+      `SELECT COALESCE(SUM(amount_vnd + COALESCE(loyalty_clawback_vnd, 0)), 0)::bigint AS refunded_vnd
+       FROM momo_refunds
+       WHERE order_id = $1 AND status = 'succeeded'`,
+      [orderId]
+    );
+    const refundedVnd = Number(refundRes?.rows?.[0]?.refunded_vnd || 0);
+    if (refundedVnd > 0) {
+      effectiveEarnBaseVnd = Math.max(0, effectiveEarnBaseVnd - refundedVnd);
+    }
+  }
+  const points = Math.floor(effectiveEarnBaseVnd * ratio);
   if (points <= 0) return { success: true, earnedPoints: 0 };
   const newBalance = loyalty.pointsBalance + points;
   const newLifetimeEarned = loyalty.lifetimeEarned + points;

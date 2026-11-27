@@ -420,21 +420,50 @@ function createApp({ config, pool, sessionStore, customerMailer, oauthClient = n
       const sessionCustomer = req.session?.customer;
       if (!sessionCustomer?.id) return res.status(401).json({ error: 'Chưa đăng nhập' });
       const fresh = (await pool.query(
-        'SELECT id, full_name AS "fullName", email, phone, email_verified_at IS NOT NULL AS "emailVerified" FROM customers WHERE id = $1 AND active = true AND deleted_at IS NULL',
+        `SELECT id, full_name AS "fullName", email, phone,
+                email_verified_at IS NOT NULL AS "emailVerified",
+                phone_invalid_at AS "phoneInvalidAt", created_at AS "createdAt",
+                google_id AS "googleId", reg_email_failed_at AS "regEmailFailedAt"
+         FROM customers WHERE id = $1 AND active = true AND deleted_at IS NULL`,
         [sessionCustomer.id]
       )).rows[0];
       if (!fresh) {
         delete req.session.customer;
         return res.status(401).json({ error: 'Chưa đăng nhập' });
       }
-      req.session.customer = fresh;
-      res.json({
+      const { checkCustomerPhoneStatus, checkCustomerRegEmailStatus, autoLockAccount } = require('./customer-lifecycle');
+      const phoneStatus = checkCustomerPhoneStatus({
+        phone: fresh.phone,
+        phone_invalid_at: fresh.phoneInvalidAt,
+        created_at: fresh.createdAt
+      });
+      if (phoneStatus.isExpired) {
+        try { await autoLockAccount(pool, fresh.id, 'invalid_phone_timeout'); } catch (_) {}
+        delete req.session.customer;
+        return res.status(401).json({ error: 'Tài khoản đã bị tự động khóa do chưa cập nhật số điện thoại hợp lệ trong vòng 12 giờ.' });
+      }
+      const regEmailStatus = checkCustomerRegEmailStatus({
+        google_id: fresh.googleId,
+        reg_email_failed_at: fresh.regEmailFailedAt
+      });
+      if (regEmailStatus.isExpired) {
+        try { await autoLockAccount(pool, fresh.id, 'reg_email_failed_timeout'); } catch (_) {}
+        delete req.session.customer;
+        return res.status(401).json({ error: 'Tài khoản đã bị tự động khóa do không thể gửi email thông báo đăng ký trong vòng 12 giờ.' });
+      }
+      const publicCustomer = {
         id: fresh.id,
-        displayName: fresh.fullName || fresh.email,
         fullName: fresh.fullName,
         email: fresh.email,
         phone: fresh.phone,
         emailVerified: Boolean(fresh.emailVerified)
+      };
+      req.session.customer = publicCustomer;
+      res.json({
+        ...publicCustomer,
+        displayName: fresh.fullName || fresh.email,
+        ...(phoneStatus.isWarning ? { phoneWarning: true, phoneWarningRemainingHours: phoneStatus.remainingHours } : {}),
+        ...(regEmailStatus.isWarning ? { regEmailWarning: true, regEmailWarningRemainingHours: regEmailStatus.remainingHours } : {})
       });
     } catch (e) {
       next(e);

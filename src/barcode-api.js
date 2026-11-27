@@ -530,6 +530,7 @@ async function receiveByBarcode(pool, { code, warehouseId, quantity, reason = "N
     return payloadResult;
   });
   try { require('./cache').flushAllCache(); } catch {}
+  try { require('./inventory-forecast').invalidateForecastCache(''); } catch {}
   return result;
 }
 
@@ -647,6 +648,7 @@ async function countByBarcode(pool, { code, warehouseId, actualQuantity, reason 
   });
   if (result.delta !== 0) {
     try { require('./cache').flushAllCache(); } catch {}
+    try { require('./inventory-forecast').invalidateForecastCache(''); } catch {}
   }
   return result;
 }
@@ -863,7 +865,7 @@ async function dispatchByBarcode(pool, { orderId, trackingCode = null, actor = n
 
     await client.query(`
       UPDATE orders
-      SET status = 'shipped', updated_at = now()
+      SET status = 'shipped', confirmed_at = COALESCE(confirmed_at, now()), updated_at = now()
       WHERE id = $1 AND status IN ('pending', 'confirmed', 'processing')
     `, [normOrderId]);
 
@@ -901,6 +903,7 @@ async function dispatchByBarcode(pool, { orderId, trackingCode = null, actor = n
     };
   });
   try { require('./cache').flushAllCache(); } catch {}
+  try { require('./inventory-forecast').invalidateForecastCache(''); } catch {}
   return dispatchResult;
 }
 

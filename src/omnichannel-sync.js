@@ -56,10 +56,13 @@ async function resolveVariantForSku(client, channel, shopId, externalSku) {
   );
   if (mapped.rows.length) return mapped.rows[0].variantId;
 
-  // 2. Fallback to exact SKU in product_variants
+  // 2. Fallback to exact SKU in product_variants (excluding soft-deleted products)
   const direct = await client.query(
-    `SELECT id AS "variantId" FROM product_variants
-     WHERE lower(sku) = lower($1) AND active = true LIMIT 1`,
+    `SELECT v.id AS "variantId"
+     FROM product_variants v
+     JOIN products p ON p.id = v.product_id
+     WHERE lower(v.sku) = lower($1) AND v.active = true AND p.deleted_at IS NULL
+     LIMIT 1`,
     [String(externalSku).trim()]
   );
   if (direct.rows.length) return direct.rows[0].variantId;
@@ -426,7 +429,8 @@ async function handleMarketplaceWebhook() {
 // -----------------------------------------------------------------------------
 async function recordSync(pool,channel,type,result,actor) {
   const summary={syncedCount:result.syncedCount||0,updatedCount:result.updatedCount||0,failedCount:result.failedCount||0,skippedCount:result.skippedCount||0};
-  await pool.query(`INSERT INTO marketplace_sync_events(channel,event_type,event_key,payload,processed,error_message) VALUES($1,$2,$3,$4,$5,$6)`,[channel,type,'manual:'+randomUUID(),JSON.stringify(summary),result.success!==false,result.success===false?'Một hoặc nhiều mục chưa đồng bộ; xem chi tiết kết quả.':null]);
+  const errMsg = result.success===false ? (result.errorMessage || 'Một hoặc nhiều mục chưa đồng bộ; xem chi tiết kết quả.') : null;
+  await pool.query(`INSERT INTO marketplace_sync_events(channel,event_type,event_key,payload,processed,error_message) VALUES($1,$2,$3,$4,$5,$6)`,[channel,type,'manual:'+randomUUID(),JSON.stringify(summary),result.success!==false,errMsg]);
   await appendAudit(pool,{actor,action:'marketplace.'+type,entityType:'marketplace',entityId:channel,metadata:summary});
 }
 const inFlightSyncLocks = new Set();
@@ -464,11 +468,19 @@ async function syncMarketplaceOrders(pool, config, channel, { fetcher = fetch, a
     const record=await readRecord(pool,config,channel),creds=account.credentials(channel,record.data);
     const start=Math.floor(Date.now()/1000)-days*86400;const orders=await getConnector(channel).fetchOrders({...account.transportCredentials(channel,creds),timeFrom:start,createTimeFrom:start,createdAfter:new Date(start*1000).toISOString()},{fetcher});
     let syncedCount=0;
-    for(const order of orders){
-      if(!order.externalOrderId||!Array.isArray(order.items)||!order.items.length)throw fail('Sàn chưa trả đầy đủ chi tiết sản phẩm của đơn. Không ghi đơn thiếu dữ liệu.',502);
-      const ingested=await withTransaction(pool,client=>ingestMarketplaceOrder(client,{channel,shopId:creds.shopId,order,autoDeductStock,actor}));
-      if(ingested?.stock_deducted||ingested?.stock_reversed){try{require('./cache').flushAllCache();}catch{}}
-      syncedCount++;
+    try{
+      for(const order of orders){
+        if(!order.externalOrderId||!Array.isArray(order.items)||!order.items.length)throw fail('Sàn chưa trả đầy đủ chi tiết sản phẩm của đơn. Không ghi đơn thiếu dữ liệu.',502);
+        const ingested=await withTransaction(pool,client=>ingestMarketplaceOrder(client,{channel,shopId:creds.shopId,order,autoDeductStock,actor}));
+        if(ingested?.stock_deducted||ingested?.stock_reversed){
+          try{require('./cache').flushAllCache();}catch{}
+          try{require('./inventory-forecast').invalidateForecastCache('');}catch{}
+        }
+        syncedCount++;
+      }
+    }catch(err){
+      await recordSync(pool,channel,'sync_orders',{success:false,channel,syncedCount,failedCount:1,errorMessage:err?.message||'Lỗi đồng bộ đơn hàng từ sàn.'},actor).catch(()=>{});
+      throw err;
     }
     const result={success:true,channel,syncedCount,autoDeductStock,windowDays:days};await recordSync(pool,channel,'sync_orders',result,actor);return result;
   });

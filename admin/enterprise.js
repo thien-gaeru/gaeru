@@ -303,7 +303,7 @@
   async function purchaseEditor() {
     if (!can("purchases.write")) return;
     await lookups({ suppliers: true, warehouses: true, variants: true });
-    showEditor("purchases", `<h2>Lập đơn mua hàng</h2><form class="form-grid" data-e-form="purchase">${select("Nhà cung cấp", "supplierId", '<option value="">Chọn nhà cung cấp</option>' + options(e.lookup.suppliers.filter((item) => item.active !== false)), "required")}${select("Kho nhận hàng", "warehouseId", '<option value="">Chọn kho</option>' + options(e.lookup.warehouses.filter((item) => item.active !== false)), "required")}${field("Số tham chiếu nhà cung cấp", "reference", "", 'maxlength="120"')}${noteField()}<div class="span-all purchase-lines">${purchaseLine()}</div><button class="secondary-button span-all" data-e-add-line type="button">+ Thêm dòng sản phẩm</button>${submit("Lưu bản nháp")}</form>`);
+    showEditor("purchases", `<h2>Lập đơn mua hàng</h2><form class="form-grid" data-e-form="purchase"><input type="hidden" name="requestKey" value="${key()}">${select("Nhà cung cấp", "supplierId", '<option value="">Chọn nhà cung cấp</option>' + options(e.lookup.suppliers.filter((item) => item.active !== false)), "required")}${select("Kho nhận hàng", "warehouseId", '<option value="">Chọn kho</option>' + options(e.lookup.warehouses.filter((item) => item.active !== false)), "required")}${field("Số tham chiếu nhà cung cấp", "reference", "", 'maxlength="120"')}${noteField()}<div class="span-all purchase-lines">${purchaseLine()}</div><button class="secondary-button span-all" data-e-add-line type="button">+ Thêm dòng sản phẩm</button>${submit("Lưu bản nháp")}</form>`);
   }
   async function purchaseDetail(id) {
     const result = await api(`/purchase-orders/${encodeURIComponent(id)}`), order = result.purchaseOrder;
@@ -508,7 +508,7 @@
       const items = [...form.querySelectorAll(".purchase-line")].map((line) => ({ variantId: line.querySelector('[name="variantId"]').value, quantity: Number(line.querySelector('[name="quantity"]').value), unitCostVnd: Number(line.querySelector('[name="unitCostVnd"]').value) }));
       if (!items.length) throw new Error("Thêm ít nhất một dòng sản phẩm.");
       if (new Set(items.map((item) => item.variantId)).size !== items.length) throw new Error("Mỗi phiên bản chỉ nên có một dòng. Gộp số lượng của các dòng trùng SKU.");
-      const result = await api("/purchase-orders", { method: "POST", body: JSON.stringify({ supplierId: values.supplierId, warehouseId: values.warehouseId, reference: values.reference.trim(), note: values.note.trim(), items }) });
+      const result = await api("/purchase-orders", { method: "POST", body: JSON.stringify({ requestKey: values.requestKey, supplierId: values.supplierId, warehouseId: values.warehouseId, reference: values.reference.trim(), note: values.note.trim(), items }) });
       await loadPurchases();
       const id = result.purchaseOrder?.id || result.id;
       if (id) await purchaseDetail(id); else closeEditor(form.closest("[data-e-editor]"), true);

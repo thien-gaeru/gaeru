@@ -437,30 +437,44 @@ function createCustomerAuthRouter(pool, { smtpConfig = null, mailer = createMail
 
       const token = randomBytes(32).toString("base64url");
       const tokenHash = createHash("sha256").update(token).digest("hex");
-      const customer = await withTransaction(pool, async (client) => {
+      const verifyLookup = await withTransaction(pool, async (client) => {
         const customerResult = await client.query(
           `SELECT id, full_name AS "fullName", email
-           FROM customers WHERE id = $1 AND email_verified_at IS NULL
+           FROM customers WHERE id = $1 AND email_verified_at IS NULL AND active = true AND deleted_at IS NULL
            FOR UPDATE`,
           [customerSession.id]
         );
-        const pendingCustomer = customerResult.rows[0];
-        if (!pendingCustomer) return null;
+        const row = customerResult.rows[0];
+        if (!row) {
+          const stateRow = (await client.query(
+            `SELECT id, active, deleted_at AS "deletedAt" FROM customers WHERE id = $1`,
+            [customerSession.id]
+          )).rows[0];
+          if (!stateRow || stateRow.active === false || stateRow.deletedAt) return { inactive: true };
+          return { alreadyVerified: true };
+        }
 
         await client.query(
           `DELETE FROM customer_email_verification_tokens
            WHERE customer_id = $1 AND used_at IS NULL`,
-          [pendingCustomer.id]
+          [row.id]
         );
         await client.query(
           `INSERT INTO customer_email_verification_tokens (customer_id, token_hash, expires_at)
            VALUES ($1, $2, now() + interval '30 minutes')`,
-          [pendingCustomer.id, tokenHash]
+          [row.id, tokenHash]
         );
-        return pendingCustomer;
+        return { customer: row };
       });
 
-      if (!customer) return res.json({ verified: true, message: "Email tài khoản này đã được xác minh." });
+      if (verifyLookup?.inactive) {
+        delete req.session.customer;
+        return res.status(401).json({ error: "Tài khoản không còn hoạt động." });
+      }
+      if (verifyLookup?.alreadyVerified || !verifyLookup?.customer) {
+        return res.json({ verified: true, message: "Email tài khoản này đã được xác minh." });
+      }
+      const customer = verifyLookup.customer;
       const verificationUrl = new URL("/tai-khoan", smtpConfig.publicBaseUrl);
       verificationUrl.hash = "customer-account";
       verificationUrl.searchParams.set("verify", token);

@@ -1402,7 +1402,8 @@ function openOrderProcessing(id,opener){
 
  if (canWrite && order.status === 'pending') {
    if (!order.trackingNumber) {
-     rightActions.push('<button type="button" class="secondary-button" data-create-carrier-waybill="' + escapeHtml(order.id) + '">Tạo vận đơn</button>');
+     const missingShipFee = order.shippingFeeVnd == null || order.totalVnd == null;
+     rightActions.push('<button type="button" class="secondary-button" data-create-carrier-waybill="' + escapeHtml(order.id) + '"' + (missingShipFee ? ' disabled title="Vui lòng chốt phí giao hàng và tổng đơn trước khi tạo vận đơn"' : '') + '>Tạo vận đơn</button>');
    }
    const nextStep = hasNext('processing') ? 'processing' : (hasNext('confirmed') ? 'confirmed' : '');
    if (nextStep) {
@@ -1530,7 +1531,7 @@ function openBulkProcessing(){
   if(form.dataset.saving)return;
   const actionVal=getActionVal();const target={confirm:"processing",prepare:"processing",ship:"shipped",complete:"completed",cancel:"cancelled"}[actionVal];
   const blockedUndelivered=target==="completed"?orders.filter(o=>hasUndeliveredActiveWaybill(o)):[];
-  const eligible=orders.filter(o=>(orderTransitions[o.status]||[]).includes(target)&&(target!=="confirmed"||o.shippingFeeVnd!=null)&&(target!=="cancelled"||o.paymentStatus!=="paid"&&!(Number(o.receivedVnd)>0)&&!isLiveVnpayAttempt(o))&&(target!=="completed"||(!hasUndeliveredActiveWaybill(o)&&(o.paymentStatus==="paid"||(can("payments.write")&&!["vnpay","momo","zalopay"].includes(o.paymentMethod))))));
+  const eligible=orders.filter(o=>(orderTransitions[o.status]||[]).includes(target)&&(!["confirmed","processing"].includes(target)||o.shippingFeeVnd!=null)&&(target!=="cancelled"||o.paymentStatus!=="paid"&&!(Number(o.receivedVnd)>0)&&!isLiveVnpayAttempt(o))&&(target!=="completed"||(!hasUndeliveredActiveWaybill(o)&&(o.paymentStatus==="paid"||(can("payments.write")&&!["vnpay","momo","zalopay"].includes(o.paymentMethod))))));
   hint.textContent=eligible.length+"/"+orders.length+" đơn đủ điều kiện cho bước đã chọn.";
   if(target==="completed"&&blockedUndelivered.length>0){
    codCallout.hidden=false;

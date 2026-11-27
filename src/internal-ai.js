@@ -120,16 +120,22 @@ function createInternalAiRouter(pool, config) {
       orderStats = (await pool.query(`
         SELECT 
           COUNT(*)::int AS total_orders,
-          COUNT(CASE WHEN status = 'pending' THEN 1 END)::int AS pending_orders,
-          COUNT(CASE WHEN status = 'confirmed' THEN 1 END)::int AS confirmed_orders,
-          COUNT(CASE WHEN status = 'processing' THEN 1 END)::int AS processing_orders,
-          COUNT(CASE WHEN status = 'shipped' THEN 1 END)::int AS shipped_orders,
-          COUNT(CASE WHEN status = 'completed' THEN 1 END)::int AS completed_orders,
-          COUNT(CASE WHEN status = 'cancelled' THEN 1 END)::int AS cancelled_orders,
-          COALESCE(SUM(CASE WHEN payment_status = 'paid' AND status <> 'cancelled' AND return_completed_at IS NULL THEN total_vnd ELSE 0 END), 0)::bigint AS paid_revenue,
-          COALESCE(SUM(CASE WHEN status <> 'cancelled' AND return_completed_at IS NULL THEN total_vnd ELSE 0 END), 0)::bigint AS gross_revenue
-        FROM orders
-        WHERE created_at >= NOW() - INTERVAL '1 day' * $1
+          COUNT(CASE WHEN o.status = 'pending' THEN 1 END)::int AS pending_orders,
+          COUNT(CASE WHEN o.status = 'confirmed' THEN 1 END)::int AS confirmed_orders,
+          COUNT(CASE WHEN o.status = 'processing' THEN 1 END)::int AS processing_orders,
+          COUNT(CASE WHEN o.status = 'shipped' THEN 1 END)::int AS shipped_orders,
+          COUNT(CASE WHEN o.status = 'completed' THEN 1 END)::int AS completed_orders,
+          COUNT(CASE WHEN o.status = 'cancelled' THEN 1 END)::int AS cancelled_orders,
+          COALESCE(SUM(CASE WHEN o.payment_status = 'paid' AND o.status <> 'cancelled' AND o.return_completed_at IS NULL THEN GREATEST(0::bigint, COALESCE(o.total_vnd, 0)::bigint - COALESCE(mr.refunded, 0)::bigint) ELSE 0 END), 0)::bigint AS paid_revenue,
+          COALESCE(SUM(CASE WHEN o.status <> 'cancelled' AND o.return_completed_at IS NULL THEN COALESCE(o.total_vnd, 0)::bigint ELSE 0 END), 0)::bigint AS gross_revenue
+        FROM orders o
+        LEFT JOIN (
+          SELECT order_id, SUM(amount_vnd)::bigint AS refunded
+          FROM momo_refunds
+          WHERE status = 'succeeded'
+          GROUP BY order_id
+        ) mr ON mr.order_id = o.id
+        WHERE o.created_at >= NOW() - INTERVAL '1 day' * $1
       `, [numDays])).rows[0] || orderStats;
     }
 
@@ -436,6 +442,7 @@ function createInternalAiRouter(pool, config) {
           COUNT(*) FILTER (WHERE status = 'active')::int AS active_count,
           COUNT(*) FILTER (WHERE status = 'pending')::int AS pending_count
         FROM warranty_activations
+        WHERE withdrawn_at IS NULL
       `);
       out.activeWarranties = warRes.rows[0]?.active_count || 0;
       out.pendingWarranties = warRes.rows[0]?.pending_count || 0;

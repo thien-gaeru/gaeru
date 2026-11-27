@@ -14,7 +14,7 @@ const code = z.string().trim().min(2).max(30).regex(/^[A-Z0-9_-]+$/);
 const warehouseSchema = z.object({ code, name: z.string().trim().min(2).max(120), address: z.string().trim().max(500).default(""), active: z.boolean().default(true) });
 const supplierSchema = z.object({ code, name: z.string().trim().min(2).max(160), email: z.union([z.literal(""), z.string().email()]).default(""),
   phone: z.string().trim().max(30).default(""), address: z.string().trim().max(500).default(""), active: z.boolean().default(true) });
-const purchaseSchema = z.object({ supplierId: uuid, warehouseId: uuid, reference: z.string().trim().max(120).default(""), note: z.string().trim().max(2000).default(""),
+const purchaseSchema = z.object({ requestKey: requestKey.optional(), supplierId: uuid, warehouseId: uuid, reference: z.string().trim().max(120).default(""), note: z.string().trim().max(2000).default(""),
   items: z.array(z.object({ variantId: uuid, quantity: z.number().int().min(1).max(1_000_000), unitCostVnd: z.number().int().min(0).max(MAX_MONEY) })).min(1).max(100) });
 const receiptSchema = z.object({ requestKey, reference: z.string().trim().max(120).default(""), note: z.string().trim().max(2000).default(""),
   items: z.array(z.object({ itemId: uuid, quantity: z.number().int().min(1).max(1_000_000) })).min(1).max(100) });
@@ -185,6 +185,7 @@ function createOperationsApi(pool) {
       { key: data.requestKey, operation: "adjustment", body: data, actor: req.admin },
       () => inventory.adjustWarehouseStock(client, { ...data, actor: req.admin })));
     try { require("./cache").invalidateTags(["product:list", "catalog", "search-index", "stock"], { immediate: true }); } catch {}
+    try { require("./inventory-forecast").invalidateForecastCache(""); } catch {}
     res.status(201).json({ adjustment: result });
   }));
   router.post("/inventory/transfers", requirePermission("inventory.write"), requireCsrf, handler(async (req, res) => {
@@ -193,6 +194,7 @@ function createOperationsApi(pool) {
       { key: data.requestKey, operation: "transfer", body: data, actor: req.admin },
       () => inventory.transferStock(client, { ...data, actor: req.admin })));
     try { require("./cache").invalidateTags(["product:list", "catalog", "search-index", "stock"], { immediate: true }); } catch {}
+    try { require("./inventory-forecast").invalidateForecastCache(""); } catch {}
     res.status(201).json({ transfer: result });
   }));
 
@@ -251,7 +253,8 @@ function createOperationsApi(pool) {
     if (new Set(data.items.map((item) => item.variantId)).size !== data.items.length) throw inventory.operationError("Mỗi phiên bản chỉ được xuất hiện một lần trong đơn mua.", 400);
     const total = data.items.reduce((sum, item) => sum + item.quantity * item.unitCostVnd, 0);
     if (!Number.isSafeInteger(total) || total > MAX_MONEY) throw inventory.operationError("Giá trị đơn mua vượt giới hạn cho phép.", 400);
-    const purchaseOrder = await withTransaction(pool, async (client) => {
+    const normalizedBody = { ...data, items: [...data.items].sort((left, right) => left.variantId.localeCompare(right.variantId)) };
+    const createOrderWork = async (client) => {
       const supplier = await activeReference(client, "suppliers", data.supplierId, "Nhà cung cấp");
       await activeReference(client, "warehouses", data.warehouseId, "Kho nhận hàng");
       const variants = await client.query(
@@ -274,7 +277,13 @@ function createOperationsApi(pool) {
       }
       await appendAudit(client, { actor: req.admin, action: "purchase.create", entityType: "purchase_order", entityId: id, after: { ...data, totalVnd: total } });
       return purchaseDetail(client, id);
-    });
+    };
+    const purchaseOrder = await withTransaction(pool, (client) =>
+      data.requestKey
+        ? withIdempotency(client, { key: data.requestKey, operation: "purchase_order", body: normalizedBody, actor: req.admin }, () => createOrderWork(client))
+        : createOrderWork(client)
+    );
+    try { require("./inventory-forecast").invalidateForecastCache(""); } catch {}
     res.status(201).json({ purchaseOrder });
   }));
 
@@ -307,6 +316,7 @@ function createOperationsApi(pool) {
         await appendAudit(client, { actor: req.admin, action: `purchase.${action}`, entityType: "purchase_order", entityId: id, before: { status: current.status }, after: { status: target } });
         return purchaseDetail(client, id);
       });
+      try { require("./inventory-forecast").invalidateForecastCache(""); } catch {}
       res.json({ purchaseOrder });
     }));
   }
@@ -358,6 +368,7 @@ function createOperationsApi(pool) {
         return { ...posted, purchaseOrderId: id, warehouseId: purchase.warehouse_id, purchaseOrderStatus: status, totalVnd: receivedTotalVnd };
       }));
     try { require("./cache").invalidateTags(["product:list", "catalog", "search-index", "stock"], { immediate: true }); } catch {}
+    try { require("./inventory-forecast").invalidateForecastCache(""); } catch {}
     res.status(201).json({ receipt });
   }));
   router.get("/goods-receipts", requirePermission("purchases.read"), handler(async (req, res) => {

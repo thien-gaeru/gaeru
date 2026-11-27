@@ -62,13 +62,14 @@ async function updateRmaInboundTracking(pool, {
     if (!reference) throw fail('Không tìm thấy phiếu RMA.', 404);
     const row = await require('./rma-exchange').lockCase(client, reference.id);
 
-    // Verify capability token, guest phone challenge (for guest orders), or order ownership (fail closed)
-    const { normalizePhone } = require('./tracking-api');
+    // Verify capability token, guest phone challenge (for non-anonymized guest orders), or order ownership (fail closed)
+    const { normalizePhone, isAnonymizedOrder } = require('./tracking-api');
     const tokenOk = safeTokenEqual(token, row.rma_token);
     const ownerOk = Boolean(actor?.id && row.customer_id && actor.id === row.customer_id);
+    const anonymized = isAnonymizedOrder(row);
     const inputPhone = normalizePhone(phone || '');
     const orderPhone = normalizePhone(row.phone || '');
-    const guestPhoneOk = Boolean(!row.customer_id && inputPhone.length >= 9 && orderPhone.length >= 9 && inputPhone.slice(-9) === orderPhone.slice(-9));
+    const guestPhoneOk = Boolean(!anonymized && !row.customer_id && inputPhone.length >= 9 && orderPhone.length >= 9 && !/^0+$/.test(orderPhone) && inputPhone.slice(-9) === orderPhone.slice(-9));
     if (!tokenOk && !ownerOk && !guestPhoneOk) {
       throw fail('Mã xác thực RMA (Token) không hợp lệ hoặc bạn không có quyền cập nhật phiếu này.', 403);
     }
@@ -252,7 +253,7 @@ function createRmaApi(pool, config = {}) {
       const phone = String(req.query.phone || '').trim();
 
       const result = await pool.query(
-        `SELECT a.*, o.order_number, o.customer_id, o.customer_name, o.phone, o.email, o.city
+        `SELECT a.*, o.order_number, o.customer_id, o.customer_name, o.phone, o.email, o.address, o.city, o.anonymized_at
          FROM order_after_sales a
          JOIN orders o ON o.id = a.order_id
          WHERE a.rma_number = $1`,
@@ -264,12 +265,13 @@ function createRmaApi(pool, config = {}) {
         return res.status(404).json({ error: 'Không tìm thấy phiếu RMA.' });
       }
 
-      // Check access permission: capability token, guest phone suffix (guest orders only), order owner session, or admin
+      // Check access permission: capability token, guest phone suffix (non-anonymized guest orders only), order owner session, or admin
       res.set({ 'Cache-Control': 'no-store', 'Referrer-Policy': 'no-referrer' });
-      const { normalizePhone } = require('./tracking-api');
+      const { normalizePhone, isAnonymizedOrder } = require('./tracking-api');
       const tokenMatches = safeTokenEqual(token, item.rma_token);
+      const anonymized = isAnonymizedOrder(item);
       const inputPhone = normalizePhone(phone), orderPhone = normalizePhone(item.phone);
-      const phoneMatches = Boolean(!item.customer_id && inputPhone.length >= 9 && orderPhone.length >= 9 && inputPhone.slice(-9) === orderPhone.slice(-9));
+      const phoneMatches = Boolean(!anonymized && !item.customer_id && inputPhone.length >= 9 && orderPhone.length >= 9 && !/^0+$/.test(orderPhone) && inputPhone.slice(-9) === orderPhone.slice(-9));
       const ownerMatches = Boolean(req.session?.customer?.id && item.customer_id && req.session.customer.id === item.customer_id);
 
       if (!tokenMatches && !phoneMatches && !ownerMatches && !req.admin) {

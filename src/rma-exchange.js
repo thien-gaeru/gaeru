@@ -108,12 +108,12 @@ async function lockCase(client, caseId, version = null) {
   // This also serializes a new issue against deletion's open-document check.
   const reference = (await client.query('SELECT order_id FROM order_after_sales WHERE id=$1', [caseId])).rows[0];
   if (!reference) throw fail('Không tìm thấy hồ sơ RMA.', 404);
-  const order = (await client.query('SELECT id,order_number,customer_id,email,phone FROM orders WHERE id=$1 FOR UPDATE', [reference.order_id])).rows[0];
+  const order = (await client.query('SELECT id,order_number,customer_id,customer_name,address,email,phone,anonymized_at FROM orders WHERE id=$1 FOR UPDATE', [reference.order_id])).rows[0];
   if (!order) throw fail('Không tìm thấy đơn gốc của hồ sơ RMA.', 404);
   const row = (await client.query('SELECT * FROM order_after_sales WHERE id=$1 FOR UPDATE', [caseId])).rows[0];
   if (!row) throw fail('Không tìm thấy hồ sơ RMA.', 404);
   if (row.order_id !== order.id || (version !== null && row.version !== version)) throw fail('Hồ sơ RMA đã thay đổi. Tải lại trước khi xuất hoặc hoàn lại kho.');
-  return { ...row, order_number: order.order_number, customer_id: order.customer_id, email: order.email, phone: order.phone };
+  return { ...row, order_number: order.order_number, customer_id: order.customer_id, customer_name: order.customer_name, address: order.address, email: order.email, phone: order.phone, anonymized_at: order.anonymized_at };
 }
 async function adjust(client, issueId, warehouseId, items, direction, actor, reason) {
   const quantities = new Map();
@@ -156,6 +156,7 @@ async function issueExchange(pool, { caseId, data, actor }) {
     return { issue, version, existing: false };
   }));
   try { require('./cache').invalidateTags(['orders', 'product:list', 'catalog', 'search-index', 'stock'], { immediate: true }); } catch {}
+  try { require('./inventory-forecast').invalidateForecastCache(''); } catch {}
   return result;
 }
 async function voidExchange(pool, { caseId, data, actor }) {
@@ -170,6 +171,7 @@ async function voidExchange(pool, { caseId, data, actor }) {
     return { issue: await readIssue(client, caseId, issue.id), version, existing: false };
   }));
   try { require('./cache').invalidateTags(['orders', 'product:list', 'catalog', 'search-index', 'stock'], { immediate: true }); } catch {}
+  try { require('./inventory-forecast').invalidateForecastCache(''); } catch {}
   return result;
 }
 module.exports = { issueSchema, voidSchema, exchangeOptions, issueExchange, voidExchange, readIssue, readIssuesBatch, lockCase };

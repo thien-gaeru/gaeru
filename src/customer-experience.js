@@ -300,21 +300,18 @@ function createCustomerExperience(pool, { inventory = null, audit = null, config
     if (!parsed.success) return res.status(400).json({ error: 'Thông tin hồ sơ chưa hợp lệ.' });
     try {
       const result = await withTransaction(pool, async (client) => {
-        const current = (await client.query('SELECT email,phone,phone_invalid_at,reg_email_failed_at,password_hash FROM customers WHERE id=$1 AND active=true AND deleted_at IS NULL FOR UPDATE', [req.customerId])).rows[0];
+        const current = (await client.query('SELECT email,phone,phone_invalid_at,reg_email_failed_at,password_hash,created_at,google_id FROM customers WHERE id=$1 AND active=true AND deleted_at IS NULL FOR UPDATE', [req.customerId])).rows[0];
         if (!current) return { status: 401, error: 'Tài khoản không còn hoạt động.' };
         const a = parsed.data;
-        if (a.currentPassword !== undefined && a.currentPassword !== '') {
-          const bcrypt = require('bcryptjs');
-          const { withinBcryptLimit } = require('./audit-fixes/password-rules');
-          if (!current.password_hash || !withinBcryptLimit(a.currentPassword) || !await bcrypt.compare(a.currentPassword, current.password_hash)) {
-            return { status: 401, error: 'Mật khẩu hiện tại không đúng.' };
-          }
-        }
-        const { isValidVietnamMobile, normalizeVietnamPhone, isDisposableEmail } = require('./customer-lifecycle');
+        const { isValidVietnamMobile, normalizeVietnamPhone, isDisposableEmail, checkCustomerPhoneStatus, checkCustomerRegEmailStatus } = require('./customer-lifecycle');
         let phoneUpdated = false;
         let emailUpdated = false;
         if (a.phone !== undefined && a.phone !== current.phone) {
           if (!isValidVietnamMobile(current.phone) && isValidVietnamMobile(a.phone)) {
+            const phoneStatus = checkCustomerPhoneStatus(current);
+            if (phoneStatus.isExpired) {
+              return { status: 403, error: 'Tài khoản đã quá thời hạn 12 giờ cập nhật số điện thoại. Vui lòng liên hệ GAERU để được hỗ trợ.' };
+            }
             phoneUpdated = true;
           } else {
             return { status: 409, error: 'Đổi email hoặc số điện thoại cần được xác nhận qua email trước khi áp dụng.' };
@@ -322,9 +319,25 @@ function createCustomerExperience(pool, { inventory = null, audit = null, config
         }
         if (a.email !== undefined && a.email !== current.email) {
           if (current.reg_email_failed_at && !isDisposableEmail(a.email)) {
+            const regEmailStatus = checkCustomerRegEmailStatus(current);
+            if (regEmailStatus.isExpired) {
+              return { status: 403, error: 'Tài khoản đã quá thời hạn 12 giờ cập nhật email. Vui lòng liên hệ GAERU để được hỗ trợ.' };
+            }
             emailUpdated = true;
           } else {
             return { status: 409, error: 'Đổi email hoặc số điện thoại cần được xác nhận qua email trước khi áp dụng.' };
+          }
+        }
+        const passwordProvided = a.currentPassword !== undefined && a.currentPassword !== '';
+        const passwordRequired = (phoneUpdated || emailUpdated) && Boolean(current.password_hash);
+        if (passwordRequired && !passwordProvided) {
+          return { status: 401, error: 'Vui lòng nhập mật khẩu hiện tại để cập nhật email hoặc số điện thoại.' };
+        }
+        if (passwordProvided) {
+          const bcrypt = require('bcryptjs');
+          const { withinBcryptLimit } = require('./audit-fixes/password-rules');
+          if (!current.password_hash || !withinBcryptLimit(a.currentPassword) || !await bcrypt.compare(a.currentPassword, current.password_hash)) {
+            return { status: 401, error: 'Mật khẩu hiện tại không đúng.' };
           }
         }
         const newPhone = phoneUpdated ? normalizeVietnamPhone(a.phone) : current.phone;
@@ -366,6 +379,7 @@ function createCustomerExperience(pool, { inventory = null, audit = null, config
       }
       res.status(result.status).json(result.error ? { error: result.error } : { customer: result.customer });
     } catch (e) {
+      if (e?.code === '23505') return res.status(409).json({ error: 'Email này đã được sử dụng cho tài khoản khác.' });
       next(e);
     }
   });

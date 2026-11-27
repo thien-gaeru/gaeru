@@ -7,6 +7,7 @@ const nodemailer=require('nodemailer');
 const {requireCsrf}=require('./security');
 const {withTransaction}=require('./db');
 const {appendAudit}=require('./audit');
+const {isValidVietnamMobile,normalizeVietnamPhone,isDisposableEmail}=require('./customer-lifecycle');
 const hash=value=>createHash('sha256').update(String(value||'')).digest('hex');
 const schema=z.object({email:z.string().trim().email().max(254).transform(v=>v.toLowerCase()),phone:z.string().trim().regex(/^\+?[0-9().\-\s]{8,25}$/).transform(v=>v.replace(/[().\-\s]/g,'')).refine(v=>/^\+?\d{8,15}$/.test(v)),password:z.string().min(1).max(200)}).strict();
 const fail=(status,message)=>Object.assign(Error(message),{status});
@@ -22,7 +23,12 @@ function createContactChangeApi(pool,{smtpConfig=null,mailer,config=null}={}){
   try{
    const owner=(await pool.query('SELECT id,email,phone,password_hash FROM customers WHERE id=$1 AND active=true AND deleted_at IS NULL',[req.customerId])).rows[0];
    if(!owner||!owner.password_hash||!require('./audit-fixes/password-rules').withinBcryptLimit(a.password)||!await bcrypt.compare(a.password,owner.password_hash))throw fail(403,owner&&!owner.password_hash?'Tài khoản Google chưa thiết lập mật khẩu riêng; vui lòng tạo mật khẩu trước khi đổi liên hệ.':'Mật khẩu hiện tại không đúng.');
-   if(owner.email===a.email&&owner.phone===a.phone)return res.json({unchanged:true,message:'Email và số điện thoại không thay đổi.'});
+   const emailChanged=owner.email!==a.email;
+   const rawPhoneChanged=owner.phone!==a.phone;
+   if(rawPhoneChanged&&!isValidVietnamMobile(a.phone))throw fail(400,'Số điện thoại mới phải là số di động Việt Nam hợp lệ (10 chữ số, đầu số 03, 05, 07, 08 hoặc 09).');
+   if(emailChanged&&isDisposableEmail(a.email))throw fail(400,'Không hỗ trợ địa chỉ email tạm thời hoặc dùng một lần.');
+   const targetPhone=rawPhoneChanged?normalizeVietnamPhone(a.phone):owner.phone;
+   if(owner.email===a.email&&owner.phone===targetPhone)return res.json({unchanged:true,message:'Email và số điện thoại không thay đổi.'});
    const oldToken=randomBytes(32).toString('base64url'),newToken=owner.email===a.email?null:randomBytes(32).toString('base64url');
    requestId=await withTransaction(pool,async client=>{
     const current=(await client.query('SELECT email,phone,password_hash FROM customers WHERE id=$1 AND active=true AND deleted_at IS NULL FOR UPDATE',[req.customerId])).rows[0];
@@ -30,13 +36,13 @@ function createContactChangeApi(pool,{smtpConfig=null,mailer,config=null}={}){
     if((await client.query('SELECT id FROM customers WHERE email=$1 AND id<>$2',[a.email,req.customerId])).rows.length)throw fail(409,'Email này không thể sử dụng cho tài khoản.');
     await client.query('UPDATE customer_contact_changes SET cancelled_at=now() WHERE customer_id=$1 AND applied_at IS NULL AND cancelled_at IS NULL',[req.customerId]);
     return(await client.query(`INSERT INTO customer_contact_changes(customer_id,old_email,new_email,old_phone,new_phone,credential_fingerprint,old_token_hash,new_token_hash,new_confirmed,expires_at)
-      VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,now()+interval '30 minutes') RETURNING id`,[req.customerId,owner.email,a.email,owner.phone,a.phone,hash(owner.password_hash),hash(oldToken),newToken?hash(newToken):null,!newToken])).rows[0].id;
+      VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,now()+interval '30 minutes') RETURNING id`,[req.customerId,owner.email,a.email,owner.phone,targetPhone,hash(owner.password_hash),hash(oldToken),newToken?hash(newToken):null,!newToken])).rows[0].id;
    });
    const send=async(to,token,step)=>{
     const link=new URL('/tai-khoan',smtpConfig.publicBaseUrl);link.searchParams.set('contactVerify',token);
     const {prepareOutboundMail}=require('./smtp-delivery');
-    const bodyText=`${step}\nYêu cầu đổi thông tin tài khoản GAERU sang email ${a.email}, số điện thoại ${a.phone}. Hãy đăng nhập đúng tài khoản và mở liên kết sau để xác nhận. Liên kết dùng một lần, hiệu lực 30 phút:\n${link}\n\nNếu không phải bạn yêu cầu, không mở liên kết và liên hệ GAERU.`;
-    await mailer.sendMail(prepareOutboundMail({smtp:smtpConfig},{to,subject:'GAERU · Xác nhận thay đổi thông tin tài khoản',text:bodyText},{messageIdPrefix:'contact',heading:'Xác nhận thay đổi thông tin liên hệ',badge:'BẢO MẬT LIÊN HỆ',badgeTone:'amber',preheader:'Xác nhận đổi email/số điện thoại tài khoản GAERU (hiệu lực 30 phút).',leadText:`${step} Hãy đăng nhập đúng tài khoản GAERU và bấm xác nhận để hoàn tất cập nhật thông tin liên hệ mới.`,htmlBodyText:'',summaryRows:[{label:'Email mới dự kiến',value:a.email},{label:'Số điện thoại mới',value:a.phone},{label:'Hiệu lực liên kết',value:'30 phút · Dùng một lần'}],warningNote:'Nếu không phải bạn thực hiện yêu cầu này, tuyệt đối không bấm xác nhận và hãy liên hệ GAERU ngay qua business@gaeru.com.',actionUrl:link.toString(),actionLabel:'Xác nhận thay đổi liên hệ',showActionFallback:true}));
+    const bodyText=`${step}\nYêu cầu đổi thông tin tài khoản GAERU sang email ${a.email}, số điện thoại ${targetPhone}. Hãy đăng nhập đúng tài khoản và mở liên kết sau để xác nhận. Liên kết dùng một lần, hiệu lực 30 phút:\n${link}\n\nNếu không phải bạn yêu cầu, không mở liên kết và liên hệ GAERU.`;
+    await mailer.sendMail(prepareOutboundMail({smtp:smtpConfig},{to,subject:'GAERU · Xác nhận thay đổi thông tin tài khoản',text:bodyText},{messageIdPrefix:'contact',heading:'Xác nhận thay đổi thông tin liên hệ',badge:'BẢO MẬT LIÊN HỆ',badgeTone:'amber',preheader:'Xác nhận đổi email/số điện thoại tài khoản GAERU (hiệu lực 30 phút).',leadText:`${step} Hãy đăng nhập đúng tài khoản GAERU và bấm xác nhận để hoàn tất cập nhật thông tin liên hệ mới.`,htmlBodyText:'',summaryRows:[{label:'Email mới dự kiến',value:a.email},{label:'Số điện thoại mới',value:targetPhone},{label:'Hiệu lực liên kết',value:'30 phút · Dùng một lần'}],warningNote:'Nếu không phải bạn thực hiện yêu cầu này, tuyệt đối không bấm xác nhận và hãy liên hệ GAERU ngay qua business@gaeru.com.',actionUrl:link.toString(),actionLabel:'Xác nhận thay đổi liên hệ',showActionFallback:true}));
    };
    await send(owner.email,oldToken,'Xác nhận từ email hiện tại.');
    if(newToken)await send(a.email,newToken,'Xác minh hộp thư email mới.');
@@ -64,7 +70,11 @@ function createContactChangeApi(pool,{smtpConfig=null,mailer,config=null}={}){
     await client.query('UPDATE customer_contact_changes SET old_confirmed=$2,new_confirmed=$3 WHERE id=$1',[row.id,oldConfirmed,newConfirmed]);
     if(!oldConfirmed||!newConfirmed)return {pending:true,message:'Đã ghi nhận xác nhận. Hãy mở liên kết trong hộp thư còn lại để hoàn tất thay đổi.'};
     const emailChanged=row.old_email!==row.new_email;
-    const customer=(await client.query('UPDATE customers SET email=$2,phone=$3,email_verified_at=now(),reg_email_failed_at=NULL,phone_invalid_at=NULL,google_id=CASE WHEN $4::boolean THEN NULL ELSE google_id END,updated_at=now() WHERE id=$1 RETURNING id,full_name AS "fullName",email,phone,true AS "emailVerified"',[req.customerId,row.new_email,row.new_phone,emailChanged])).rows[0];
+    const phoneChanged=row.old_phone!==row.new_phone;
+    if(phoneChanged&&!isValidVietnamMobile(row.new_phone))throw fail(400,'Số điện thoại mới không đúng định dạng di động Việt Nam hợp lệ.');
+    const finalPhone=phoneChanged?normalizeVietnamPhone(row.new_phone):row.new_phone;
+    const phoneIsValid=isValidVietnamMobile(finalPhone);
+    const customer=(await client.query('UPDATE customers SET email=$2,phone=$3,email_verified_at=now(),reg_email_failed_at=NULL,phone_invalid_at=CASE WHEN $5::boolean THEN NULL ELSE phone_invalid_at END,google_id=CASE WHEN $4::boolean THEN NULL ELSE google_id END,updated_at=now() WHERE id=$1 RETURNING id,full_name AS "fullName",email,phone,true AS "emailVerified"',[req.customerId,row.new_email,finalPhone,emailChanged,phoneIsValid])).rows[0];
     if(emailChanged){await client.query("DELETE FROM auth_identities WHERE customer_id=$1 AND provider='google'",[req.customerId]);}
     await client.query('UPDATE customer_contact_changes SET applied_at=now() WHERE id=$1',[row.id]);
     await client.query('DELETE FROM customer_password_reset_tokens WHERE customer_id=$1',[req.customerId]);

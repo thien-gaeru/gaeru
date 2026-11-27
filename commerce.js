@@ -428,10 +428,85 @@ function renderCatalog() {
   }
   window.addEventListener?.("storage", syncSavedVisibility);
   window.GAERUK9Loop?.mountHome();
-  const updateRail = () => document.querySelectorAll('[data-store-scroll]').forEach(button => {
-    button.disabled = Number(button.dataset.storeScroll) < 0 ? grid.scrollLeft <= 2 : grid.scrollLeft + grid.clientWidth >= grid.scrollWidth - 2;
-  });
-  document.querySelectorAll('[data-store-scroll]').forEach(button => button.addEventListener('click', () => grid.scrollBy({left: Number(button.dataset.storeScroll) * Math.max(280,grid.clientWidth * .8),behavior: matchMedia('(prefers-reduced-motion: reduce)').matches ? 'instant' : 'smooth'})));
+  const dotsRoot = document.querySelector("[data-store-dots]");
+  const getVisibleCards = () => [...grid.children].filter((el) => el.classList?.contains("catalog-card") && !el.hidden);
+  const getActiveCardIndex = (cards) => {
+    if (!cards.length) return 0;
+    const origin = cards[0].offsetLeft;
+    const scrollLeft = grid.scrollLeft;
+    if (scrollLeft + grid.clientWidth >= grid.scrollWidth - 4) return cards.length - 1;
+    let best = 0;
+    let bestDist = Infinity;
+    cards.forEach((card, i) => {
+      const dist = Math.abs((card.offsetLeft - origin) - scrollLeft);
+      if (dist < bestDist) { bestDist = dist; best = i; }
+    });
+    return best;
+  };
+  const scrollToCard = (index) => {
+    const cards = getVisibleCards();
+    if (!cards.length) return;
+    const target = cards[Math.max(0, Math.min(cards.length - 1, index))];
+    const origin = cards[0].offsetLeft;
+    const maxLeft = Math.max(0, grid.scrollWidth - grid.clientWidth);
+    const left = Math.min(maxLeft, Math.max(0, target.offsetLeft - origin));
+    const behavior = typeof matchMedia === "function" && matchMedia("(prefers-reduced-motion: reduce)").matches ? "instant" : "smooth";
+    grid.scrollTo({ left, behavior });
+  };
+  const syncRailDots = () => {
+    if (!dotsRoot) return;
+    const cards = getVisibleCards();
+    const overflowing = grid.scrollWidth > grid.clientWidth + 4;
+    if (cards.length <= 1 || !overflowing) {
+      dotsRoot.hidden = true;
+      return;
+    }
+    dotsRoot.hidden = false;
+    const activeIdx = getActiveCardIndex(cards);
+    dotsRoot.querySelectorAll(".store-rail-dot").forEach((dot, i) => {
+      const active = i === activeIdx;
+      dot.classList.toggle("is-active", active);
+      if (active) dot.setAttribute("aria-current", "true");
+      else dot.removeAttribute("aria-current");
+    });
+    const idxEl = dotsRoot.querySelector(".store-rail-index");
+    if (idxEl) idxEl.textContent = `${activeIdx + 1} / ${cards.length}`;
+  };
+  const rebuildRailDots = () => {
+    if (!dotsRoot) return;
+    const cards = getVisibleCards();
+    if (cards.length <= 1) {
+      dotsRoot.innerHTML = "";
+      dotsRoot.hidden = true;
+      return;
+    }
+    dotsRoot.innerHTML = cards.map((_, i) =>
+      `<button type="button" class="store-rail-dot${i === 0 ? " is-active" : ""}" data-store-dot="${i}" aria-label="Xem sản phẩm ${i + 1}/${cards.length}"${i === 0 ? ' aria-current="true"' : ""}></button>`
+    ).join("") + `<span class="store-rail-index" aria-live="polite">1 / ${cards.length}</span>`;
+    syncRailDots();
+  };
+  if (dotsRoot) {
+    dotsRoot.addEventListener("click", (event) => {
+      const dot = event.target.closest("[data-store-dot]");
+      if (!dot) return;
+      scrollToCard(Number(dot.dataset.storeDot) || 0);
+    });
+  }
+  const updateRail = () => {
+    document.querySelectorAll('[data-store-scroll]').forEach(button => {
+      button.disabled = Number(button.dataset.storeScroll) < 0 ? grid.scrollLeft <= 2 : grid.scrollLeft + grid.clientWidth >= grid.scrollWidth - 2;
+    });
+    syncRailDots();
+  };
+  document.querySelectorAll('[data-store-scroll]').forEach(button => button.addEventListener('click', () => {
+    const cards = getVisibleCards();
+    const dir = Number(button.dataset.storeScroll) < 0 ? -1 : 1;
+    if (cards.length > 1) {
+      scrollToCard(getActiveCardIndex(cards) + dir);
+    } else {
+      grid.scrollBy({ left: dir * Math.max(280, grid.clientWidth * 0.8), behavior: typeof matchMedia === "function" && matchMedia('(prefers-reduced-motion: reduce)').matches ? 'instant' : 'smooth' });
+    }
+  }));
   grid.addEventListener('scroll', updateRail, {passive:true});
   if (typeof ResizeObserver !== 'undefined') new ResizeObserver(updateRail).observe(grid);
 
@@ -444,6 +519,7 @@ function renderCatalog() {
     empty.hidden = matching.length > 0;
     if(savedOnly)empty.textContent="Chưa có sản phẩm đã lưu phù hợp trên trình duyệt này.";
     grid.scrollLeft = 0;
+    rebuildRailDots();
     updateRail();
     window.GAERUAutoRail?.mount();
   };
@@ -851,7 +927,7 @@ function renderCart() {
       gaeruBackground: true
     }).then(q => {
       if (quoteRev !== cartQuoteRevision) return;
-      const disc = Number(q?.totalBundleDiscountVnd || 0);
+      const disc = Number(q?.bundleDiscountVnd ?? q?.totalBundleDiscountVnd ?? 0);
       if (disc > 0) {
         const rowEl = root.querySelector("[data-cart-bundle-row]");
         const discEl = root.querySelector("[data-cart-bundle-discount]");
@@ -1178,7 +1254,7 @@ async function renderCheckout() {
       body: JSON.stringify({ items: rows.map(({ variantId, quantity }) => ({ variantId, quantity })) }),
       gaeruBackground: true
     }).then(q => {
-      const disc = Number(q?.totalBundleDiscountVnd || 0);
+      const disc = Number(q?.bundleDiscountVnd ?? q?.totalBundleDiscountVnd ?? 0);
       if (disc > 0) {
         bundleDiscount = disc;
         const bRow = root.querySelector("[data-checkout-bundle-row]");

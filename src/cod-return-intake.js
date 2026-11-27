@@ -114,9 +114,9 @@ function createCodReturnIntake(pool) {
                 o.payment_method AS "paymentMethod", o.payment_status AS "paymentStatus",
                 cri.id AS "intakeId", cri.package_condition AS "packageCondition",
                 cri.restocked, cri.created_at AS "intakeAt", cri.inspector,
-                w.id AS "allocatedWarehouseId", w.name AS "allocatedWarehouseName",
+                alloc.warehouse_id AS "allocatedWarehouseId", alloc.warehouse_name AS "allocatedWarehouseName",
                 COALESCE(
-                  json_agg(
+                  (SELECT json_agg(
                     json_build_object(
                       'variantId', oi.variant_id,
                       'productName', oi.product_name,
@@ -124,18 +124,24 @@ function createCodReturnIntake(pool) {
                       'sku', oi.sku,
                       'quantity', oi.quantity,
                       'unitPriceVnd', oi.unit_price_vnd
-                    )
-                  ) FILTER (WHERE oi.id IS NOT NULL), '[]'::json
+                    ) ORDER BY oi.id
+                  ) FROM order_items oi WHERE oi.order_id = o.id),
+                  '[]'::json
                 ) AS items
          FROM carrier_shipments s
          JOIN orders o ON o.id = s.order_id
-         LEFT JOIN order_items oi ON oi.order_id = o.id
          LEFT JOIN cod_return_intakes cri ON cri.shipment_id = s.id
-         LEFT JOIN order_stock_allocations osa ON osa.order_id = o.id AND osa.released_at IS NULL
-         LEFT JOIN warehouses w ON w.id = osa.warehouse_id
-         WHERE (upper(s.tracking_number) = upper($1) OR upper(o.order_number) = upper($1))
+         LEFT JOIN LATERAL (
+           SELECT w.id AS warehouse_id, w.name AS warehouse_name
+           FROM order_stock_allocations osa
+           JOIN warehouses w ON w.id = osa.warehouse_id
+           WHERE osa.order_id = o.id AND osa.released_at IS NULL
+           ORDER BY osa.warehouse_id ASC
+           LIMIT 1
+         ) alloc ON true
+         WHERE (upper(s.tracking_number) = upper($1) OR (upper(o.order_number) = upper($1) AND s.status <> 'cancelled'))
            AND o.return_completed_at IS NULL
-         GROUP BY s.id, o.id, cri.id, w.id
+         ORDER BY (upper(s.tracking_number) = upper($1)) DESC, (s.status = 'returned') DESC, (s.status <> 'cancelled') DESC, s.created_at DESC
          LIMIT 1`,
         [q]
       );
@@ -266,7 +272,7 @@ function createCodReturnIntake(pool) {
             const wRow = (await client.query('SELECT name FROM warehouses WHERE id = $1', [targetWarehouseId])).rows[0];
             targetWarehouseName = wRow?.name || '';
           } else {
-            const mainW = (await client.query("SELECT id, name FROM warehouses WHERE code = 'MAIN' OR active = true ORDER BY created_at ASC LIMIT 1")).rows[0];
+            const mainW = (await client.query("SELECT id, name FROM warehouses WHERE active = true ORDER BY (code = 'MAIN') DESC, created_at ASC LIMIT 1")).rows[0];
             if (mainW) {
               targetWarehouseId = mainW.id;
               targetWarehouseName = mainW.name;
@@ -289,7 +295,7 @@ function createCodReturnIntake(pool) {
 
         if (data.packageCondition === 'intact') {
           // Hàng nguyên seal/nguyên vẹn -> Nhả lại tồn kho khả dụng để bán tiếp
-          await inventory.releaseOrderStock(client, { orderId: shipment.orderId, actor: req.admin });
+          await inventory.releaseOrderStock(client, { orderId: shipment.orderId, actor: req.admin, fallbackWarehouseId: targetWarehouseId || null });
           restocked = true;
           conditionDesc = 'Nguyên vẹn / Đủ điều kiện tái nhập kho';
         } else {
@@ -343,6 +349,7 @@ function createCodReturnIntake(pool) {
         await client.query(
           `UPDATE carrier_shipments
            SET status = 'returned',
+               cod_settlement_status = CASE WHEN cod_settlement_status <> 'settled' THEN 'not_applicable' ELSE cod_settlement_status END,
                carrier_status_raw = COALESCE(carrier_status_raw, 'returned'),
                carrier_status_desc = $2,
                tracking_history = $3,
@@ -432,6 +439,9 @@ function createCodReturnIntake(pool) {
       try {
         require('./cache').invalidateTags(['orders', `order:${intakeResult.orderId}`, 'product:list', 'catalog', 'search-index', 'stock'], { immediate: true });
       } catch (_) {}
+      if (intakeResult.restocked) {
+        try { require('./inventory-forecast').invalidateForecastCache(''); } catch (_) {}
+      }
 
       res.json(intakeResult);
     } catch (e) {

@@ -394,6 +394,16 @@ function buildBlockingOrderExistsSql(customerRef = '$1', orderAlias = 'o') {
           OR (s.status = 'delivered' AND s.cod_amount_vnd > 0 AND s.cod_settlement_status <> 'settled')
         )
       )
+      OR EXISTS (
+        SELECT 1 FROM momo_refunds mr
+        WHERE mr.order_id = ${orderAlias}.id
+          AND mr.status IN ('pending_provider', 'pending', 'ambiguous')
+      )
+      OR EXISTS (
+        SELECT 1 FROM order_after_sales oas
+        WHERE oas.order_id = ${orderAlias}.id
+          AND oas.status NOT IN ('resolved', 'rejected')
+      )
     )
   )`;
 }
@@ -411,7 +421,7 @@ async function hasBlockingCustomerActivity(client, customerId, { savepointPrefix
     return {
       blocked: true,
       reason: 'in_flight_order',
-      message: 'Khách hàng còn đơn hàng đã thanh toán chưa hoàn tất giao, đơn đang giao hoặc chưa đối soát COD. Vui lòng hoàn tất giao vận và đối soát tiền trước khi xóa tài khoản.'
+      message: 'Khách hàng còn đơn hàng đã thanh toán chưa hoàn tất giao, vận đơn/đối soát COD, lệnh hoàn tiền MoMo đang chờ hoặc hồ sơ đổi trả (RMA) đang mở. Vui lòng hoàn tất xử lý trước khi xóa tài khoản.'
     };
   }
 

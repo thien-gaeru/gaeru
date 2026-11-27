@@ -178,6 +178,7 @@ async function reserveStock(client, { variantId, quantity, orderId, actor, wareh
 }
 
 async function releaseOrderStock(client, { orderId, actor, reason } = {}) {
+  const fallbackWarehouseId = arguments[1]?.fallbackWarehouseId || null;
   const releaseReason = typeof reason === "string" && reason.trim() ? reason.trim() : "Hoàn tồn khả dụng do hủy đơn";
   const result = await client.query(
     "SELECT DISTINCT variant_id AS id FROM order_stock_allocations WHERE order_id=$1 AND released_at IS NULL ORDER BY variant_id", [orderId]
@@ -198,17 +199,17 @@ async function releaseOrderStock(client, { orderId, actor, reason } = {}) {
       if (previous.rows.length) continue;
       const balances = await allBalances(client, item.variantId);
       await verifyBalanceTotal(client, variant, balances);
-      const warehouseId = await getMainWarehouse(client);
+      const warehouseId = fallbackWarehouseId || await getMainWarehouse(client);
       await lockWarehouse(client, warehouseId);
       const before = await lockBalance(client, warehouseId, item.variantId);
       validateQuantity(variant.stockQuantity + item.quantity);
       await move(client, { variant, warehouseId, before, delta: item.quantity, type: "legacy_sale_release", eventKey,
-        referenceType: "order", referenceId: orderId, reason: "Đơn trước khi phân kho; hoàn về Kho tổng theo quy tắc chuyển đổi", actor });
+        referenceType: "order", referenceId: orderId, reason: fallbackWarehouseId ? releaseReason : "Đơn trước khi phân kho; hoàn về Kho tổng theo quy tắc chuyển đổi", actor });
       await updateAggregate(client, item.variantId, variant.stockQuantity + item.quantity);
       restored.push({ variantId: item.variantId, warehouseId, quantity: item.quantity });
     }
     if (restored.length || skipped.rows[0].count) await appendAudit(client, { actor, action: "inventory.legacy_release", entityType: "order", entityId: orderId,
-      metadata: { restored, skippedDeletedVariantLines: skipped.rows[0].count, policy: "legacy_order_release_to_main" } });
+      metadata: { restored, skippedDeletedVariantLines: skipped.rows[0].count, policy: fallbackWarehouseId ? "legacy_order_release_to_selected_warehouse" : "legacy_order_release_to_main" } });
     return;
   }
   for (const { id: variantId } of result.rows) {

@@ -574,6 +574,7 @@ function createTrackingApi(pool, config = {}) {
 module.exports = {
   createTrackingApi,
   getOrderTrackingDetails,
+  isAnonymizedOrder,
   verifyOrderChallenge,
   maskName,
   maskPhone,

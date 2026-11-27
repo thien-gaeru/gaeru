@@ -306,7 +306,7 @@ function createCustomerCartRouter(pool) {
            FROM customer_cart_items c
            JOIN product_variants pv ON pv.id = c.variant_id
            JOIN products p ON p.id = pv.product_id
-           WHERE c.customer_id = $1 AND pv.active = true AND p.active = true
+           WHERE c.customer_id = $1 AND pv.active = true AND p.active = true AND p.deleted_at IS NULL
            ORDER BY c.updated_at DESC`,
           [req.customerId]
         )).rows;
@@ -328,7 +328,7 @@ function createCustomerCartRouter(pool) {
     try {
       const { variantId, quantity } = parsed.data;
       const variant = (await pool.query(
-        'SELECT id FROM product_variants WHERE id=$1 AND active=true',
+        'SELECT pv.id FROM product_variants pv JOIN products p ON p.id = pv.product_id WHERE pv.id=$1 AND pv.active=true AND p.active=true AND p.deleted_at IS NULL',
         [variantId]
       )).rows[0];
       if (!variant) {

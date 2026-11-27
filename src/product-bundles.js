@@ -76,8 +76,9 @@ function calculateBundlePricing(items, bundles = []) {
     const discountValue = Number(bundle.discount_value ?? bundle.discountValue) || 0;
 
     for (let comboCount = 0; comboCount < 99; comboCount++) {
-      // Check if at least one primary item is in the cart with sufficient remaining unallocated quantity
+      // Check if at least one sellable primary item is in the cart with sufficient remaining unallocated quantity
       const matchingPrimary = primaryItems.find(pi => {
+        if (pi.is_sellable === false || pi.isSellable === false) return false;
         const vId = pi.variant_id ?? pi.variantId;
         const inCart = itemMap.get(vId);
         const reqQty = pi.min_quantity ?? pi.minQuantity ?? 1;
@@ -88,6 +89,7 @@ function calculateBundlePricing(items, bundles = []) {
       // Fixed-amount combos cap discount at secondaryTotal when only a subset of secondary items is in the cart,
       // preventing siphon of a multi-item fixed discount onto the primary item via a single cheap accessory.
       const matchingSecondaries = secondaryItems.filter(si => {
+        if (si.is_sellable === false || si.isSellable === false) return false;
         const vId = si.variant_id ?? si.variantId;
         const inCart = itemMap.get(vId);
         const reqQty = si.min_quantity ?? si.minQuantity ?? 1;
@@ -291,10 +293,13 @@ async function calculateCartBundleDiscount(client, cartItems) {
 
   const bIds = activeBundles.map(b => b.id);
   const items = (await client.query(
-    `SELECT bundle_id, variant_id, is_primary, min_quantity
-     FROM product_bundle_items
-     WHERE bundle_id = ANY($1::uuid[])
-     ORDER BY is_primary DESC, id ASC`,
+    `SELECT bi.bundle_id, bi.variant_id, bi.is_primary, bi.min_quantity,
+            (v.id IS NOT NULL AND v.active = true AND p.id IS NOT NULL AND p.active = true AND p.deleted_at IS NULL) AS is_sellable
+     FROM product_bundle_items bi
+     LEFT JOIN product_variants v ON v.id = bi.variant_id
+     LEFT JOIN products p ON p.id = v.product_id
+     WHERE bi.bundle_id = ANY($1::uuid[])
+     ORDER BY bi.is_primary DESC, bi.id ASC`,
     [bIds]
   )).rows;
 
@@ -523,16 +528,20 @@ function mountBundles({ admin, publicRouter }, pool) {
           promotedRows = await applyPromotions(pool, vRows.map(row => ({ ...row, priceVnd: Number(row.priceVnd) })));
         } catch (_) {}
 
-        const pricedItems = parsed.items.map(it => {
-          const v = promotedRows.find(r => r.id === it.variantId);
-          return {
+        const promotedById = new Map(promotedRows.map(r => [r.id, r]));
+        const pricedItems = parsed.items.flatMap(it => {
+          const v = promotedById.get(it.variantId);
+          if (!v) return [];
+          return [{
             variantId: it.variantId,
             quantity: it.quantity,
-            priceVnd: v ? Number(v.priceVnd) : 0
-          };
+            priceVnd: Number(v.priceVnd)
+          }];
         });
 
-        const pricing = await calculateCartBundleDiscount(pool, pricedItems);
+        const pricing = pricedItems.length
+          ? await calculateCartBundleDiscount(pool, pricedItems)
+          : { bundleDiscountVnd: 0, appliedBundles: [], finalSubtotalVnd: 0 };
         res.json(pricing);
       } catch (e) {
         if (e instanceof z.ZodError) {

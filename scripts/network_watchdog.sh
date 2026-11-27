@@ -135,8 +135,16 @@ while true; do
   ensure_upstart server-dashboard
   ensure_upstart gaeru-gpu-ai
 
-  # 5. Cloudflare Tunnel Check
-  if [ ! -e /run/gaeru-deploy.lock ] && ! pgrep -f "cloudflared.*tunnel run" >/dev/null 2>&1; then
+  # 5. Cloudflare Tunnel Check (respect admin-disabled state matching gaeru-healthcheck.sh)
+  CF_DISABLED=0
+  if [ -f /etc/init/cloudflared.override ] && grep -Eq '^[[:space:]]*manual[[:space:]]*$' /etc/init/cloudflared.override; then
+    CF_DISABLED=1
+  elif [ -f /etc/default/cloudflared ] && grep -Eq '^[[:space:]]*AUTOSTART[[:space:]]*=[[:space:]]*["'\'']?(no|false|0)["'\'']?[[:space:]]*$' /etc/default/cloudflared; then
+    CF_DISABLED=1
+  elif [ -d /etc/rc2.d ] && ! ls /etc/rc2.d/S*cloudflared >/dev/null 2>&1 && ls /etc/rc2.d/K*cloudflared >/dev/null 2>&1; then
+    CF_DISABLED=1
+  fi
+  if [ "$CF_DISABLED" -eq 0 ] && [ ! -e /run/gaeru-deploy.lock ] && ! pgrep -f "cloudflared.*tunnel run" >/dev/null 2>&1; then
     log "[AUTO-HEAL] cloudflared is not running! Starting cloudflared..."
     run_t 20 /etc/init.d/cloudflared start >> "$LOG_FILE" 2>&1 || true
   fi

@@ -245,7 +245,8 @@ test('lifecycle: disposable email auto-lock, 12h invalid phone warning & auto-lo
   // 5. Updating to a valid Vietnam mobile clears the phone warning
   const updateRes = await warningBuyer.ok('/api/customer/profile', 'PATCH', {
     fullName: 'Invalid Phone User',
-    phone: '0908889999'
+    phone: '0908889999',
+    currentPassword: password
   });
   assert.equal(updateRes.customer.phone, '0908889999');
 

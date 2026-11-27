@@ -327,6 +327,17 @@ function createOrderWorkflow({
           error.status = 409;
           throw error;
         }
+        if (targetStatus === "completed") {
+          const unsettledMomo = (await client.query(
+            "SELECT id FROM momo_refunds WHERE order_id = $1 AND status IN ('pending_provider', 'pending', 'ambiguous') LIMIT 1",
+            [current.id]
+          )).rows[0];
+          if (unsettledMomo) {
+            const error = new Error("Đơn hàng đang có giao dịch hoàn tiền MoMo chưa hoàn tất; vui lòng đối soát hoàn tiền trước khi hoàn thành đơn.");
+            error.status = 409;
+            throw error;
+          }
+        }
 
         if (update.paymentStatus === "paid" && current.payment_status !== "paid") {
           const carrierCodShipment = (current.payment_method === "cod" && activeCarrierShipment && Number(activeCarrierShipment.cod_amount_vnd) > 0)

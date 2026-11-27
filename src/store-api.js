@@ -2360,7 +2360,7 @@ function createStoreApi(pool, { ordersEnabled = false, getOrdersEnabled = null, 
       getSettings(pool, ["shipping_rates"]),
       getTrafficSummary(pool),
       pool.query(`SELECT COUNT(*)::int AS unread FROM shopping_chat_threads WHERE status <> 'closed' AND awaiting_admin = true`).catch(() => ({ rows: [{ unread: 0 }] })),
-      pool.query(`SELECT COUNT(*)::int AS pending FROM warranty_activations WHERE status = 'pending'`).catch(() => ({ rows: [{ pending: 0 }] })),
+      pool.query(`SELECT COUNT(*)::int AS pending FROM warranty_activations WHERE status = 'pending' AND withdrawn_at IS NULL`).catch(() => ({ rows: [{ pending: 0 }] })),
       pool.query(`SELECT COUNT(*)::int AS open FROM care_requests WHERE status NOT IN ('resolved', 'closed')`).catch(() => ({ rows: [{ open: 0 }] }))
     ]);
     const shippingRatesConfigured = Object.keys(settings.shipping_rates || {}).length > 0;

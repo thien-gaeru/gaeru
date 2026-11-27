@@ -242,6 +242,9 @@ async function createWaybill(pool, config, { orderId, carrierId, autoShip = fals
     if (order.paymentMethod !== 'cod' && order.paymentStatus !== 'paid') {
       throw fail('Đơn trả trước phải hoàn tất thanh toán trước khi tạo vận đơn.', 409);
     }
+    if (order.totalVnd === null || order.totalVnd === undefined || (order.status === 'pending' && (order.shippingFeeVnd === null || order.shippingFeeVnd === undefined))) {
+      throw fail('Vui lòng chốt phí giao hàng và tổng tiền đơn hàng trước khi tạo vận đơn.', 409);
+    }
     const openReview = await client.query(
       'SELECT 1 FROM order_reviews WHERE order_id = $1 AND resolved_at IS NULL LIMIT 1',
       [orderId]
@@ -380,7 +383,7 @@ async function createWaybill(pool, config, { orderId, carrierId, autoShip = fals
           }
         }
       }
-      await client.query('UPDATE orders SET status = $2, updated_at = now() WHERE id = $1', [order.id, newStatus]);
+      await client.query('UPDATE orders SET status = $2, confirmed_at = COALESCE(confirmed_at, now()), updated_at = now() WHERE id = $1', [order.id, newStatus]);
     }
 
     await appendAudit(client, {
@@ -681,7 +684,7 @@ async function applyCarrierDeliveryTransition(client, shipment, newNormalizedSta
 
   if (newNormalizedStatus === 'delivering' && ['pending', 'confirmed', 'processing'].includes(shipment.orderStatus)) {
     updatedOrderStatus = 'shipped';
-    await client.query('UPDATE orders SET status = $2, updated_at = now() WHERE id = $1', [shipment.order_id, 'shipped']);
+    await client.query('UPDATE orders SET status = $2, confirmed_at = COALESCE(confirmed_at, now()), updated_at = now() WHERE id = $1', [shipment.order_id, 'shipped']);
     return updatedOrderStatus;
   }
 
@@ -691,12 +694,12 @@ async function applyCarrierDeliveryTransition(client, shipment, newNormalizedSta
       updatedOrderStatus = 'completed';
       if (shipment.orderPaymentMethod === 'cod' && shipment.orderPaymentStatus !== 'paid') {
         await client.query(
-          'UPDATE orders SET status = $2, payment_status = $3, delivered_at = COALESCE(delivered_at, now()), updated_at = now() WHERE id = $1',
+          'UPDATE orders SET status = $2, payment_status = $3, confirmed_at = COALESCE(confirmed_at, now()), delivered_at = COALESCE(delivered_at, now()), updated_at = now() WHERE id = $1',
           [shipment.order_id, 'completed', 'paid']
         );
       } else {
         await client.query(
-          'UPDATE orders SET status = $2, delivered_at = COALESCE(delivered_at, now()), updated_at = now() WHERE id = $1',
+          'UPDATE orders SET status = $2, confirmed_at = COALESCE(confirmed_at, now()), delivered_at = COALESCE(delivered_at, now()), updated_at = now() WHERE id = $1',
           [shipment.order_id, 'completed']
         );
       }
@@ -817,6 +820,9 @@ async function settleSingleCarrierCodInTx(client, {
     throw fail('Chỉ đối soát thu hộ cho đơn hàng thanh toán COD.', 409);
   }
   // Allow settling COD collected by the carrier if the parcel was delivered before a customer-initiated return.
+  if (shipment.status === 'returned' || shipment.cod_settlement_status === 'not_applicable') {
+    throw fail('Vận đơn đã hoàn trả về kho hoặc không áp dụng thu hộ COD; không thể đối soát thu tiền COD.', 409);
+  }
   if (shipment.orderStatus === 'cancelled' || (shipment.orderReturnCompletedAt && shipment.status !== 'delivered')) {
     throw fail('Đơn hàng đã hủy hoặc hoàn trả trước khi giao thành công; không thể đối soát thu tiền COD.', 409);
   }
@@ -1008,7 +1014,7 @@ async function settleSingleCarrierCodInTx(client, {
       finalOrderStatus = 'completed';
       await client.query(
         `UPDATE orders
-         SET payment_status = 'paid', status = 'completed', delivered_at = COALESCE(delivered_at, now()), updated_at = now()
+         SET payment_status = 'paid', status = 'completed', confirmed_at = COALESCE(confirmed_at, now()), delivered_at = COALESCE(delivered_at, now()), updated_at = now()
          WHERE id = $1`,
         [orderId]
       );
@@ -1189,7 +1195,7 @@ async function settleCarrierCodBatch(pool, {
 async function listCodSettlements(pool, { carrierId = '', settlementStatus = '', q = '', limit = 100 } = {}) {
   const safeLimit = Math.min(200, Math.max(1, Number(limit) || 100));
   const params = [];
-  const conds = ['s.cod_amount_vnd > 0', "s.status <> 'cancelled'"];
+  const conds = ['s.cod_amount_vnd > 0', "s.status NOT IN ('cancelled', 'returned')"];
   if (carrierId && ['viettel', 'jt', 'spx', 'ghn', 'ghtk'].includes(carrierId)) {
     params.push(carrierId);
     conds.push(`s.carrier_id = $${params.length}`);
@@ -1232,7 +1238,7 @@ async function listCodSettlements(pool, { carrierId = '', settlementStatus = '',
             COUNT(*)::int AS count,
             COALESCE(SUM(cod_amount_vnd), 0)::bigint AS "amountVnd"
      FROM carrier_shipments
-     WHERE cod_amount_vnd > 0 AND status <> 'cancelled'
+     WHERE cod_amount_vnd > 0 AND status NOT IN ('cancelled', 'returned')
      GROUP BY cod_settlement_status`
   );
   const summary = { unsettled: { count: 0, amountVnd: 0 }, verification_required: { count: 0, amountVnd: 0 }, settled: { count: 0, amountVnd: 0 } };
@@ -1441,6 +1447,7 @@ async function syncShipmentTracking(pool, config, { orderId, trackingNumber, act
       `UPDATE carrier_shipments
        SET status = $2,
            status_version = status_version + 1,
+           cod_settlement_status = CASE WHEN $2 = 'returned' AND cod_settlement_status <> 'settled' THEN 'not_applicable' ELSE cod_settlement_status END,
            provider_event_time = COALESCE($6::timestamptz, provider_event_time),
            carrier_status_raw = $3,
            carrier_status_desc = $4,
@@ -1689,6 +1696,7 @@ async function handleCarrierWebhook(pool, config, carrierId, payload, { headers 
       `UPDATE carrier_shipments
        SET status = $2,
            status_version = status_version + 1,
+           cod_settlement_status = CASE WHEN $2 = 'returned' AND cod_settlement_status <> 'settled' THEN 'not_applicable' ELSE cod_settlement_status END,
            provider_event_time = COALESCE($6::timestamptz, provider_event_time),
            carrier_status_raw = $3,
            carrier_status_desc = $4,
@@ -1706,6 +1714,9 @@ async function handleCarrierWebhook(pool, config, carrierId, payload, { headers 
       ]
     );
 
+    const nextCodSettlementStatus = (normalizedStatus === 'returned' && shipment.cod_settlement_status !== 'settled')
+      ? 'not_applicable'
+      : shipment.cod_settlement_status;
     const updatedOrderStatus = await applyCarrierDeliveryTransition(client, shipment, normalizedStatus, actor);
 
     await appendAudit(client, {
@@ -1719,7 +1730,7 @@ async function handleCarrierWebhook(pool, config, carrierId, payload, { headers 
         rawStatus: String(rawStatus),
         normalizedStatus,
         orderStatus: updatedOrderStatus,
-        codSettlementStatus: shipment.cod_settlement_status
+        codSettlementStatus: nextCodSettlementStatus
       }
     });
 
@@ -1728,7 +1739,7 @@ async function handleCarrierWebhook(pool, config, carrierId, payload, { headers 
       processed: true,
       normalizedStatus,
       orderStatus: updatedOrderStatus,
-      codSettlementStatus: shipment.cod_settlement_status
+      codSettlementStatus: nextCodSettlementStatus
     };
   });
   if (txResult?.processed) {

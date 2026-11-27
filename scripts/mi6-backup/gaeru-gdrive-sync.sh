@@ -90,6 +90,29 @@ remote_file_verified() {
     "${COMMON_FLAGS[@]}" >/dev/null 2>&1
 }
 
+select_latest_local_pg_set() {
+  local src_host="$1"
+  local f base stamp dump_f sql_f glob_f
+  while IFS= read -r f; do
+    [ -n "$f" ] || continue
+    base=$(basename "$f")
+    stamp="${base#gaeru_store-}"
+    stamp="${stamp%.dump.gpg}"
+    dump_f="${src_host}/gaeru_store-${stamp}.dump.gpg"
+    sql_f="${src_host}/gaeru_store-${stamp}.sql.gz.gpg"
+    glob_f="${src_host}/gaeru_store-globals-${stamp}.sql.gz.gpg"
+    if [ -s "$dump_f" ] && [ -s "${dump_f}.sha256" ] && [ -s "$sql_f" ] && [ -s "${sql_f}.sha256" ]; then
+      if [ -s "$glob_f" ] && [ -s "${glob_f}.sha256" ]; then
+        printf '%s|%s|%s|%s\n' "$stamp" "$dump_f" "$sql_f" "$glob_f"
+      else
+        printf '%s|%s|%s|\n' "$stamp" "$dump_f" "$sql_f"
+      fi
+      return 0
+    fi
+  done < <(ls -1 "$src_host"/gaeru_store-20*.dump.gpg 2>/dev/null | sort -r || true)
+  return 0
+}
+
 sync_pg() {
   local src_host="/userdata/storage/gaeru-pg-backups"
   local src_chroot="/storage/gaeru-pg-backups"
@@ -99,18 +122,25 @@ sync_pg() {
     SYNC_WARNINGS+=("pg_source_missing")
     return 0
   fi
-  local newest newest_sql newest_globals latest_dump
-  newest=$(ls -1t "$src_host"/gaeru_store-20*.dump.gpg 2>/dev/null | head -n 1 || true)
-  newest_sql=$(ls -1t "$src_host"/gaeru_store-20*.sql.gz.gpg 2>/dev/null | head -n 1 || true)
-  newest_globals=$(ls -1t "$src_host"/gaeru_store-globals-20*.sql.gz.gpg 2>/dev/null | head -n 1 || true)
-  latest_dump="$src_host/gaeru_store-latest.dump.gpg"
-  if [ -z "$newest" ] && [ ! -s "$latest_dump" ]; then
-    log "WARN (pg): No encrypted PostgreSQL backup found in $src_host; skipping remote prune to protect existing Drive backups."
+  local pg_set="" set_stamp="" newest="" newest_sql="" newest_globals=""
+  pg_set=$(select_latest_local_pg_set "$src_host")
+  if [ -n "$pg_set" ]; then
+    IFS='|' read -r set_stamp newest newest_sql newest_globals <<< "$pg_set"
+  fi
+  local latest_dump="$src_host/gaeru_store-latest.dump.gpg"
+  local latest_sql="$src_host/gaeru_store-latest.sql.gz.gpg"
+  local latest_globals="$src_host/gaeru_store-globals-latest.sql.gz.gpg"
+  local has_latest_pair="false"
+  if [ -s "$latest_dump" ] && [ -s "${latest_dump}.sha256" ] && [ -s "$latest_sql" ] && [ -s "${latest_sql}.sha256" ]; then
+    has_latest_pair="true"
+  fi
+  if [ -z "$newest" ] && [ "$has_latest_pair" != "true" ]; then
+    log "WARN (pg): No complete encrypted PostgreSQL backup set (.dump.gpg + .sql.gz.gpg + .sha256) found in $src_host; skipping remote prune to protect existing Drive backups."
     SYNC_STATUS="missing_backup"
     SYNC_WARNINGS+=("pg_archive_missing")
     return 0
   fi
-  log "Pushing encrypted PostgreSQL backups to ${REMOTE_ROOT}/pg ..."
+  log "Pushing encrypted PostgreSQL backups to ${REMOTE_ROOT}/pg (set=${set_stamp:-latest-only}) ..."
   local filter_args=(
     --filter "+ gaeru_store-latest.sql.gz.gpg"
     --filter "+ gaeru_store-latest.sql.gz.gpg.sha256"
@@ -127,28 +157,47 @@ sync_pg() {
   need_daily_snapshot="false"
   if [ "$MODE" = "all" ] || [ "$current_hour" = "03" ] || [ "$last_daily_date" != "$today_date" ]; then
     need_daily_snapshot="true"
-    [ -n "$newest" ] && filter_args+=(--filter "+ $(basename "$newest")" --filter "+ $(basename "$newest").sha256")
-    [ -n "$newest_sql" ] && filter_args+=(--filter "+ $(basename "$newest_sql")" --filter "+ $(basename "$newest_sql").sha256")
-    [ -n "$newest_globals" ] && filter_args+=(--filter "+ $(basename "$newest_globals")" --filter "+ $(basename "$newest_globals").sha256")
+    if [ -n "$newest" ] && [ -n "$newest_sql" ]; then
+      filter_args+=(
+        --filter "+ $(basename "$newest")" --filter "+ $(basename "$newest").sha256"
+        --filter "+ $(basename "$newest_sql")" --filter "+ $(basename "$newest_sql").sha256"
+      )
+      [ -n "$newest_globals" ] && filter_args+=(--filter "+ $(basename "$newest_globals")" --filter "+ $(basename "$newest_globals").sha256")
+    fi
   fi
   filter_args+=(--filter "- *")
 
   run_rclone copy "$src_chroot" "${REMOTE_ROOT}/pg" "${filter_args[@]}" "${COMMON_FLAGS[@]}"
 
-  local verify_name=""
-  if [ "$need_daily_snapshot" = "true" ] && [ -n "$newest" ] && [ -s "${newest}.sha256" ]; then
-    verify_name=$(basename "$newest")
-  elif [ -s "$latest_dump" ] && [ -s "${latest_dump}.sha256" ]; then
-    verify_name="gaeru_store-latest.dump.gpg"
+  local verify_files=()
+  if [ "$need_daily_snapshot" = "true" ] && [ -n "$newest" ] && [ -n "$newest_sql" ]; then
+    verify_files+=("$(basename "$newest")" "$(basename "$newest").sha256" "$(basename "$newest_sql")" "$(basename "$newest_sql").sha256")
+    if [ -n "$newest_globals" ]; then
+      verify_files+=("$(basename "$newest_globals")" "$(basename "$newest_globals").sha256")
+    fi
+  elif [ "$has_latest_pair" = "true" ]; then
+    verify_files+=("gaeru_store-latest.dump.gpg" "gaeru_store-latest.dump.gpg.sha256" "gaeru_store-latest.sql.gz.gpg" "gaeru_store-latest.sql.gz.gpg.sha256")
+    if [ -s "$latest_globals" ] && [ -s "${latest_globals}.sha256" ]; then
+      verify_files+=("gaeru_store-globals-latest.sql.gz.gpg" "gaeru_store-globals-latest.sql.gz.gpg.sha256")
+    fi
   fi
-  if [ -z "$verify_name" ] || ! remote_file_verified "$src_chroot" "pg" "$verify_name" || ! remote_file_verified "$src_chroot" "pg" "${verify_name}.sha256"; then
-    log "WARN (pg): Remote verification failed for ${verify_name:-none}; skipping remote prune."
+  local vf
+  if [ "${#verify_files[@]}" -eq 0 ]; then
+    log "WARN (pg): No complete backup files selected for remote verification; skipping remote prune."
     SYNC_STATUS="verify_failed"
     SYNC_WARNINGS+=("pg_remote_verify_failed")
     return 0
   fi
+  for vf in "${verify_files[@]}"; do
+    if ! remote_file_verified "$src_chroot" "pg" "$vf"; then
+      log "WARN (pg): Remote verification failed for ${vf}; skipping remote prune."
+      SYNC_STATUS="verify_failed"
+      SYNC_WARNINGS+=("pg_remote_verify_failed")
+      return 0
+    fi
+  done
 
-  if [ "$need_daily_snapshot" = "true" ]; then
+  if [ "$need_daily_snapshot" = "true" ] && [ -n "$newest" ] && [ -n "$newest_sql" ]; then
     printf '%s\n' "$today_date" > "$daily_stamp_file" 2>/dev/null || true
   fi
   local prune_filters=(--filter "- *-latest.*" --filter "- *-latest.*.*")
@@ -156,7 +205,7 @@ sync_pg() {
   [ -n "$newest_sql" ] && prune_filters+=(--filter "- $(basename "$newest_sql")" --filter "- $(basename "$newest_sql").sha256")
   [ -n "$newest_globals" ] && prune_filters+=(--filter "- $(basename "$newest_globals")" --filter "- $(basename "$newest_globals").sha256")
   prune_remote_subdir "pg" "${prune_filters[@]}"
-  log "Encrypted PostgreSQL backup push to Google Drive OK."
+  log "Encrypted PostgreSQL backup push to Google Drive OK (verified ${#verify_files[@]} files)."
 }
 
 prune_remote_subdir() {
